@@ -71,7 +71,7 @@ jobs:
         fail_ci_if_error: false
 
     - name: Upload coverage reports
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: coverage-report-${{ matrix.python-version }}
         path: htmlcov/
@@ -124,7 +124,7 @@ jobs:
         twine check dist/*
 
     - name: Upload build artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: dist
         path: dist/
@@ -155,7 +155,7 @@ jobs:
         bandit -r ha_enviro_plus -f json -o bandit-report.json || true
 
     - name: Upload security report
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: security-report
         path: bandit-report.json
