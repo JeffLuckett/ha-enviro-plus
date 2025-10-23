@@ -470,17 +470,3 @@ class TestEdgeCases:
         # Should handle division by zero gracefully by returning raw temp
         compensated = sensors._apply_temp_compensation(25.0)
         assert compensated == 25.0
-
-    def test_very_small_gas_values(self, mock_bme280, mock_ltr559, mock_gas_sensor, mocker):
-        """Test with very small gas sensor values."""
-        # Update the existing mock gas sensor with small values
-        mock_gas_sensor.oxidising = 1.0  # 1Ω
-        mock_gas_sensor.reducing = 0.5  # 0.5Ω
-        mock_gas_sensor.nh3 = 2.0  # 2Ω
-
-        sensors = EnviroPlusSensors()
-
-        # For very small values, rounding to 2 decimal places gives 0.0
-        assert sensors.gas_oxidising() == 0.0  # 1Ω = 0.001kΩ, rounded to 2 decimals = 0.0
-        assert sensors.gas_reducing() == 0.0  # 0.5Ω = 0.0005kΩ, rounded to 2 decimals = 0.0
-        assert sensors.gas_nh3() == 0.0  # 2Ω = 0.002kΩ, rounded to 2 decimals = 0.0

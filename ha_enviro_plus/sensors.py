@@ -10,9 +10,19 @@ import subprocess
 import logging
 from typing import Dict, Any, Optional
 
-from bme280 import BME280
-from ltr559 import LTR559
-from enviroplus import gas
+# Hardware imports with fallback for testing
+try:
+    from bme280 import BME280
+    from ltr559 import LTR559
+    from enviroplus import gas
+
+    HARDWARE_AVAILABLE = True
+except ImportError:
+    # Mock hardware modules for testing environments
+    BME280 = None
+    LTR559 = None
+    gas = None
+    HARDWARE_AVAILABLE = False
 
 
 class EnviroPlusSensors:
