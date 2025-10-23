@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# --- SAFETY: ensure working directory exists and won't be deleted mid-install ---
+cd /tmp || { echo "❌ Failed to change to /tmp — aborting."; exit 1; }
+
 # ========== COLORS ==========
 if [ -t 1 ]; then
   C_RESET="\033[0m"; C_BOLD="\033[1m"
