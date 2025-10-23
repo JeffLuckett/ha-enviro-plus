@@ -19,9 +19,11 @@ try:
     HARDWARE_AVAILABLE = True
 except ImportError:
     # Mock hardware modules for testing environments
+    from unittest.mock import MagicMock
+
     BME280 = None
     LTR559 = None
-    gas = None
+    gas = MagicMock()  # Keep gas as a mockable object
     HARDWARE_AVAILABLE = False
 
 
