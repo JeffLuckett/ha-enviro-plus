@@ -55,9 +55,15 @@ class EnviroPlusSensors:
 
         # Initialize sensor hardware
         try:
-            self.bme280 = BME280(i2c_addr=0x76)
-            self.ltr559 = LTR559()
-            self.logger.info("Enviro+ sensors initialized successfully")
+            if HARDWARE_AVAILABLE:
+                self.bme280 = BME280(i2c_addr=0x76)
+                self.ltr559 = LTR559()
+                self.logger.info("Enviro+ sensors initialized successfully")
+            else:
+                # Create mock sensors for testing environments
+                self.bme280 = None
+                self.ltr559 = None
+                self.logger.info("Enviro+ sensors initialized in test mode (no hardware)")
         except Exception as e:
             self.logger.error("Failed to initialize Enviro+ sensors: %s", e)
             raise
@@ -173,9 +179,14 @@ class EnviroPlusSensors:
         Returns:
             Humidity in % (clamped to 0-100% range)
         """
-        raw_humidity = float(self.bme280.get_humidity())
-        calibrated_humidity = raw_humidity + self.hum_offset
-        return round(max(0.0, min(100.0, calibrated_humidity)), 2)
+        try:
+            raw_humidity = float(self.bme280.get_humidity())
+            calibrated_humidity = raw_humidity + self.hum_offset
+            return round(max(0.0, min(100.0, calibrated_humidity)), 2)
+        except Exception as e:
+            self.logger.error("Failed to read humidity: %s", e)
+            self.logger.info("Humidity will be reported as 0.0%")
+            return 0.0
 
     def humidity_raw(self) -> float:
         """
@@ -184,7 +195,12 @@ class EnviroPlusSensors:
         Returns:
             Raw humidity in %
         """
-        return round(float(self.bme280.get_humidity()), 2)
+        try:
+            return round(float(self.bme280.get_humidity()), 2)
+        except Exception as e:
+            self.logger.error("Failed to read raw humidity: %s", e)
+            self.logger.info("Raw humidity will be reported as 0.0%")
+            return 0.0
 
     # Pressure accessors
     def pressure(self) -> float:
@@ -194,7 +210,12 @@ class EnviroPlusSensors:
         Returns:
             Pressure in hPa
         """
-        return round(float(self.bme280.get_pressure()), 2)
+        try:
+            return round(float(self.bme280.get_pressure()), 2)
+        except Exception as e:
+            self.logger.error("Failed to read pressure: %s", e)
+            self.logger.info("Pressure will be reported as 0.0 hPa")
+            return 0.0
 
     def pressure_raw(self) -> float:
         """
@@ -203,7 +224,12 @@ class EnviroPlusSensors:
         Returns:
             Raw pressure in hPa
         """
-        return round(float(self.bme280.get_pressure()), 2)
+        try:
+            return round(float(self.bme280.get_pressure()), 2)
+        except Exception as e:
+            self.logger.error("Failed to read raw pressure: %s", e)
+            self.logger.info("Raw pressure will be reported as 0.0 hPa")
+            return 0.0
 
     # Light accessors
     def lux(self) -> float:
@@ -213,7 +239,12 @@ class EnviroPlusSensors:
         Returns:
             Illuminance in lux
         """
-        return round(float(self.ltr559.get_lux()), 2)
+        try:
+            return round(float(self.ltr559.get_lux()), 2)
+        except Exception as e:
+            self.logger.error("Failed to read lux: %s", e)
+            self.logger.info("Lux will be reported as 0.0 lux")
+            return 0.0
 
     def lux_raw(self) -> float:
         """
@@ -222,7 +253,12 @@ class EnviroPlusSensors:
         Returns:
             Raw illuminance in lux
         """
-        return round(float(self.ltr559.get_lux()), 2)
+        try:
+            return round(float(self.ltr559.get_lux()), 2)
+        except Exception as e:
+            self.logger.error("Failed to read raw lux: %s", e)
+            self.logger.info("Raw lux will be reported as 0.0 lux")
+            return 0.0
 
     # Gas sensor accessors
     def gas_oxidising(self) -> float:
@@ -232,8 +268,13 @@ class EnviroPlusSensors:
         Returns:
             Oxidising gas resistance in kΩ
         """
-        gas_data = gas.read_all()
-        return round(float(gas_data.oxidising) / 1000.0, 2)
+        try:
+            gas_data = gas.read_all()
+            return round(float(gas_data.oxidising) / 1000.0, 2)
+        except Exception as e:
+            self.logger.error("Failed to read oxidising gas: %s", e)
+            self.logger.info("Oxidising gas will be reported as 0.0 kΩ")
+            return 0.0
 
     def gas_oxidising_raw(self) -> float:
         """
@@ -242,8 +283,13 @@ class EnviroPlusSensors:
         Returns:
             Raw oxidising gas resistance in Ω
         """
-        gas_data = gas.read_all()
-        return round(float(gas_data.oxidising), 2)
+        try:
+            gas_data = gas.read_all()
+            return round(float(gas_data.oxidising), 2)
+        except Exception as e:
+            self.logger.error("Failed to read raw oxidising gas: %s", e)
+            self.logger.info("Raw oxidising gas will be reported as 0.0 Ω")
+            return 0.0
 
     def gas_reducing(self) -> float:
         """
@@ -252,8 +298,13 @@ class EnviroPlusSensors:
         Returns:
             Reducing gas resistance in kΩ
         """
-        gas_data = gas.read_all()
-        return round(float(gas_data.reducing) / 1000.0, 2)
+        try:
+            gas_data = gas.read_all()
+            return round(float(gas_data.reducing) / 1000.0, 2)
+        except Exception as e:
+            self.logger.error("Failed to read reducing gas: %s", e)
+            self.logger.info("Reducing gas will be reported as 0.0 kΩ")
+            return 0.0
 
     def gas_reducing_raw(self) -> float:
         """
@@ -262,8 +313,13 @@ class EnviroPlusSensors:
         Returns:
             Raw reducing gas resistance in Ω
         """
-        gas_data = gas.read_all()
-        return round(float(gas_data.reducing), 2)
+        try:
+            gas_data = gas.read_all()
+            return round(float(gas_data.reducing), 2)
+        except Exception as e:
+            self.logger.error("Failed to read raw reducing gas: %s", e)
+            self.logger.info("Raw reducing gas will be reported as 0.0 Ω")
+            return 0.0
 
     def gas_nh3(self) -> float:
         """
@@ -272,8 +328,13 @@ class EnviroPlusSensors:
         Returns:
             NH3 gas resistance in kΩ
         """
-        gas_data = gas.read_all()
-        return round(float(gas_data.nh3) / 1000.0, 2)
+        try:
+            gas_data = gas.read_all()
+            return round(float(gas_data.nh3) / 1000.0, 2)
+        except Exception as e:
+            self.logger.error("Failed to read NH3 gas: %s", e)
+            self.logger.info("NH3 gas will be reported as 0.0 kΩ")
+            return 0.0
 
     def gas_nh3_raw(self) -> float:
         """
@@ -282,8 +343,13 @@ class EnviroPlusSensors:
         Returns:
             Raw NH3 gas resistance in Ω
         """
-        gas_data = gas.read_all()
-        return round(float(gas_data.nh3), 2)
+        try:
+            gas_data = gas.read_all()
+            return round(float(gas_data.nh3), 2)
+        except Exception as e:
+            self.logger.error("Failed to read raw NH3 gas: %s", e)
+            self.logger.info("Raw NH3 gas will be reported as 0.0 Ω")
+            return 0.0
 
     def update_calibration(
         self,
