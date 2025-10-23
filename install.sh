@@ -103,3 +103,4 @@ echo
 echo "Follow logs:"
 echo "  tail -f ${LOG_FILE}"
 echo
+exit 0
