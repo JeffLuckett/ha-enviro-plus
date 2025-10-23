@@ -1,186 +1,105 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
-# --- SAFETY: ensure working directory exists and won't be deleted mid-install ---
-cd /tmp || { echo "❌ Failed to change to /tmp — aborting."; exit 1; }
-
-# ========== COLORS ==========
-if [ -t 1 ]; then
-  C_RESET="\033[0m"; C_BOLD="\033[1m"
-  C_GREEN="\033[32m"; C_YELLOW="\033[33m"; C_RED="\033[31m"; C_BLUE="\033[34m"
-else
-  C_RESET=""; C_BOLD=""; C_GREEN=""; C_YELLOW=""; C_RED=""; C_BLUE=""
-fi
-info(){ echo -e "${C_BLUE}➜${C_RESET} $*"; }
-good(){ echo -e "${C_GREEN}✔${C_RESET} $*"; }
-warn(){ echo -e "${C_YELLOW}⚠${C_RESET} $*"; }
-err(){  echo -e "${C_RED}✖${C_RESET} $*"; }
-
-# ========== META ==========
 APP_NAME="ha-enviro-plus"
-REPO_URL="https://github.com/JeffLuckett/${APP_NAME}.git"
+REPO_URL="https://github.com/JeffLuckett/ha-enviro-plus.git"
 APP_DIR="/opt/${APP_NAME}"
-VENV_DIR="${APP_DIR}/.venv"
 SERVICE_FILE="/etc/systemd/system/${APP_NAME}.service"
-DEFAULTS_FILE="/etc/default/${APP_NAME}"
+CONFIG_FILE="/etc/default/${APP_NAME}"
 LOG_FILE="/var/log/${APP_NAME}.log"
-LOGROTATE_FILE="/etc/logrotate.d/${APP_NAME}"
-VERSION="v0.1.0"
-SELECTED_VERSION="${1:-latest}"
+VENV_DIR="/home/${USER}/.virtualenvs/pimoroni"
 
-# ========== PRECHECKS ==========
-if [ "${EUID}" -ne 0 ]; then
-  err "Please run as root: sudo bash install.sh"
-  exit 1
-fi
+# --- helper functions ---
+say() { echo -e "\033[1;36m==> $*\033[0m"; }
+warn() { echo -e "\033[1;33m⚠ $*\033[0m"; }
+fail() { echo -e "\033[1;31m✖ $*\033[0m"; exit 1; }
 
-command -v git >/dev/null 2>&1 || { apt-get update -y && apt-get install -y git; }
-command -v python3 >/dev/null 2>&1 || { apt-get install -y python3 python3-venv python3-pip; }
+sudo_cmd() { if [ "$(id -u)" -ne 0 ]; then sudo "$@"; else "$@"; fi; }
 
-mkdir -p /tmp/${APP_NAME}
-cd /tmp/${APP_NAME}
+# --- sanity checks ---
+cd ~ || fail "Cannot access home directory"
+command -v git >/dev/null || sudo_cmd apt-get install -y git
+command -v python3 >/dev/null || sudo_cmd apt-get install -y python3
+command -v pip3 >/dev/null || sudo_cmd apt-get install -y python3-pip python3-venv
 
-# ========== FETCH SOURCE ==========
-info "Fetching ${APP_NAME} source..."
-if [ "${SELECTED_VERSION}" = "--version" ]; then
-  shift
-  SELECTED_VERSION="${1:-latest}"
-fi
-
-# Determine branch/tag
-TAG_TO_CLONE="main"
-if [ "${SELECTED_VERSION}" != "latest" ]; then
-  TAG_TO_CLONE="${SELECTED_VERSION}"
+# --- clone or update repo ---
+say "Installing ${APP_NAME}..."
+if [ -d "$APP_DIR/.git" ]; then
+  sudo_cmd git -C "$APP_DIR" pull --ff-only || warn "Could not update repo, continuing..."
 else
-  LATEST_TAG=$(git ls-remote --tags --sort=v:refname ${REPO_URL} | tail -n1 | sed 's/.*\///')
-  TAG_TO_CLONE="${LATEST_TAG:-main}"
+  sudo_cmd rm -rf "$APP_DIR"
+  sudo_cmd git clone "$REPO_URL" "$APP_DIR"
 fi
+sudo_cmd chown -R "$USER":"$USER" "$APP_DIR"
 
-info "Installing ${C_BOLD}${APP_NAME}${C_RESET} ${C_YELLOW}${TAG_TO_CLONE}${C_RESET}"
+# --- ensure virtualenv ---
+if [ ! -d "$VENV_DIR" ]; then
+  say "Creating virtualenv in $VENV_DIR"
+  python3 -m venv "$VENV_DIR"
+fi
+"$VENV_DIR/bin/pip" install --upgrade pip >/dev/null
+"$VENV_DIR/bin/pip" install -r "$APP_DIR/requirements.txt" >/dev/null || warn "pip install warnings ignored"
 
-rm -rf ${APP_DIR}
-git clone --depth 1 --branch "${TAG_TO_CLONE}" "${REPO_URL}" "${APP_DIR}" >/dev/null 2>&1
-cd "${APP_DIR}"
-
-# ========== BACKUP CONFIG IF PRESENT ==========
-if [ -f "${DEFAULTS_FILE}" ]; then
-  TS=$(date +%Y%m%d-%H%M%S)
-  cp "${DEFAULTS_FILE}" "${DEFAULTS_FILE}.bak.${TS}"
-  good "Existing config backed up (${TS})"
-  EXISTING_CONFIG=1
+# --- config file ---
+if [ -f "$CONFIG_FILE" ]; then
+  warn "Existing config found at $CONFIG_FILE — preserving."
 else
-  EXISTING_CONFIG=0
-fi
+  say "Creating new config..."
+  read -rp "MQTT host [homeassistant.local]: " MQTT_HOST
+  read -rp "MQTT user [enviro]: " MQTT_USER
+  read -rp "MQTT pass [changeme]: " MQTT_PASS
+  read -rp "Poll interval seconds [2]: " POLL_SEC
+  read -rp "Temp offset (°C) [0.0]: " TEMP_OFFSET
+  read -rp "Humidity offset (%) [0.0]: " HUM_OFFSET
+  MQTT_HOST=${MQTT_HOST:-homeassistant.local}
+  MQTT_USER=${MQTT_USER:-enviro}
+  MQTT_PASS=${MQTT_PASS:-changeme}
+  POLL_SEC=${POLL_SEC:-2}
+  TEMP_OFFSET=${TEMP_OFFSET:-0.0}
+  HUM_OFFSET=${HUM_OFFSET:-0.0}
 
-# ========== INTERACTIVE CONFIG CREATION ==========
-if [ "${EXISTING_CONFIG}" -eq 0 ]; then
-  echo
-  echo -e "${C_BOLD}ha-enviro-plus setup${C_RESET}"
-
-  prompt() {
-    local var="$1" prompt="$2" def="$3" secret="${4:-0}"
-    local val
-    if [ "$secret" = "1" ]; then
-      read -rp "$(echo -e "${C_BOLD}${prompt}${C_RESET} [default: ${def}]: ")" -s val; echo
-    else
-      read -rp "$(echo -e "${C_BOLD}${prompt}${C_RESET} [default: ${def}]: ")" val
-    fi
-    val="${val:-$def}"
-    printf "%s" "$val"
-  }
-
-  MQTT_HOST=$(prompt MQTT_HOST "MQTT host" "homeassistant.local")
-  MQTT_PORT=$(prompt MQTT_PORT "MQTT port" "1883")
-  MQTT_USER=$(prompt MQTT_USER "MQTT username" "enviro")
-  MQTT_PASS=$(prompt MQTT_PASS "MQTT password" "" 1)
-  DISCOVERY=$(prompt MQTT_DISC "MQTT discovery prefix" "homeassistant")
-  DEVICE_NAME=$(prompt DEVICE_NAME "Device name (shown in HA)" "Enviro+")
-  POLL_SEC=$(prompt POLL_SEC "Poll interval seconds" "2")
-  TEMP_OFFSET=$(prompt TEMP_OFFSET "Initial temperature offset (°C)" "0.0")
-  HUM_OFFSET=$(prompt HUM_OFFSET "Initial humidity offset (%)" "0.0")
-  CPU_CORR=$(prompt CPU_CORR "Enable CPU-temp correction? (y/n)" "y")
-  CPU_CORR_ALPHA=$(prompt CPU_ALPHA "CPU correction alpha (0.0–1.0)" "0.2")
-
-  if [[ "$CPU_CORR" =~ ^[Yy]$ ]]; then CPU_CORR="1"; else CPU_CORR="0"; fi
-
-  info "Writing config to ${DEFAULTS_FILE}"
-  cat > "${DEFAULTS_FILE}" <<EOF
-MQTT_HOST="${MQTT_HOST}"
-MQTT_PORT="${MQTT_PORT}"
-MQTT_USER="${MQTT_USER}"
-MQTT_PASS="${MQTT_PASS}"
-MQTT_DISCOVERY_PREFIX="${DISCOVERY}"
-DEVICE_NAME="${DEVICE_NAME}"
-POLL_SEC="${POLL_SEC}"
-TEMP_OFFSET="${TEMP_OFFSET}"
-HUM_OFFSET="${HUM_OFFSET}"
-CPU_CORR_ENABLED="${CPU_CORR}"
-CPU_CORR_ALPHA="${CPU_CORR_ALPHA}"
+  CFG=$(cat <<EOF
+MQTT_HOST='${MQTT_HOST}'
+MQTT_PORT='1883'
+MQTT_USER='${MQTT_USER}'
+MQTT_PASS='${MQTT_PASS}'
+POLL_SEC='${POLL_SEC}'
+TEMP_OFFSET='${TEMP_OFFSET}'
+HUM_OFFSET='${HUM_OFFSET}'
 EOF
-  chmod 600 "${DEFAULTS_FILE}"
-else
-  warn "Existing configuration preserved."
+)
+  echo "$CFG" | sudo_cmd tee "$CONFIG_FILE" >/dev/null
 fi
 
-# ========== PYTHON ENV ==========
-info "Setting up Python environment..."
-python3 -m venv "${VENV_DIR}"
-source "${VENV_DIR}/bin/activate"
-pip install --upgrade pip >/dev/null
-pip install --no-cache-dir enviroplus paho-mqtt psutil >/dev/null
-deactivate
-good "Python venv ready."
-
-# ========== LOG ROTATION ==========
-if [ ! -f "${LOGROTATE_FILE}" ]; then
-  info "Configuring log rotation..."
-  cat > "${LOGROTATE_FILE}" <<EOF
-${LOG_FILE} {
-  weekly
-  rotate 4
-  compress
-  missingok
-  notifempty
-  copytruncate
-}
-EOF
-fi
-
-# ========== SYSTEMD SERVICE ==========
-info "Creating systemd service..."
-cat > "${SERVICE_FILE}" <<EOF
-[Unit]
+# --- systemd service ---
+say "Installing systemd service..."
+SERVICE_CONTENT="[Unit]
 Description=Enviro+ → Home Assistant MQTT Agent
-After=network-online.target
-Wants=network-online.target
+After=network.target
 
 [Service]
-Type=simple
-EnvironmentFile=${DEFAULTS_FILE}
-WorkingDirectory=${APP_DIR}
+User=${USER}
+EnvironmentFile=${CONFIG_FILE}
 ExecStart=${VENV_DIR}/bin/python ${APP_DIR}/enviro_agent.py
+WorkingDirectory=${APP_DIR}
 Restart=on-failure
 RestartSec=5
-StandardOutput=append:${LOG_FILE}
-StandardError=append:${LOG_FILE}
-User=root
 
 [Install]
 WantedBy=multi-user.target
-EOF
+"
+echo "$SERVICE_CONTENT" | sudo_cmd tee "$SERVICE_FILE" >/dev/null
+sudo_cmd systemctl daemon-reload
+sudo_cmd systemctl enable "${APP_NAME}.service"
 
-systemctl daemon-reload
-systemctl enable "${APP_NAME}.service" >/dev/null
+# --- log file ---
+sudo_cmd touch "$LOG_FILE"
+sudo_cmd chown "$USER":"$USER" "$LOG_FILE"
 
-# ========== RESTART SERVICE ==========
-if systemctl is-active --quiet "${APP_NAME}.service"; then
-  info "Restarting service..."
-  systemctl restart "${APP_NAME}.service"
-else
-  info "Starting service..."
-  systemctl start "${APP_NAME}.service"
-fi
-
-good "${APP_NAME} ${TAG_TO_CLONE} installed successfully!"
-info "Logs: sudo journalctl -u ${APP_NAME} -n 50 --no-pager"
-info "Config: ${DEFAULTS_FILE}"
+say "Installation complete!"
+echo
+echo "Start the service:"
+echo "  sudo systemctl start ${APP_NAME}.service"
+echo
+echo "Follow logs:"
+echo "  tail -f ${LOG_FILE}"
+echo
