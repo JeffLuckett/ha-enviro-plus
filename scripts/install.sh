@@ -5,9 +5,11 @@
 # This script can be executed in multiple ways:
 # 1. Interactive installation: ./install.sh
 # 2. Install from specific branch: ./install.sh --branch your-branch-name
-# 3. Remote installation: bash <(wget -qO- https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/main/install.sh)
-# 4. Remote installation: bash <(curl -sL https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/main/install.sh)
-# 5. Remote from branch: bash <(wget -qO- https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/your-branch/install.sh)
+# 3. Auto-detect branch from URL: ./install.sh --auto-detect
+# 4. Remote installation: bash <(wget -qO- https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/main/install.sh)
+# 5. Remote installation: bash <(curl -sL https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/main/install.sh)
+# 6. Remote from branch: bash <(wget -qO- https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/refs/heads/your-branch/scripts/install.sh)
+# 7. Remote with auto-detect: bash <(wget -qO- https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/refs/heads/your-branch/scripts/install.sh) --auto-detect
 #
 # Features:
 # - Preserves existing configuration on updates
@@ -67,6 +69,19 @@ make_venv() {
 is_remote_execution() {
   # Check if stdin is not a terminal (piped from wget/curl)
   [ ! -t 0 ] || [ -n "${REMOTE_EXECUTION:-}" ]
+}
+
+# Auto-detect branch from URL when running remotely
+detect_branch_from_url() {
+  # Check if we're running from a GitHub raw URL
+  if [ -n "${SCRIPT_SOURCE:-}" ]; then
+    # Extract branch from URL like: .../refs/heads/BRANCH_NAME/scripts/install.sh
+    if echo "$SCRIPT_SOURCE" | grep -q "refs/heads/"; then
+      echo "$SCRIPT_SOURCE" | sed -n 's/.*refs\/heads\/\([^/]*\)\/.*/\1/p'
+      return 0
+    fi
+  fi
+  return 1
 }
 
 # Load existing config values
@@ -282,16 +297,29 @@ main() {
 
   # Parse command line arguments
   local branch="main"
+  local auto_detect=false
+
   while [[ $# -gt 0 ]]; do
     case $1 in
       --branch|-b)
         branch="$2"
         shift 2
         ;;
+      --auto-detect|-a)
+        auto_detect=true
+        shift
+        ;;
       --help|-h)
-        echo "Usage: $0 [--branch BRANCH_NAME]"
-        echo "  --branch, -b    Install from specific branch (default: main)"
-        echo "  --help, -h      Show this help message"
+        echo "Usage: $0 [OPTIONS]"
+        echo "Options:"
+        echo "  --branch BRANCH, -b BRANCH    Install from specific branch (default: main)"
+        echo "  --auto-detect, -a             Auto-detect branch from URL when running remotely"
+        echo "  --help, -h                    Show this help message"
+        echo
+        echo "Examples:"
+        echo "  $0                           # Install from main branch"
+        echo "  $0 --branch feature-branch   # Install from specific branch"
+        echo "  $0 --auto-detect             # Auto-detect branch from URL"
         exit 0
         ;;
       *)
@@ -301,6 +329,18 @@ main() {
         ;;
     esac
   done
+
+  # Auto-detect branch if requested
+  if [ "$auto_detect" = true ]; then
+    if detected_branch=$(detect_branch_from_url); then
+      branch="$detected_branch"
+      echo "==> Auto-detected branch: $branch"
+    else
+      echo "==> Could not auto-detect branch, using default: $branch"
+    fi
+  fi
+
+  echo "==> Installing from branch: $branch"
 
   ensure_git
   ensure_python
