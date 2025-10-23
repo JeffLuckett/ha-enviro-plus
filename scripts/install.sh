@@ -191,7 +191,7 @@ Wants=network-online.target
 Type=simple
 EnvironmentFile=${CFG}
 WorkingDirectory=${APP_DIR}
-ExecStart=${VENV}/bin/python ${APP_DIR}/enviro_agent.py
+ExecStart=${VENV}/bin/python -m ha_enviro_plus.agent
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
@@ -243,7 +243,7 @@ post_message() {
   echo "  • Check service:     sudo systemctl status ${APP_NAME}"
   echo "  • Test config:       sudo systemd-analyze verify ${SERVICE}"
   echo "  • Check dependencies: ${VENV}/bin/python -c 'import paho.mqtt.client, bme280, ltr559, enviroplus'"
-  echo "  • Manual test:       sudo -u root ${VENV}/bin/python ${APP_DIR}/enviro_agent.py"
+  echo "  • Manual test:       sudo -u root ${VENV}/bin/python -m ha_enviro_plus.agent"
   echo
 
   echo "📁 Files & Directories:"

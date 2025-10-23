@@ -1,0 +1,450 @@
+"""Unit tests for ha_enviro_plus.sensors module."""
+
+import pytest
+from unittest.mock import Mock, patch
+import logging
+
+from ha_enviro_plus.sensors import EnviroPlusSensors
+
+
+class TestEnviroPlusSensorsInit:
+    """Test EnviroPlusSensors initialization."""
+
+    def test_init_default_values(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_logger):
+        """Test initialization with default values."""
+        sensors = EnviroPlusSensors()
+
+        assert sensors.temp_offset == 0.0
+        assert sensors.hum_offset == 0.0
+        assert sensors.cpu_temp_factor == 1.8
+        assert sensors.logger is not None
+        assert sensors.bme280 is not None
+        assert sensors.ltr559 is not None
+
+    def test_init_custom_values(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_logger):
+        """Test initialization with custom values."""
+        logger = logging.getLogger("test")
+        sensors = EnviroPlusSensors(
+            temp_offset=2.5,
+            hum_offset=-5.0,
+            cpu_temp_factor=2.0,
+            logger=logger
+        )
+
+        assert sensors.temp_offset == 2.5
+        assert sensors.hum_offset == -5.0
+        assert sensors.cpu_temp_factor == 2.0
+        assert sensors.logger == logger
+
+    def test_init_sensor_failure(self, mock_logger):
+        """Test initialization failure when sensors can't be initialized."""
+        with patch('ha_enviro_plus.sensors.BME280') as mock_bme280:
+            mock_bme280.side_effect = Exception("Sensor not found")
+
+            with pytest.raises(Exception, match="Sensor not found"):
+                EnviroPlusSensors()
+
+
+class TestCpuTemperature:
+    """Test CPU temperature reading."""
+
+    def test_read_cpu_temp_success(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess):
+        """Test successful CPU temperature reading."""
+        mock_subprocess.return_value = b"temp=42.5'C\n"
+
+        sensors = EnviroPlusSensors()
+        temp = sensors._read_cpu_temp()
+
+        assert temp == 42.5
+        mock_subprocess.assert_called_once_with(["vcgencmd", "measure_temp"], text=True)
+
+    def test_read_cpu_temp_failure(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess):
+        """Test CPU temperature reading failure."""
+        mock_subprocess.side_effect = Exception("Command failed")
+
+        sensors = EnviroPlusSensors()
+        temp = sensors._read_cpu_temp()
+
+        assert temp == 0.0
+
+    def test_read_cpu_temp_malformed_output(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess):
+        """Test CPU temperature reading with malformed output."""
+        mock_subprocess.return_value = b"invalid output"
+
+        sensors = EnviroPlusSensors()
+        temp = sensors._read_cpu_temp()
+
+        assert temp == 0.0
+
+
+class TestTemperatureCompensation:
+    """Test temperature compensation calculations."""
+
+    def test_apply_temp_compensation(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess):
+        """Test temperature compensation formula."""
+        mock_subprocess.return_value = b"temp=50.0'C\n"  # CPU temp
+
+        sensors = EnviroPlusSensors(cpu_temp_factor=2.0)
+        raw_temp = 25.0
+
+        compensated = sensors._apply_temp_compensation(raw_temp)
+
+        # Formula: raw_temp - ((cpu_temp - raw_temp) / factor)
+        # 25.0 - ((50.0 - 25.0) / 2.0) = 25.0 - 12.5 = 12.5
+        expected = 25.0 - ((50.0 - 25.0) / 2.0)
+        assert compensated == expected
+
+    def test_apply_temp_compensation_cpu_failure(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess):
+        """Test temperature compensation when CPU temp reading fails."""
+        mock_subprocess.side_effect = Exception("CPU temp failed")
+
+        sensors = EnviroPlusSensors()
+        raw_temp = 25.0
+
+        compensated = sensors._apply_temp_compensation(raw_temp)
+
+        # Should return raw temp when CPU temp fails
+        assert compensated == raw_temp
+
+
+class TestTemperatureReadings:
+    """Test temperature reading methods."""
+
+    def test_temp_with_compensation_and_offset(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess):
+        """Test compensated temperature with offset."""
+        mock_bme280.get_temperature.return_value = 25.0
+        mock_subprocess.return_value = b"temp=50.0'C\n"
+
+        sensors = EnviroPlusSensors(temp_offset=2.0, cpu_temp_factor=2.0)
+        temp = sensors.temp()
+
+        # Raw: 25.0, Compensated: 25.0 - ((50.0 - 25.0) / 2.0) = 12.5, Final: 12.5 + 2.0 = 14.5
+        expected = 12.5 + 2.0
+        assert temp == pytest.approx(expected, abs=0.01)
+
+    def test_temp_raw(self, mock_bme280, mock_ltr559, mock_gas_sensor):
+        """Test raw temperature reading."""
+        mock_bme280.get_temperature.return_value = 25.123456
+
+        sensors = EnviroPlusSensors()
+        temp = sensors.temp_raw()
+
+        assert temp == 25.12  # Rounded to 2 decimal places
+
+    @pytest.mark.parametrize("offset,expected", [
+        (0.0, 25.5),
+        (2.0, 27.5),
+        (-3.0, 22.5),
+        (10.0, 35.5),
+    ])
+    def test_temp_with_various_offsets(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess, offset, expected):
+        """Test temperature with various offset values."""
+        mock_bme280.get_temperature.return_value = 25.5
+        mock_subprocess.return_value = b"temp=25.5'C\n"  # Same as raw temp
+
+        sensors = EnviroPlusSensors(temp_offset=offset)
+        temp = sensors.temp()
+
+        assert temp == expected
+
+
+class TestHumidityReadings:
+    """Test humidity reading methods."""
+
+    def test_humidity_with_offset(self, mock_bme280, mock_ltr559, mock_gas_sensor):
+        """Test humidity with offset."""
+        mock_bme280.get_humidity.return_value = 45.0
+
+        sensors = EnviroPlusSensors(hum_offset=5.0)
+        humidity = sensors.humidity()
+
+        assert humidity == 50.0
+
+    def test_humidity_raw(self, mock_bme280, mock_ltr559, mock_gas_sensor):
+        """Test raw humidity reading."""
+        mock_bme280.get_humidity.return_value = 45.123456
+
+        sensors = EnviroPlusSensors()
+        humidity = sensors.humidity_raw()
+
+        assert humidity == 45.12  # Rounded to 2 decimal places
+
+    def test_humidity_clamping_upper(self, mock_bme280, mock_ltr559, mock_gas_sensor):
+        """Test humidity clamping at upper bound."""
+        mock_bme280.get_humidity.return_value = 95.0
+
+        sensors = EnviroPlusSensors(hum_offset=10.0)
+        humidity = sensors.humidity()
+
+        assert humidity == 100.0
+
+    def test_humidity_clamping_lower(self, mock_bme280, mock_ltr559, mock_gas_sensor):
+        """Test humidity clamping at lower bound."""
+        mock_bme280.get_humidity.return_value = 5.0
+
+        sensors = EnviroPlusSensors(hum_offset=-10.0)
+        humidity = sensors.humidity()
+
+        assert humidity == 0.0
+
+    @pytest.mark.parametrize("raw_humidity,offset,expected", [
+        (45.0, 0.0, 45.0),
+        (45.0, 5.0, 50.0),
+        (45.0, -5.0, 40.0),
+        (95.0, 10.0, 100.0),  # Clamped
+        (5.0, -10.0, 0.0),    # Clamped
+    ])
+    def test_humidity_various_values(self, mock_bme280, mock_ltr559, mock_gas_sensor, raw_humidity, offset, expected):
+        """Test humidity with various raw values and offsets."""
+        mock_bme280.get_humidity.return_value = raw_humidity
+
+        sensors = EnviroPlusSensors(hum_offset=offset)
+        humidity = sensors.humidity()
+
+        assert humidity == expected
+
+
+class TestPressureReadings:
+    """Test pressure reading methods."""
+
+    def test_pressure(self, mock_bme280, mock_ltr559, mock_gas_sensor):
+        """Test pressure reading."""
+        mock_bme280.get_pressure.return_value = 1013.123456
+
+        sensors = EnviroPlusSensors()
+        pressure = sensors.pressure()
+
+        assert pressure == 1013.12  # Rounded to 2 decimal places
+
+    def test_pressure_raw(self, mock_bme280, mock_ltr559, mock_gas_sensor):
+        """Test raw pressure reading."""
+        mock_bme280.get_pressure.return_value = 1013.123456
+
+        sensors = EnviroPlusSensors()
+        pressure = sensors.pressure_raw()
+
+        assert pressure == 1013.12  # Rounded to 2 decimal places
+
+
+class TestLightReadings:
+    """Test light reading methods."""
+
+    def test_lux(self, mock_bme280, mock_ltr559, mock_gas_sensor):
+        """Test lux reading."""
+        mock_ltr559.get_lux.return_value = 150.123456
+
+        sensors = EnviroPlusSensors()
+        lux = sensors.lux()
+
+        assert lux == 150.12  # Rounded to 2 decimal places
+
+    def test_lux_raw(self, mock_bme280, mock_ltr559, mock_gas_sensor):
+        """Test raw lux reading."""
+        mock_ltr559.get_lux.return_value = 150.123456
+
+        sensors = EnviroPlusSensors()
+        lux = sensors.lux_raw()
+
+        assert lux == 150.12  # Rounded to 2 decimal places
+
+
+class TestGasReadings:
+    """Test gas sensor reading methods."""
+
+    def test_gas_oxidising(self, mock_bme280, mock_ltr559, mock_gas_sensor):
+        """Test oxidising gas reading in kΩ."""
+        mock_gas_sensor.oxidising = 50000.0  # 50kΩ
+
+        sensors = EnviroPlusSensors()
+        gas_value = sensors.gas_oxidising()
+
+        assert gas_value == 50.0  # Converted to kΩ
+
+    def test_gas_oxidising_raw(self, mock_bme280, mock_ltr559, mock_gas_sensor):
+        """Test raw oxidising gas reading in Ω."""
+        mock_gas_sensor.oxidising = 50000.0
+
+        sensors = EnviroPlusSensors()
+        gas_value = sensors.gas_oxidising_raw()
+
+        assert gas_value == 50000.0  # Raw value in Ω
+
+    def test_gas_reducing(self, mock_bme280, mock_ltr559, mock_gas_sensor):
+        """Test reducing gas reading in kΩ."""
+        mock_gas_sensor.reducing = 30000.0  # 30kΩ
+
+        sensors = EnviroPlusSensors()
+        gas_value = sensors.gas_reducing()
+
+        assert gas_value == 30.0  # Converted to kΩ
+
+    def test_gas_reducing_raw(self, mock_bme280, mock_ltr559, mock_gas_sensor):
+        """Test raw reducing gas reading in Ω."""
+        mock_gas_sensor.reducing = 30000.0
+
+        sensors = EnviroPlusSensors()
+        gas_value = sensors.gas_reducing_raw()
+
+        assert gas_value == 30000.0  # Raw value in Ω
+
+    def test_gas_nh3(self, mock_bme280, mock_ltr559, mock_gas_sensor):
+        """Test NH3 gas reading in kΩ."""
+        mock_gas_sensor.nh3 = 40000.0  # 40kΩ
+
+        sensors = EnviroPlusSensors()
+        gas_value = sensors.gas_nh3()
+
+        assert gas_value == 40.0  # Converted to kΩ
+
+    def test_gas_nh3_raw(self, mock_bme280, mock_ltr559, mock_gas_sensor):
+        """Test raw NH3 gas reading in Ω."""
+        mock_gas_sensor.nh3 = 40000.0
+
+        sensors = EnviroPlusSensors()
+        gas_value = sensors.gas_nh3_raw()
+
+        assert gas_value == 40000.0  # Raw value in Ω
+
+
+class TestCalibration:
+    """Test calibration update methods."""
+
+    def test_update_calibration_temp_offset(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_logger):
+        """Test updating temperature offset."""
+        sensors = EnviroPlusSensors()
+
+        sensors.update_calibration(temp_offset=2.5)
+
+        assert sensors.temp_offset == 2.5
+        mock_logger.info.assert_called_with("Updated temperature offset to %s°C", 2.5)
+
+    def test_update_calibration_hum_offset(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_logger):
+        """Test updating humidity offset."""
+        sensors = EnviroPlusSensors()
+
+        sensors.update_calibration(hum_offset=-3.0)
+
+        assert sensors.hum_offset == -3.0
+        mock_logger.info.assert_called_with("Updated humidity offset to %s%%", -3.0)
+
+    def test_update_calibration_cpu_factor(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_logger):
+        """Test updating CPU temperature factor."""
+        sensors = EnviroPlusSensors()
+
+        sensors.update_calibration(cpu_temp_factor=2.5)
+
+        assert sensors.cpu_temp_factor == 2.5
+        mock_logger.info.assert_called_with("Updated CPU temperature factor to %s", 2.5)
+
+    def test_update_calibration_multiple(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_logger):
+        """Test updating multiple calibration values."""
+        sensors = EnviroPlusSensors()
+
+        sensors.update_calibration(
+            temp_offset=1.5,
+            hum_offset=-2.0,
+            cpu_temp_factor=2.0
+        )
+
+        assert sensors.temp_offset == 1.5
+        assert sensors.hum_offset == -2.0
+        assert sensors.cpu_temp_factor == 2.0
+
+        # Should log each update
+        assert mock_logger.info.call_count == 3
+
+
+class TestGetAllSensorData:
+    """Test get_all_sensor_data method."""
+
+    def test_get_all_sensor_data(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess):
+        """Test getting all sensor data."""
+        # Set up mock return values
+        mock_bme280.get_temperature.return_value = 25.5
+        mock_bme280.get_humidity.return_value = 45.0
+        mock_bme280.get_pressure.return_value = 1013.25
+        mock_ltr559.get_lux.return_value = 150.0
+        mock_subprocess.return_value = b"temp=42.0'C\n"
+
+        mock_gas_sensor.oxidising = 50000.0
+        mock_gas_sensor.reducing = 30000.0
+        mock_gas_sensor.nh3 = 40000.0
+
+        sensors = EnviroPlusSensors(temp_offset=1.0, hum_offset=2.0)
+        data = sensors.get_all_sensor_data()
+
+        # Verify structure
+        expected_keys = {
+            "temperature", "temperature_raw",
+            "humidity", "humidity_raw",
+            "pressure", "pressure_raw",
+            "lux", "lux_raw",
+            "gas_oxidising", "gas_oxidising_raw",
+            "gas_reducing", "gas_reducing_raw",
+            "gas_nh3", "gas_nh3_raw",
+        }
+
+        assert set(data.keys()) == expected_keys
+
+        # Verify some values
+        assert data["temperature_raw"] == 25.5
+        assert data["humidity_raw"] == 45.0
+        assert data["pressure_raw"] == 1013.25
+        assert data["lux_raw"] == 150.0
+        assert data["gas_oxidising_raw"] == 50000.0
+        assert data["gas_reducing_raw"] == 30000.0
+        assert data["gas_nh3_raw"] == 40000.0
+
+        # Verify processed values
+        assert data["gas_oxidising"] == 50.0  # Converted to kΩ
+        assert data["gas_reducing"] == 30.0
+        assert data["gas_nh3"] == 40.0
+
+
+class TestEdgeCases:
+    """Test edge cases and error conditions."""
+
+    def test_extreme_cpu_temperature(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess):
+        """Test with extreme CPU temperature."""
+        mock_bme280.get_temperature.return_value = 25.0
+        mock_subprocess.return_value = b"temp=100.0'C\n"  # Very hot CPU
+
+        sensors = EnviroPlusSensors(cpu_temp_factor=1.0)
+        temp = sensors.temp()
+
+        # Should handle extreme values gracefully
+        assert isinstance(temp, float)
+        assert temp < 25.0  # Should be compensated down
+
+    def test_negative_temperature_offset(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess):
+        """Test with negative temperature offset."""
+        mock_bme280.get_temperature.return_value = 25.0
+        mock_subprocess.return_value = b"temp=25.0'C\n"
+
+        sensors = EnviroPlusSensors(temp_offset=-10.0)
+        temp = sensors.temp()
+
+        assert temp == 15.0  # 25.0 - 10.0
+
+    def test_zero_cpu_temp_factor(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess):
+        """Test with zero CPU temperature factor (should not divide by zero)."""
+        mock_bme280.get_temperature.return_value = 25.0
+        mock_subprocess.return_value = b"temp=50.0'C\n"
+
+        sensors = EnviroPlusSensors(cpu_temp_factor=0.0)
+
+        # Should handle division by zero gracefully
+        with pytest.raises(ZeroDivisionError):
+            sensors._apply_temp_compensation(25.0)
+
+    def test_very_small_gas_values(self, mock_bme280, mock_ltr559, mock_gas_sensor):
+        """Test with very small gas sensor values."""
+        mock_gas_sensor.oxidising = 1.0  # 1Ω
+        mock_gas_sensor.reducing = 0.5   # 0.5Ω
+        mock_gas_sensor.nh3 = 2.0        # 2Ω
+
+        sensors = EnviroPlusSensors()
+
+        assert sensors.gas_oxidising() == 0.001  # 1Ω = 0.001kΩ
+        assert sensors.gas_reducing() == 0.0005  # 0.5Ω = 0.0005kΩ
+        assert sensors.gas_nh3() == 0.002  # 2Ω = 0.002kΩ

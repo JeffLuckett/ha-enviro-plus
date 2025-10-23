@@ -99,7 +99,68 @@ The uninstaller:
 
 ---
 
-## 🧠 Notes
+## 🧪 Testing
+
+This project includes comprehensive tests to ensure reliability and maintainability.
+
+### Test Structure
+
+- **Unit Tests**: Test individual components with mocked hardware
+- **Integration Tests**: Test MQTT functionality and end-to-end workflows
+- **Hardware Tests**: Test with real Enviro+ sensors (optional, requires hardware)
+
+### Running Tests
+
+```bash
+# Install development dependencies
+pip install -r requirements-dev.txt
+
+# Run all tests (excluding hardware)
+pytest tests/ -m "not hardware"
+
+# Run only unit tests
+pytest tests/unit/
+
+# Run only integration tests
+pytest tests/integration/
+
+# Run hardware tests (requires Enviro+ hardware)
+pytest tests/hardware/
+
+# Run with coverage
+pytest tests/ --cov=ha_enviro_plus --cov-report=html
+```
+
+### Test Coverage
+
+The project aims for >90% test coverage. Coverage reports are generated in HTML format and available in the `htmlcov/` directory after running tests with coverage.
+
+### Continuous Integration
+
+Tests run automatically on every push and pull request via GitHub Actions, testing against Python 3.9, 3.10, 3.11, and 3.12.
+
+### Development Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/JeffLuckett/ha-enviro-plus.git
+cd ha-enviro-plus
+
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install in development mode
+pip install -e .
+
+# Install development dependencies
+pip install -r requirements-dev.txt
+
+# Run tests
+pytest tests/ -m "not hardware"
+```
+
+---
 
 - **Temperature Compensation**: The temperature sensor runs warm due to CPU proximity. The agent now includes automatic CPU temperature compensation using a configurable factor (default 1.8). You can adjust this factor via Home Assistant or the config file for optimal accuracy.
 - **Calibration**: Use the `TEMP_OFFSET` for fine-tuning individual installations, and `CPU_TEMP_FACTOR` to adjust the CPU compensation algorithm.

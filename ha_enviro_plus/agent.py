@@ -4,9 +4,7 @@ import os, json, time, socket, psutil, subprocess, logging, platform
 from datetime import datetime, timezone
 
 import paho.mqtt.client as mqtt
-from bme280 import BME280
-from ltr559 import LTR559
-from enviroplus import gas
+from .sensors import EnviroPlusSensors
 
 APP_NAME = "ha-enviro-plus"
 VERSION  = "0.1.0"
@@ -191,43 +189,27 @@ def publish_discovery(c):
     number("Humidity Offset", "hum_offset", "%", -20, 20, 0.5)
     number("CPU Temp Factor", "cpu_temp_factor", None, 0.5, 5.0, 0.1)
 
-def read_cpu_temp():
-    try:
-        out = subprocess.check_output(["vcgencmd","measure_temp"], text=True).strip()
-        # temp=42.0'C
-        return float(out.split("=")[1].split("'")[0])
-    except Exception:
-        return 0.0
 
-def read_all(bme, ltr):
-    global TEMP_OFFSET, HUM_OFFSET, CPU_TEMP_FACTOR
-    # Get raw temperature and CPU temperature for compensation
-    raw_temp = bme.get_temperature()
-    cpu_temp = read_cpu_temp()
+def read_all(enviro_sensors):
+    """Read all sensor and system data using the EnviroPlusSensors class."""
+    # Get sensor data from the encapsulated sensor manager
+    sensor_data = enviro_sensors.get_all_sensor_data()
 
-    # Apply CPU temperature compensation: raw_temp - ((cpu_temp - raw_temp) / factor)
-    compensated_temp = raw_temp - ((cpu_temp - raw_temp) / CPU_TEMP_FACTOR)
-
-    # Apply user-defined offset
-    t = round(compensated_temp + TEMP_OFFSET, 2)
-    h  = round(max(0.0, min(100.0, bme.get_humidity() + HUM_OFFSET)), 2)
-    p  = round(bme.get_pressure(), 2)
-    lux = round(ltr.get_lux(), 2)
-    g   = gas.read_all()
-    ox  = round(g.oxidising/1000.0, 2)
-    red = round(g.reducing/1000.0, 2)
-    nh3 = round(g.nh3/1000.0, 2)
-
+    # Get system metrics
     mem = psutil.virtual_memory()
+
     vals = {
-        "bme280/temperature": t,
-        "bme280/humidity":    h,
-        "bme280/pressure":    p,
-        "ltr559/lux":         lux,
-        "gas/oxidising":      ox,
-        "gas/reducing":       red,
-        "gas/nh3":            nh3,
-        "host/cpu_temp":      round(read_cpu_temp(), 1),
+        # Sensor data (processed)
+        "bme280/temperature": sensor_data["temperature"],
+        "bme280/humidity":    sensor_data["humidity"],
+        "bme280/pressure":    sensor_data["pressure"],
+        "ltr559/lux":         sensor_data["lux"],
+        "gas/oxidising":      sensor_data["gas_oxidising"],
+        "gas/reducing":       sensor_data["gas_reducing"],
+        "gas/nh3":            sensor_data["gas_nh3"],
+
+        # System metrics
+        "host/cpu_temp":      round(enviro_sensors._read_cpu_temp(), 1),
         "host/cpu_usage":     round(psutil.cpu_percent(interval=None), 1),
         "host/mem_usage":     round(mem.percent, 1),
         "host/mem_size":      round(mem.total/1024/1024/1024, 3),
@@ -251,7 +233,7 @@ def on_connect(client, userdata, flags, rc, properties=None):
     # Subscribe to commands and setters
     client.subscribe([(cmd_t, 1), (set_t, 1)])
 
-def on_message(client, userdata, msg):
+def on_message(client, userdata, msg, enviro_sensors):
     global TEMP_OFFSET, HUM_OFFSET, CPU_TEMP_FACTOR
     try:
         topic = msg.topic
@@ -272,13 +254,13 @@ def on_message(client, userdata, msg):
             key = topic.split("/")[-1]
             if key == "temp_offset":
                 TEMP_OFFSET = float(payload)
-                logger.info("Set temp offset = %s", payload)
+                enviro_sensors.update_calibration(temp_offset=TEMP_OFFSET)
             elif key == "hum_offset":
                 HUM_OFFSET = float(payload)
-                logger.info("Set humidity offset = %s", payload)
+                enviro_sensors.update_calibration(hum_offset=HUM_OFFSET)
             elif key == "cpu_temp_factor":
                 CPU_TEMP_FACTOR = float(payload)
-                logger.info("Set CPU temp factor = %s", payload)
+                enviro_sensors.update_calibration(cpu_temp_factor=CPU_TEMP_FACTOR)
     except Exception as e:
         logger.exception("on_message error: %s", e)
 
@@ -289,15 +271,24 @@ def main():
     logger.info("Poll interval: %ss", POLL_SEC)
     logger.info("Initial offsets: TEMP=%s°C HUM=%s%% CPU_FACTOR=%s", TEMP_OFFSET, HUM_OFFSET, CPU_TEMP_FACTOR)
 
-    bme = BME280(i2c_addr=0x76)
-    ltr = LTR559()
+    # Initialize sensor manager with current calibration values
+    enviro_sensors = EnviroPlusSensors(
+        temp_offset=TEMP_OFFSET,
+        hum_offset=HUM_OFFSET,
+        cpu_temp_factor=CPU_TEMP_FACTOR,
+        logger=logger
+    )
 
     client = mqtt.Client(client_id=root, protocol=mqtt.MQTTv5)
     if MQTT_USER:
         client.username_pw_set(MQTT_USER, MQTT_PASS)
     client.will_set(avail_t, "offline", retain=True)
     client.on_connect = on_connect
-    client.on_message = on_message
+
+    # Create a wrapper for on_message that includes the sensor instance
+    def message_wrapper(client, userdata, msg):
+        on_message(client, userdata, msg, enviro_sensors)
+    client.on_message = message_wrapper
 
     client.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
     client.loop_start()
@@ -311,7 +302,7 @@ def main():
 
     try:
         while True:
-            vals = read_all(bme, ltr)
+            vals = read_all(enviro_sensors)
             for tail, val in vals.items():
                 client.publish(f"{root}/{tail}", str(val), retain=True)
             time.sleep(POLL_SEC)
