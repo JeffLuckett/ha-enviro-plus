@@ -41,7 +41,7 @@ def mock_ltr559(mocker):
 @pytest.fixture
 def mock_gas_sensor(mocker):
     """Mock gas sensor with realistic data."""
-    mock = mocker.patch("enviroplus.gas.read_all")
+    mock = mocker.patch("ha_enviro_plus.sensors.gas.read_all")
 
     # Create mock gas data object
     gas_data = Mock()
