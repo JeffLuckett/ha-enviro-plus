@@ -152,7 +152,9 @@ def publish_discovery(c):
     for tail, (name, unit, devcls) in SENSORS.items():
         obj = tail.replace("/", "_")
         topic = f"{MQTT_DISCOVERY_PREFIX}/sensor/{device_id}/{obj}/config"
-        c.publish(topic, json.dumps(disc_payload(tail, name, unit, devcls)), qos=1, retain=True)
+        # For text sensors (no unit), don't set state_class
+        state_class = None if unit is None else "measurement"
+        c.publish(topic, json.dumps(disc_payload(tail, name, unit, devcls, state_class)), qos=1, retain=True)
     # controls: simple button commands
     def button(topic_key, name, icon):
         cfg = {
@@ -225,10 +227,6 @@ def read_all(bme, ltr):
         "host/os_release":    get_os_release(),
         "meta/last_update":   datetime.now(timezone.utc).isoformat(),
     }
-    # Debug logging for problematic values
-    logger.info("Hostname: %s, Network: %s, OS: %s, Last Update: %s",
-                vals["host/hostname"], vals["host/network"],
-                vals["host/os_release"], vals["meta/last_update"])
     return vals
 
 def on_connect(client, userdata, flags, rc, properties=None):
