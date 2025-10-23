@@ -1,7 +1,7 @@
 """Unit tests for ha_enviro_plus.sensors module."""
 
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 import logging
 
 from ha_enviro_plus.sensors import EnviroPlusSensors

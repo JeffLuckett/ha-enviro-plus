@@ -1,11 +1,7 @@
 """Shared pytest fixtures for ha-enviro-plus tests."""
 
-import subprocess
-import logging
-from unittest.mock import Mock, MagicMock
-from typing import Dict, Any
-
 import pytest
+from unittest.mock import Mock
 
 
 @pytest.fixture

@@ -1,17 +1,13 @@
 """Integration tests for MQTT functionality."""
 
-import json
 import pytest
 import time
-from unittest.mock import Mock, patch, MagicMock, mock_open
-import threading
+from unittest.mock import Mock, patch, mock_open
 
 from ha_enviro_plus.agent import (
     on_connect,
     on_message,
-    publish_discovery,
     read_all,
-    DEVICE_INFO,
     SENSORS,
 )
 

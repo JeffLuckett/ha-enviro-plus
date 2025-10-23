@@ -2,8 +2,8 @@
 
 import json
 import pytest
-from unittest.mock import Mock, patch, mock_open, MagicMock
-from datetime import datetime, timezone
+from unittest.mock import Mock, patch, mock_open
+from datetime import datetime
 
 from ha_enviro_plus.agent import (
     get_ipv4_prefer_wlan0,

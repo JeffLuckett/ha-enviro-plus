@@ -1,13 +1,11 @@
 """End-to-end integration tests for complete workflows."""
 
-import json
 import pytest
-import time
 import threading
-from unittest.mock import Mock, patch, mock_open, MagicMock
-from datetime import datetime, timezone
+from unittest.mock import Mock, patch
+from datetime import datetime
 
-from ha_enviro_plus.agent import main, on_connect, on_message, read_all
+from ha_enviro_plus.agent import main, on_message, read_all
 from ha_enviro_plus.sensors import EnviroPlusSensors
 
 

@@ -1,6 +1,14 @@
 #!/usr/bin/env python3
-import os, json, time, socket, psutil, subprocess, logging, platform
+import os
+import json
+import time
+import socket
+import psutil
+import subprocess
+import logging
+import platform
 from datetime import datetime, timezone
+from typing import List, Any, Dict, Optional
 
 import paho.mqtt.client as mqtt
 from .sensors import EnviroPlusSensors
@@ -30,24 +38,24 @@ cmd_t = f"{root}/cmd"  # expects: reboot|shutdown|restart
 set_t = f"{root}/set/+"  # retained settings, e.g. set/temp_offset
 
 
-def get_ipv4_prefer_wlan0():
+def get_ipv4_prefer_wlan0() -> str:
     try:
         addrs = psutil.net_if_addrs()
         # prefer wlan0, else first non-loopback IPv4
         if "wlan0" in addrs:
             for a in addrs["wlan0"]:
                 if a.family.name == "AF_INET" and not a.address.startswith("127."):
-                    return a.address
+                    return str(a.address)
         for iface, lst in addrs.items():
             for a in lst:
                 if a.family.name == "AF_INET" and not a.address.startswith("127."):
-                    return a.address
+                    return str(a.address)
     except Exception as e:
         logger.warning("Failed to get network address: %s", e)
     return "unknown"
 
 
-def get_uptime_seconds():
+def get_uptime_seconds() -> int:
     try:
         with open("/proc/uptime", "r") as f:
             return int(float(f.read().split()[0]))
@@ -55,7 +63,7 @@ def get_uptime_seconds():
         return 0
 
 
-def get_model():
+def get_model() -> str:
     try:
         with open("/proc/device-tree/model", "rb") as f:
             return f.read().decode(errors="ignore").strip("\x00")
@@ -63,7 +71,7 @@ def get_model():
         return "Raspberry Pi"
 
 
-def get_serial():
+def get_serial() -> str:
     try:
         with open("/proc/cpuinfo", "r") as f:
             for line in f:
@@ -74,7 +82,7 @@ def get_serial():
     return "unknown"
 
 
-def get_os_release():
+def get_os_release() -> str:
     """Get OS release information."""
     try:
         # Try to get more detailed OS info
@@ -95,7 +103,7 @@ def get_os_release():
 logger = logging.getLogger(APP_NAME)
 logger.setLevel(logging.INFO)
 fmt = logging.Formatter("%(asctime)s %(levelname)s %(message)s", "%Y-%m-%d %H:%M:%S")
-handlers = [logging.StreamHandler()]
+handlers: List[logging.Handler] = [logging.StreamHandler()]
 if LOG_TO_FILE:
     try:
         fh = logging.FileHandler(LOG_PATH)
@@ -138,7 +146,14 @@ SENSORS = {
 }
 
 
-def disc_payload(topic_tail, name, unit, device_class=None, state_class="measurement", icon=None):
+def disc_payload(
+    topic_tail: str,
+    name: str,
+    unit: Optional[str],
+    device_class: Optional[str] = None,
+    state_class: Optional[str] = "measurement",
+    icon: Optional[str] = None,
+) -> Dict[str, Any]:
     cfg = {
         "name": name,
         "uniq_id": f"{device_id}_{topic_tail.replace('/', '_')}",
@@ -157,7 +172,7 @@ def disc_payload(topic_tail, name, unit, device_class=None, state_class="measure
     return cfg
 
 
-def publish_discovery(c):
+def publish_discovery(c: mqtt.Client) -> None:
     # sensors
     for tail, (name, unit, devcls) in SENSORS.items():
         obj = tail.replace("/", "_")
@@ -172,7 +187,7 @@ def publish_discovery(c):
         )
 
     # controls: simple button commands
-    def button(topic_key, name, icon):
+    def button(topic_key: str, name: str, icon: str) -> None:
         cfg = {
             "name": name,
             "uniq_id": f"{device_id}_btn_{topic_key}",
@@ -190,7 +205,9 @@ def publish_discovery(c):
     button("restart_service", "Restart Agent", "mdi:refresh")
 
     # number entities for offsets (so HA shows exact values)
-    def number(name, key, unit, minv, maxv, step):
+    def number(
+        name: str, key: str, unit: Optional[str], minv: float, maxv: float, step: float
+    ) -> None:
         cfg = {
             "name": name,
             "uniq_id": f"{device_id}_num_{key}",
@@ -212,7 +229,7 @@ def publish_discovery(c):
     number("CPU Temp Factor", "cpu_temp_factor", None, 0.5, 5.0, 0.1)
 
 
-def read_all(enviro_sensors):
+def read_all(enviro_sensors: EnviroPlusSensors) -> Dict[str, Any]:
     """Read all sensor and system data using the EnviroPlusSensors class."""
     # Get sensor data from the encapsulated sensor manager
     sensor_data = enviro_sensors.get_all_sensor_data()
@@ -243,7 +260,9 @@ def read_all(enviro_sensors):
     return vals
 
 
-def on_connect(client, userdata, flags, rc, properties=None):
+def on_connect(
+    client: mqtt.Client, userdata: Any, flags: Any, rc: int, properties: Any = None
+) -> None:
     logger.info("Connected to MQTT (%s:%s) RC=%s", MQTT_HOST, MQTT_PORT, mqtt.connack_string(rc))
     client.publish(avail_t, "online", retain=True)
     # (Re)publish discovery on connect
@@ -256,39 +275,54 @@ def on_connect(client, userdata, flags, rc, properties=None):
     client.subscribe([(cmd_t, 1), (set_t, 1)])
 
 
-def on_message(client, userdata, msg, enviro_sensors):
+def _handle_command(client: mqtt.Client, payload: str) -> None:
+    """Handle system commands."""
+    if payload == "reboot":
+        logger.info("Command: reboot")
+        client.publish(avail_t, "offline", retain=True)
+        subprocess.Popen(["sudo", "reboot"])
+    elif payload == "shutdown":
+        logger.info("Command: shutdown")
+        client.publish(avail_t, "offline", retain=True)
+        subprocess.Popen(["sudo", "shutdown", "-h", "now"])
+    elif payload == "restart_service":
+        logger.info("Command: restart service")
+        subprocess.Popen(["sudo", "systemctl", "restart", f"{APP_NAME}.service"])
+
+
+def _handle_calibration_setting(
+    topic: str, payload: str, enviro_sensors: EnviroPlusSensors
+) -> None:
+    """Handle calibration setting updates."""
     global TEMP_OFFSET, HUM_OFFSET, CPU_TEMP_FACTOR
+    key = topic.split("/")[-1]
+    if key == "temp_offset":
+        TEMP_OFFSET = float(payload)
+        enviro_sensors.update_calibration(temp_offset=TEMP_OFFSET)
+    elif key == "hum_offset":
+        HUM_OFFSET = float(payload)
+        enviro_sensors.update_calibration(hum_offset=HUM_OFFSET)
+    elif key == "cpu_temp_factor":
+        CPU_TEMP_FACTOR = float(payload)
+        enviro_sensors.update_calibration(cpu_temp_factor=CPU_TEMP_FACTOR)
+
+
+def on_message(
+    client: mqtt.Client, userdata: Any, msg: mqtt.MQTTMessage, enviro_sensors: EnviroPlusSensors
+) -> None:
+    """Handle incoming MQTT messages."""
     try:
         topic = msg.topic
         payload = msg.payload.decode().strip()
         if topic == cmd_t:
-            if payload == "reboot":
-                logger.info("Command: reboot")
-                client.publish(avail_t, "offline", retain=True)
-                subprocess.Popen(["sudo", "reboot"])
-            elif payload == "shutdown":
-                logger.info("Command: shutdown")
-                client.publish(avail_t, "offline", retain=True)
-                subprocess.Popen(["sudo", "shutdown", "-h", "now"])
-            elif payload == "restart_service":
-                logger.info("Command: restart service")
-                subprocess.Popen(["sudo", "systemctl", "restart", f"{APP_NAME}.service"])
+            _handle_command(client, payload)
         elif topic.startswith(f"{root}/set/"):
-            key = topic.split("/")[-1]
-            if key == "temp_offset":
-                TEMP_OFFSET = float(payload)
-                enviro_sensors.update_calibration(temp_offset=TEMP_OFFSET)
-            elif key == "hum_offset":
-                HUM_OFFSET = float(payload)
-                enviro_sensors.update_calibration(hum_offset=HUM_OFFSET)
-            elif key == "cpu_temp_factor":
-                CPU_TEMP_FACTOR = float(payload)
-                enviro_sensors.update_calibration(cpu_temp_factor=CPU_TEMP_FACTOR)
+            _handle_calibration_setting(topic, payload, enviro_sensors)
     except Exception as e:
         logger.exception("on_message error: %s", e)
 
 
-def main():
+def main() -> None:
     logger.info("%s starting (v%s)", APP_NAME, VERSION)
     logger.info("Root topic: %s", root)
     logger.info("Discovery prefix: %s", MQTT_DISCOVERY_PREFIX)
@@ -315,7 +349,7 @@ def main():
     client.on_connect = on_connect
 
     # Create a wrapper for on_message that includes the sensor instance
-    def message_wrapper(client, userdata, msg):
+    def message_wrapper(client: mqtt.Client, userdata: Any, msg: mqtt.MQTTMessage) -> None:
         on_message(client, userdata, msg, enviro_sensors)
 
     client.on_message = message_wrapper

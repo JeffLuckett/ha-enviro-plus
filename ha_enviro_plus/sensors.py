@@ -101,7 +101,7 @@ class EnviroPlusSensors:
         Returns:
             Raw temperature in °C
         """
-        return round(self.bme280.get_temperature(), 2)
+        return round(float(self.bme280.get_temperature()), 2)
 
     # Humidity accessors
     def humidity(self) -> float:
@@ -111,7 +111,7 @@ class EnviroPlusSensors:
         Returns:
             Humidity in % (clamped to 0-100% range)
         """
-        raw_humidity = self.bme280.get_humidity()
+        raw_humidity = float(self.bme280.get_humidity())
         calibrated_humidity = raw_humidity + self.hum_offset
         return round(max(0.0, min(100.0, calibrated_humidity)), 2)
 
@@ -122,7 +122,7 @@ class EnviroPlusSensors:
         Returns:
             Raw humidity in %
         """
-        return round(self.bme280.get_humidity(), 2)
+        return round(float(self.bme280.get_humidity()), 2)
 
     # Pressure accessors
     def pressure(self) -> float:
@@ -132,7 +132,7 @@ class EnviroPlusSensors:
         Returns:
             Pressure in hPa
         """
-        return round(self.bme280.get_pressure(), 2)
+        return round(float(self.bme280.get_pressure()), 2)
 
     def pressure_raw(self) -> float:
         """
@@ -141,7 +141,7 @@ class EnviroPlusSensors:
         Returns:
             Raw pressure in hPa
         """
-        return round(self.bme280.get_pressure(), 2)
+        return round(float(self.bme280.get_pressure()), 2)
 
     # Light accessors
     def lux(self) -> float:
@@ -151,7 +151,7 @@ class EnviroPlusSensors:
         Returns:
             Illuminance in lux
         """
-        return round(self.ltr559.get_lux(), 2)
+        return round(float(self.ltr559.get_lux()), 2)
 
     def lux_raw(self) -> float:
         """
@@ -160,7 +160,7 @@ class EnviroPlusSensors:
         Returns:
             Raw illuminance in lux
         """
-        return round(self.ltr559.get_lux(), 2)
+        return round(float(self.ltr559.get_lux()), 2)
 
     # Gas sensor accessors
     def gas_oxidising(self) -> float:
@@ -171,7 +171,7 @@ class EnviroPlusSensors:
             Oxidising gas resistance in kΩ
         """
         gas_data = gas.read_all()
-        return round(gas_data.oxidising / 1000.0, 2)
+        return round(float(gas_data.oxidising) / 1000.0, 2)
 
     def gas_oxidising_raw(self) -> float:
         """
@@ -181,7 +181,7 @@ class EnviroPlusSensors:
             Raw oxidising gas resistance in Ω
         """
         gas_data = gas.read_all()
-        return round(gas_data.oxidising, 2)
+        return round(float(gas_data.oxidising), 2)
 
     def gas_reducing(self) -> float:
         """
@@ -191,7 +191,7 @@ class EnviroPlusSensors:
             Reducing gas resistance in kΩ
         """
         gas_data = gas.read_all()
-        return round(gas_data.reducing / 1000.0, 2)
+        return round(float(gas_data.reducing) / 1000.0, 2)
 
     def gas_reducing_raw(self) -> float:
         """
@@ -201,7 +201,7 @@ class EnviroPlusSensors:
             Raw reducing gas resistance in Ω
         """
         gas_data = gas.read_all()
-        return round(gas_data.reducing, 2)
+        return round(float(gas_data.reducing), 2)
 
     def gas_nh3(self) -> float:
         """
@@ -211,7 +211,7 @@ class EnviroPlusSensors:
             NH3 gas resistance in kΩ
         """
         gas_data = gas.read_all()
-        return round(gas_data.nh3 / 1000.0, 2)
+        return round(float(gas_data.nh3) / 1000.0, 2)
 
     def gas_nh3_raw(self) -> float:
         """
@@ -221,7 +221,7 @@ class EnviroPlusSensors:
             Raw NH3 gas resistance in Ω
         """
         gas_data = gas.read_all()
-        return round(gas_data.nh3, 2)
+        return round(float(gas_data.nh3), 2)
 
     def update_calibration(
         self,
