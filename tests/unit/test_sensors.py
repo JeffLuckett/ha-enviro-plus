@@ -49,7 +49,7 @@ class TestCpuTemperature:
         self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess
     ):
         """Test successful CPU temperature reading."""
-        mock_subprocess.return_value = b"temp=42.5'C\n"
+        mock_subprocess.return_value = "temp=42.5'C\n"  # Return string, not bytes
 
         sensors = EnviroPlusSensors()
         temp = sensors._read_cpu_temp()
@@ -87,7 +87,7 @@ class TestTemperatureCompensation:
         self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess
     ):
         """Test temperature compensation formula."""
-        mock_subprocess.return_value = b"temp=50.0'C\n"  # CPU temp
+        mock_subprocess.return_value = "temp=50.0'C\n"  # CPU temp
 
         sensors = EnviroPlusSensors(cpu_temp_factor=2.0)
         raw_temp = 25.0
@@ -122,7 +122,7 @@ class TestTemperatureReadings:
     ):
         """Test compensated temperature with offset."""
         mock_bme280.get_temperature.return_value = 25.0
-        mock_subprocess.return_value = b"temp=50.0'C\n"
+        mock_subprocess.return_value = "temp=50.0'C\n"
 
         sensors = EnviroPlusSensors(temp_offset=2.0, cpu_temp_factor=2.0)
         temp = sensors.temp()
@@ -154,7 +154,7 @@ class TestTemperatureReadings:
     ):
         """Test temperature with various offset values."""
         mock_bme280.get_temperature.return_value = 25.5
-        mock_subprocess.return_value = b"temp=25.5'C\n"  # Same as raw temp
+        mock_subprocess.return_value = "temp=25.5'C\n"  # Same as raw temp
 
         sensors = EnviroPlusSensors(temp_offset=offset)
         temp = sensors.temp()
@@ -439,7 +439,7 @@ class TestEdgeCases:
     ):
         """Test with extreme CPU temperature."""
         mock_bme280.get_temperature.return_value = 25.0
-        mock_subprocess.return_value = b"temp=100.0'C\n"  # Very hot CPU
+        mock_subprocess.return_value = "temp=100.0'C\n"  # Very hot CPU
 
         sensors = EnviroPlusSensors(cpu_temp_factor=1.0)
         temp = sensors.temp()
@@ -453,7 +453,7 @@ class TestEdgeCases:
     ):
         """Test with negative temperature offset."""
         mock_bme280.get_temperature.return_value = 25.0
-        mock_subprocess.return_value = b"temp=25.0'C\n"
+        mock_subprocess.return_value = "temp=25.0'C\n"
 
         sensors = EnviroPlusSensors(temp_offset=-10.0)
         temp = sensors.temp()
@@ -463,7 +463,7 @@ class TestEdgeCases:
     def test_zero_cpu_temp_factor(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess):
         """Test with zero CPU temperature factor (should not divide by zero)."""
         mock_bme280.get_temperature.return_value = 25.0
-        mock_subprocess.return_value = b"temp=50.0'C\n"
+        mock_subprocess.return_value = "temp=50.0'C\n"
 
         sensors = EnviroPlusSensors(cpu_temp_factor=0.0)
 

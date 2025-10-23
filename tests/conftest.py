@@ -3,6 +3,18 @@
 import pytest
 from unittest.mock import Mock
 
+# Mock hardware modules at import time
+import sys
+from unittest.mock import MagicMock
+
+# Mock the hardware modules that can't be imported on macOS
+sys.modules["bme280"] = MagicMock()
+sys.modules["ltr559"] = MagicMock()
+sys.modules["enviroplus"] = MagicMock()
+sys.modules["enviroplus.gas"] = MagicMock()
+sys.modules["gpiod"] = MagicMock()
+sys.modules["spidev"] = MagicMock()
+
 
 @pytest.fixture
 def mock_bme280(mocker):
@@ -45,8 +57,19 @@ def mock_gas_sensor(mocker):
 def mock_subprocess(mocker):
     """Mock subprocess for CPU temperature reading."""
     mock = mocker.patch("ha_enviro_plus.sensors.subprocess.check_output")
-    mock.return_value = b"temp=42.0'C\n"
+    mock.return_value = "temp=42.0'C\n"  # Return string, not bytes
     return mock
+
+
+@pytest.fixture
+def mock_device_id(mocker):
+    """Mock device ID and related topic variables for consistent testing."""
+    mocker.patch("ha_enviro_plus.agent.device_id", "enviro_raspberrypi")
+    mocker.patch("ha_enviro_plus.agent.root", "enviro_raspberrypi")
+    mocker.patch("ha_enviro_plus.agent.avail_t", "enviro_raspberrypi/status")
+    mocker.patch("ha_enviro_plus.agent.cmd_t", "enviro_raspberrypi/cmd")
+    mocker.patch("ha_enviro_plus.agent.set_t", "enviro_raspberrypi/set/+")
+    return "enviro_raspberrypi"
 
 
 @pytest.fixture
@@ -85,35 +108,68 @@ def mock_psutil(mocker):
 @pytest.fixture
 def mock_file_operations(mocker):
     """Mock file operations for system info functions."""
-    # Mock /proc/uptime
-    uptime_mock = mocker.mock_open(read_data="12345.67 98765.43")
-    mocker.patch("builtins.open", uptime_mock)
 
-    # Mock /proc/device-tree/model
-    model_mock = mocker.mock_open(read_data=b"Raspberry Pi Zero 2 W Rev 1.0\x00")
-    mocker.patch("builtins.open", model_mock)
-
-    # Mock /proc/cpuinfo
-    cpuinfo_content = """processor	: 0
+    def mock_open_side_effect(filename, mode="r", **kwargs):
+        if filename == "/proc/uptime":
+            return mocker.mock_open(read_data="12345.67 98765.43")()
+        elif filename == "/proc/device-tree/model":
+            return mocker.mock_open(read_data=b"Raspberry Pi Zero 2 W Rev 1.0\x00")()
+        elif filename == "/proc/cpuinfo":
+            cpuinfo_content = """processor	: 0
 model name	: ARMv7 Processor rev 3 (v7l)
 Serial		: 1234567890abcdef
 """
-    cpuinfo_mock = mocker.mock_open(read_data=cpuinfo_content)
-    mocker.patch("builtins.open", cpuinfo_mock)
-
-    # Mock /etc/os-release
-    os_release_content = """PRETTY_NAME="Raspberry Pi OS Lite (64-bit)"
+            return mocker.mock_open(read_data=cpuinfo_content)()
+        elif filename == "/etc/os-release":
+            os_release_content = """PRETTY_NAME="Raspberry Pi OS Lite (64-bit)"
 NAME="Raspberry Pi OS Lite"
 VERSION_ID="12"
 """
-    os_release_mock = mocker.mock_open(read_data=os_release_content)
-    mocker.patch("builtins.open", os_release_mock)
+            return mocker.mock_open(read_data=os_release_content)()
+        elif filename == "/System/Library/CoreServices/SystemVersion.plist":
+            # macOS fallback
+            raise FileNotFoundError(
+                "No such file or directory: '/System/Library/CoreServices/SystemVersion.plist'"
+            )
+        else:
+            raise FileNotFoundError(f"No mock for {filename}")
+
+    mocker.patch("builtins.open", side_effect=mock_open_side_effect)
 
     return {
-        "uptime": uptime_mock,
-        "model": model_mock,
-        "cpuinfo": cpuinfo_mock,
-        "os_release": os_release_mock,
+        "uptime": "12345.67 98765.43",
+        "model": "Raspberry Pi Zero 2 W Rev 1.0",
+        "cpuinfo": "Serial\t\t: 1234567890abcdef",
+        "os_release": 'PRETTY_NAME="Raspberry Pi OS Lite (64-bit)"',
+    }
+
+
+@pytest.fixture
+def mock_file_operations_no_os_release(mocker):
+    """Mock file operations without /etc/os-release."""
+
+    def mock_open_side_effect(filename, mode="r", **kwargs):
+        if filename == "/proc/uptime":
+            return mocker.mock_open(read_data="12345.67 98765.43")()
+        elif filename == "/proc/device-tree/model":
+            return mocker.mock_open(read_data=b"Raspberry Pi Zero 2 W Rev 1.0\x00")()
+        elif filename == "/proc/cpuinfo":
+            cpuinfo_content = """processor	: 0
+model name	: ARMv7 Processor rev 3 (v7l)
+Serial		: 1234567890abcdef
+"""
+            return mocker.mock_open(read_data=cpuinfo_content)()
+        elif filename == "/etc/os-release":
+            raise FileNotFoundError("No such file or directory: '/etc/os-release'")
+        else:
+            raise FileNotFoundError(f"No mock for {filename}")
+
+    mocker.patch("builtins.open", side_effect=mock_open_side_effect)
+
+    return {
+        "uptime": "12345.67 98765.43",
+        "model": "Raspberry Pi Zero 2 W Rev 1.0",
+        "cpuinfo": "Serial\t\t: 1234567890abcdef",
     }
 
 
@@ -128,6 +184,11 @@ def mock_network_interfaces(mocker):
         "eth0": [Mock(family=Mock(name="AF_INET"), address="10.0.0.5")],
         "lo": [Mock(family=Mock(name="AF_INET"), address="127.0.0.1")],
     }
+
+    # Fix the family.name attribute
+    for interface_addrs in mock_addrs.values():
+        for addr in interface_addrs:
+            addr.family.name = "AF_INET"
 
     mock_psutil = mocker.patch("ha_enviro_plus.agent.psutil.net_if_addrs")
     mock_psutil.return_value = mock_addrs

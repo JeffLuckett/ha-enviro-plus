@@ -29,12 +29,17 @@ class TestNetworkFunctions:
         ip = get_ipv4_prefer_wlan0()
         assert ip == "192.168.1.100"
 
-    def test_get_ipv4_prefer_wlan0_no_wlan0(self, mocker):
+    def test_get_ipv4_prefer_wlan0_no_wlan0(self, mocker, mock_device_id):
         """Test getting IPv4 address when wlan0 is not available."""
         mock_addrs = {
             "eth0": [Mock(family=Mock(name="AF_INET"), address="10.0.0.5")],
             "lo": [Mock(family=Mock(name="AF_INET"), address="127.0.0.1")],
         }
+
+        # Fix the family.name attribute
+        for interface_addrs in mock_addrs.values():
+            for addr in interface_addrs:
+                addr.family.name = "AF_INET"
 
         mock_psutil = mocker.patch("ha_enviro_plus.agent.psutil.net_if_addrs")
         mock_psutil.return_value = mock_addrs
@@ -116,9 +121,10 @@ model name	: ARMv7 Processor rev 3 (v7l)
         os_release = get_os_release()
         assert os_release == "Raspberry Pi OS Lite (64-bit)"
 
-    def test_get_os_release_file_error(self, mocker, mock_platform):
+    def test_get_os_release_file_error(self, mock_file_operations_no_os_release, mock_platform):
         """Test OS release reading when file doesn't exist."""
-        mocker.patch("builtins.open", side_effect=FileNotFoundError)
+        # Don't patch builtins.open here, let the fixture handle it
+        # The fixture already raises FileNotFoundError for unknown files
 
         os_release = get_os_release()
         assert os_release == "Linux-5.15.0-rpi4-aarch64-with-glibc2.31"
@@ -138,7 +144,7 @@ VERSION_ID="12"
 class TestDiscoveryPayload:
     """Test discovery payload generation."""
 
-    def test_disc_payload_basic(self):
+    def test_disc_payload_basic(self, mock_device_id):
         """Test basic discovery payload."""
         payload = disc_payload("test/sensor", "Test Sensor", "°C")
 
@@ -160,10 +166,10 @@ class TestDiscoveryPayload:
 
     def test_disc_payload_text_sensor(self):
         """Test discovery payload for text sensor (no unit)."""
-        payload = disc_payload("test/hostname", "Hostname", None)
+        payload = disc_payload("test/hostname", "Hostname", None, state_class=None)
 
-        assert payload["unit_of_measurement"] is None
-        assert payload["state_class"] is None
+        assert "unit_of_measurement" not in payload
+        assert "state_class" not in payload
 
     def test_disc_payload_with_icon(self):
         """Test discovery payload with icon."""
@@ -202,7 +208,7 @@ class TestPublishDiscovery:
         assert config["unit_of_measurement"] == "°C"
         assert config["device_class"] == "temperature"
 
-    def test_publish_discovery_buttons(self, mock_mqtt_client):
+    def test_publish_discovery_buttons(self, mock_mqtt_client, mock_device_id):
         """Test publishing button discovery."""
         client = mock_mqtt_client.return_value
 
@@ -225,7 +231,7 @@ class TestPublishDiscovery:
         assert config["pl_prs"] == "reboot"
         assert config["icon"] == "mdi:restart"
 
-    def test_publish_discovery_numbers(self, mock_mqtt_client):
+    def test_publish_discovery_numbers(self, mock_mqtt_client, mock_device_id):
         """Test publishing number entity discovery."""
         client = mock_mqtt_client.return_value
 
@@ -318,7 +324,7 @@ class TestReadAll:
 class TestOnConnect:
     """Test MQTT on_connect handler."""
 
-    def test_on_connect_basic(self, mock_mqtt_client):
+    def test_on_connect_basic(self, mock_mqtt_client, mock_device_id):
         """Test basic on_connect functionality."""
         client = mock_mqtt_client.return_value
 
@@ -380,10 +386,10 @@ class TestOnConnect:
 
 
 class TestOnMessage:
-    """Test MQTT on_message handler."""
+    """Test MQTT message handling."""
 
     def test_on_message_reboot_command(
-        self, mock_mqtt_client, mock_bme280, mock_ltr559, mock_gas_sensor
+        self, mock_mqtt_client, mock_bme280, mock_ltr559, mock_gas_sensor, mock_device_id
     ):
         """Test reboot command handling."""
         client = mock_mqtt_client.return_value
@@ -410,7 +416,7 @@ class TestOnMessage:
             mock_popen.assert_called_once_with(["sudo", "reboot"])
 
     def test_on_message_shutdown_command(
-        self, mock_mqtt_client, mock_bme280, mock_ltr559, mock_gas_sensor
+        self, mock_mqtt_client, mock_bme280, mock_ltr559, mock_gas_sensor, mock_device_id
     ):
         """Test shutdown command handling."""
         client = mock_mqtt_client.return_value
@@ -426,7 +432,7 @@ class TestOnMessage:
             mock_popen.assert_called_once_with(["sudo", "shutdown", "-h", "now"])
 
     def test_on_message_restart_service_command(
-        self, mock_mqtt_client, mock_bme280, mock_ltr559, mock_gas_sensor
+        self, mock_mqtt_client, mock_bme280, mock_ltr559, mock_gas_sensor, mock_device_id
     ):
         """Test restart service command handling."""
         client = mock_mqtt_client.return_value
@@ -444,7 +450,7 @@ class TestOnMessage:
             )
 
     def test_on_message_temp_offset_update(
-        self, mock_mqtt_client, mock_bme280, mock_ltr559, mock_gas_sensor
+        self, mock_mqtt_client, mock_bme280, mock_ltr559, mock_gas_sensor, mock_device_id
     ):
         """Test temperature offset update."""
         client = mock_mqtt_client.return_value
@@ -460,7 +466,7 @@ class TestOnMessage:
         sensors.update_calibration.assert_called_once_with(temp_offset=2.5)
 
     def test_on_message_hum_offset_update(
-        self, mock_mqtt_client, mock_bme280, mock_ltr559, mock_gas_sensor
+        self, mock_mqtt_client, mock_bme280, mock_ltr559, mock_gas_sensor, mock_device_id
     ):
         """Test humidity offset update."""
         client = mock_mqtt_client.return_value
@@ -476,7 +482,7 @@ class TestOnMessage:
         sensors.update_calibration.assert_called_once_with(hum_offset=-3.0)
 
     def test_on_message_cpu_factor_update(
-        self, mock_mqtt_client, mock_bme280, mock_ltr559, mock_gas_sensor
+        self, mock_mqtt_client, mock_bme280, mock_ltr559, mock_gas_sensor, mock_device_id
     ):
         """Test CPU temperature factor update."""
         client = mock_mqtt_client.return_value
