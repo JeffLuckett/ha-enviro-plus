@@ -1,4 +1,18 @@
 #!/usr/bin/env bash
+#
+# ha-enviro-plus Installation Script
+#
+# This script can be executed in multiple ways:
+# 1. Interactive installation: ./install.sh
+# 2. Remote installation: bash <(wget -qO- https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/main/install.sh)
+# 3. Remote installation: bash <(curl -sL https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/main/install.sh)
+#
+# Features:
+# - Preserves existing configuration on updates
+# - Prompts for new configuration options when detected
+# - Works in both interactive and non-interactive modes
+# - Provides comprehensive post-installation guidance
+#
 set -euo pipefail
 
 APP_NAME="ha-enviro-plus"
@@ -40,10 +54,49 @@ make_venv() {
   fi
 }
 
+# Detect if running remotely (via wget/curl)
+is_remote_execution() {
+  # Check if stdin is not a terminal (piped from wget/curl)
+  [ ! -t 0 ] || [ -n "${REMOTE_EXECUTION:-}" ]
+}
+
+# Load existing config values
+load_existing_config() {
+  if [ -f "${CFG}" ]; then
+    # Source the existing config file
+    set -a  # automatically export all variables
+    . "${CFG}"
+    set +a
+    return 0
+  fi
+  return 1
+}
+
+# Check for new config options that weren't in previous versions
+check_new_config_options() {
+  local new_options=()
+
+  # Check if any new options are missing from existing config
+  if [ -z "${CPU_ALPHA:-}" ]; then
+    new_options+=("CPU_ALPHA")
+  fi
+  if [ -z "${CPU_CORRECTION:-}" ]; then
+    new_options+=("CPU_CORRECTION")
+  fi
+
+  if [ ${#new_options[@]} -gt 0 ]; then
+    echo "==> New configuration options detected: ${new_options[*]}"
+    echo "These options were added in newer versions and need to be configured."
+    return 0
+  fi
+  return 1
+}
+
 write_config() {
-  echo "==> Creating new config..."
+  echo "==> Configuring ${APP_NAME}..."
   sudo mkdir -p "$(dirname "${CFG}")"
 
+  # Default values
   DEFAULT_MQTT_HOST="homeassistant.local"
   DEFAULT_MQTT_PORT="1883"
   DEFAULT_MQTT_USER="enviro"
@@ -55,30 +108,60 @@ write_config() {
   DEFAULT_CPU_ALPHA="0.8"
   DEFAULT_CPU_CORR="1.5"
 
-  if [ -t 0 ]; then
-    read -rp "MQTT host [${DEFAULT_MQTT_HOST}]: " MQTT_HOST
-    read -rp "MQTT port [${DEFAULT_MQTT_PORT}]: " MQTT_PORT
-    read -rp "MQTT username [${DEFAULT_MQTT_USER}]: " MQTT_USER
-    read -rsp "MQTT password (input hidden) [empty ok]: " MQTT_PASS; echo
-    read -rp "Home Assistant discovery prefix [${DEFAULT_DISCOVERY}]: " MQTT_DISCOVERY_PREFIX
-    read -rp "Poll interval seconds [${DEFAULT_POLL}]: " POLL
-    read -rp "Temperature offset °C [${DEFAULT_TEMP_OFFSET}]: " TEMP_OFFSET
-    read -rp "Humidity offset % [${DEFAULT_HUM_OFFSET}]: " HUM_OFFSET
-    read -rp "CPU alpha (0-1) [${DEFAULT_CPU_ALPHA}]: " CPU_ALPHA
-    read -rp "CPU correction factor [${DEFAULT_CPU_CORR}]: " CPU_CORR
+  # Try to load existing config
+  if load_existing_config; then
+    echo "==> Found existing configuration, preserving current settings..."
+
+    # Check for new options that need configuration
+    if check_new_config_options && [ -t 0 ]; then
+      echo
+      echo "Please configure the new options:"
+
+      if [ -z "${CPU_ALPHA:-}" ]; then
+        read -rp "CPU alpha (0-1) [${DEFAULT_CPU_ALPHA}]: " CPU_ALPHA_INPUT
+        CPU_ALPHA="${CPU_ALPHA_INPUT:-${DEFAULT_CPU_ALPHA}}"
+      fi
+
+      if [ -z "${CPU_CORRECTION:-}" ]; then
+        read -rp "CPU correction factor [${DEFAULT_CPU_CORR}]: " CPU_CORR_INPUT
+        CPU_CORRECTION="${CPU_CORR_INPUT:-${DEFAULT_CPU_CORR}}"
+      fi
+    else
+      # Use defaults for new options if not interactive
+      : "${CPU_ALPHA:=${DEFAULT_CPU_ALPHA}}"
+      : "${CPU_CORRECTION:=${DEFAULT_CPU_CORR}}"
+    fi
+  else
+    echo "==> Creating new configuration..."
+
+    # Interactive configuration for new installations
+    if [ -t 0 ]; then
+      read -rp "MQTT host [${DEFAULT_MQTT_HOST}]: " MQTT_HOST
+      read -rp "MQTT port [${DEFAULT_MQTT_PORT}]: " MQTT_PORT
+      read -rp "MQTT username [${DEFAULT_MQTT_USER}]: " MQTT_USER
+      read -rsp "MQTT password (input hidden) [empty ok]: " MQTT_PASS; echo
+      read -rp "Home Assistant discovery prefix [${DEFAULT_DISCOVERY}]: " MQTT_DISCOVERY_PREFIX
+      read -rp "Poll interval seconds [${DEFAULT_POLL}]: " POLL
+      read -rp "Temperature offset °C [${DEFAULT_TEMP_OFFSET}]: " TEMP_OFFSET
+      read -rp "Humidity offset % [${DEFAULT_HUM_OFFSET}]: " HUM_OFFSET
+      read -rp "CPU alpha (0-1) [${DEFAULT_CPU_ALPHA}]: " CPU_ALPHA
+      read -rp "CPU correction factor [${DEFAULT_CPU_CORR}]: " CPU_CORRECTION
+    fi
+
+    # Set defaults for any unset variables
+    : "${MQTT_HOST:=${DEFAULT_MQTT_HOST}}"
+    : "${MQTT_PORT:=${DEFAULT_MQTT_PORT}}"
+    : "${MQTT_USER:=${DEFAULT_MQTT_USER}}"
+    : "${MQTT_PASS:=${DEFAULT_MQTT_PASS}}"
+    : "${MQTT_DISCOVERY_PREFIX:=${DEFAULT_DISCOVERY}}"
+    : "${POLL:=${DEFAULT_POLL}}"
+    : "${TEMP_OFFSET:=${DEFAULT_TEMP_OFFSET}}"
+    : "${HUM_OFFSET:=${DEFAULT_HUM_OFFSET}}"
+    : "${CPU_ALPHA:=${DEFAULT_CPU_ALPHA}}"
+    : "${CPU_CORRECTION:=${DEFAULT_CPU_CORR}}"
   fi
 
-  : "${MQTT_HOST:=${DEFAULT_MQTT_HOST}}"
-  : "${MQTT_PORT:=${DEFAULT_MQTT_PORT}}"
-  : "${MQTT_USER:=${DEFAULT_MQTT_USER}}"
-  : "${MQTT_PASS:=${DEFAULT_MQTT_PASS}}"
-  : "${MQTT_DISCOVERY_PREFIX:=${DEFAULT_DISCOVERY}}"
-  : "${POLL:=${DEFAULT_POLL}}"
-  : "${TEMP_OFFSET:=${DEFAULT_TEMP_OFFSET}}"
-  : "${HUM_OFFSET:=${DEFAULT_HUM_OFFSET}}"
-  : "${CPU_ALPHA:=${DEFAULT_CPU_ALPHA}}"
-  : "${CPU_CORR:=${DEFAULT_CPU_CORR}}"
-
+  # Write the complete configuration
   sudo tee "${CFG}" > /dev/null <<EOF
 MQTT_HOST="${MQTT_HOST}"
 MQTT_PORT="${MQTT_PORT}"
@@ -89,7 +172,7 @@ POLL_SEC="${POLL}"
 TEMP_OFFSET="${TEMP_OFFSET}"
 HUM_OFFSET="${HUM_OFFSET}"
 CPU_ALPHA="${CPU_ALPHA}"
-CPU_CORRECTION="${CPU_CORR}"
+CPU_CORRECTION="${CPU_CORRECTION}"
 EOF
   sudo chmod 600 "${CFG}"
 }
@@ -125,16 +208,64 @@ start_service() {
 }
 
 post_message() {
-  echo "==> Installation complete!"
   echo
-  echo "Start the service (already running):"
-  echo "  sudo systemctl restart ${APP_NAME}.service"
+  echo "=========================================="
+  echo "🎉 ${APP_NAME} installation complete!"
+  echo "=========================================="
   echo
-  echo "Follow logs:"
-  echo "  sudo journalctl -u ${APP_NAME} -f"
+
+  echo "📋 Service Management:"
+  echo "  • Start service:     sudo systemctl start ${APP_NAME}"
+  echo "  • Stop service:      sudo systemctl stop ${APP_NAME}"
+  echo "  • Restart service:   sudo systemctl restart ${APP_NAME}"
+  echo "  • Enable service:    sudo systemctl enable ${APP_NAME}"
+  echo "  • Disable service:   sudo systemctl disable ${APP_NAME}"
+  echo "  • Service status:    sudo systemctl status ${APP_NAME}"
   echo
-  echo "Repository:"
-  echo "  https://github.com/JeffLuckett/${APP_NAME}"
+
+  echo "📊 Monitoring & Logs:"
+  echo "  • Follow live logs:  sudo journalctl -u ${APP_NAME} -f"
+  echo "  • View recent logs:  sudo journalctl -u ${APP_NAME} -n 50"
+  echo "  • View all logs:     sudo journalctl -u ${APP_NAME}"
+  echo "  • Logs since boot:   sudo journalctl -u ${APP_NAME} -b"
+  echo "  • Logs with timestamps: sudo journalctl -u ${APP_NAME} -o short-precise"
+  echo
+
+  echo "⚙️  Configuration:"
+  echo "  • Config file:       ${CFG}"
+  echo "  • Edit config:       sudo nano ${CFG}"
+  echo "  • Reload after edit: sudo systemctl restart ${APP_NAME}"
+  echo
+
+  echo "🔧 Troubleshooting:"
+  echo "  • Check service:     sudo systemctl status ${APP_NAME}"
+  echo "  • Test config:       sudo systemd-analyze verify ${SERVICE}"
+  echo "  • Check dependencies: ${VENV}/bin/python -c 'import paho.mqtt.client, bme280, ltr559, enviroplus'"
+  echo "  • Manual test:       sudo -u root ${VENV}/bin/python ${APP_DIR}/enviro_agent.py"
+  echo
+
+  echo "📁 Files & Directories:"
+  echo "  • Application:       ${APP_DIR}"
+  echo "  • Virtual env:       ${VENV}"
+  echo "  • Service file:      ${SERVICE}"
+  echo "  • Config file:       ${CFG}"
+  echo
+
+  echo "🌐 Repository & Support:"
+  echo "  • GitHub:            https://github.com/JeffLuckett/${APP_NAME}"
+  echo "  • Issues:            https://github.com/JeffLuckett/${APP_NAME}/issues"
+  echo
+
+  echo "💡 Quick Start:"
+  echo "  The service should now be running. Check the logs above to verify"
+  echo "  it's connecting to your MQTT broker and publishing sensor data."
+  echo
+
+  if [ -t 0 ]; then
+    echo "Press Enter to view current service status..."
+    read -r
+    sudo systemctl status ${APP_NAME} --no-pager
+  fi
 }
 
 main() {
