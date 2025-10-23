@@ -20,6 +20,7 @@ MQTT_DISCOVERY_PREFIX = os.getenv("MQTT_DISCOVERY_PREFIX", "homeassistant")
 POLL_SEC              = float(os.getenv("POLL_SEC", "2"))
 TEMP_OFFSET           = float(os.getenv("TEMP_OFFSET", "0.0"))
 HUM_OFFSET            = float(os.getenv("HUM_OFFSET", "0.0"))
+CPU_TEMP_FACTOR       = float(os.getenv("CPU_TEMP_FACTOR", "1.8"))
 LOG_TO_FILE           = int(os.getenv("LOG_TO_FILE", "0")) == 1
 LOG_PATH              = f"/var/log/{APP_NAME}.log"
 # ------------------------------------------------------------
@@ -188,6 +189,7 @@ def publish_discovery(c):
         c.publish(topic, json.dumps(cfg), qos=1, retain=True)
     number("Temp Offset", "temp_offset", "°C", -10, 10, 0.1)
     number("Humidity Offset", "hum_offset", "%", -20, 20, 0.5)
+    number("CPU Temp Factor", "cpu_temp_factor", None, 0.5, 5.0, 0.1)
 
 def read_cpu_temp():
     try:
@@ -198,8 +200,16 @@ def read_cpu_temp():
         return 0.0
 
 def read_all(bme, ltr):
-    global TEMP_OFFSET, HUM_OFFSET
-    t  = round(bme.get_temperature() + TEMP_OFFSET, 2)
+    global TEMP_OFFSET, HUM_OFFSET, CPU_TEMP_FACTOR
+    # Get raw temperature and CPU temperature for compensation
+    raw_temp = bme.get_temperature()
+    cpu_temp = read_cpu_temp()
+
+    # Apply CPU temperature compensation: raw_temp - ((cpu_temp - raw_temp) / factor)
+    compensated_temp = raw_temp - ((cpu_temp - raw_temp) / CPU_TEMP_FACTOR)
+
+    # Apply user-defined offset
+    t = round(compensated_temp + TEMP_OFFSET, 2)
     h  = round(max(0.0, min(100.0, bme.get_humidity() + HUM_OFFSET)), 2)
     p  = round(bme.get_pressure(), 2)
     lux = round(ltr.get_lux(), 2)
@@ -237,11 +247,12 @@ def on_connect(client, userdata, flags, rc, properties=None):
     # Publish retained offsets so HA shows the current values
     client.publish(f"{root}/set/temp_offset", str(TEMP_OFFSET), retain=True)
     client.publish(f"{root}/set/hum_offset",  str(HUM_OFFSET), retain=True)
+    client.publish(f"{root}/set/cpu_temp_factor", str(CPU_TEMP_FACTOR), retain=True)
     # Subscribe to commands and setters
     client.subscribe([(cmd_t, 1), (set_t, 1)])
 
 def on_message(client, userdata, msg):
-    global TEMP_OFFSET, HUM_OFFSET
+    global TEMP_OFFSET, HUM_OFFSET, CPU_TEMP_FACTOR
     try:
         topic = msg.topic
         payload = msg.payload.decode().strip()
@@ -265,6 +276,9 @@ def on_message(client, userdata, msg):
             elif key == "hum_offset":
                 HUM_OFFSET = float(payload)
                 logger.info("Set humidity offset = %s", payload)
+            elif key == "cpu_temp_factor":
+                CPU_TEMP_FACTOR = float(payload)
+                logger.info("Set CPU temp factor = %s", payload)
     except Exception as e:
         logger.exception("on_message error: %s", e)
 
@@ -273,7 +287,7 @@ def main():
     logger.info("Root topic: %s", root)
     logger.info("Discovery prefix: %s", MQTT_DISCOVERY_PREFIX)
     logger.info("Poll interval: %ss", POLL_SEC)
-    logger.info("Initial offsets: TEMP=%s°C HUM=%s%%", TEMP_OFFSET, HUM_OFFSET)
+    logger.info("Initial offsets: TEMP=%s°C HUM=%s%% CPU_FACTOR=%s", TEMP_OFFSET, HUM_OFFSET, CPU_TEMP_FACTOR)
 
     bme = BME280(i2c_addr=0x76)
     ltr = LTR559()

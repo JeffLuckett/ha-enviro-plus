@@ -92,11 +92,8 @@ check_new_config_options() {
   local new_options=()
 
   # Check if any new options are missing from existing config
-  if [ -z "${CPU_ALPHA:-}" ]; then
-    new_options+=("CPU_ALPHA")
-  fi
-  if [ -z "${CPU_CORRECTION:-}" ]; then
-    new_options+=("CPU_CORRECTION")
+  if [ -z "${CPU_TEMP_FACTOR:-}" ]; then
+    new_options+=("CPU_TEMP_FACTOR")
   fi
 
   if [ ${#new_options[@]} -gt 0 ]; then
@@ -120,8 +117,7 @@ write_config() {
   DEFAULT_POLL="2"
   DEFAULT_TEMP_OFFSET="0"
   DEFAULT_HUM_OFFSET="0"
-  DEFAULT_CPU_ALPHA="0.8"
-  DEFAULT_CPU_CORR="1.5"
+  DEFAULT_CPU_TEMP_FACTOR="1.8"
 
   # Try to load existing config
   if load_existing_config; then
@@ -132,19 +128,13 @@ write_config() {
       echo
       echo "Please configure the new options:"
 
-      if [ -z "${CPU_ALPHA:-}" ]; then
-        read -rp "CPU alpha (0-1) [${DEFAULT_CPU_ALPHA}]: " CPU_ALPHA_INPUT
-        CPU_ALPHA="${CPU_ALPHA_INPUT:-${DEFAULT_CPU_ALPHA}}"
-      fi
-
-      if [ -z "${CPU_CORRECTION:-}" ]; then
-        read -rp "CPU correction factor [${DEFAULT_CPU_CORR}]: " CPU_CORR_INPUT
-        CPU_CORRECTION="${CPU_CORR_INPUT:-${DEFAULT_CPU_CORR}}"
+      if [ -z "${CPU_TEMP_FACTOR:-}" ]; then
+        read -rp "CPU temperature compensation factor (higher number lowers temp output) [${DEFAULT_CPU_TEMP_FACTOR}]: " CPU_TEMP_FACTOR_INPUT
+        CPU_TEMP_FACTOR="${CPU_TEMP_FACTOR_INPUT:-${DEFAULT_CPU_TEMP_FACTOR}}"
       fi
     else
       # Use defaults for new options if not interactive
-      : "${CPU_ALPHA:=${DEFAULT_CPU_ALPHA}}"
-      : "${CPU_CORRECTION:=${DEFAULT_CPU_CORR}}"
+      : "${CPU_TEMP_FACTOR:=${DEFAULT_CPU_TEMP_FACTOR}}"
     fi
   else
     echo "==> Creating new configuration..."
@@ -159,8 +149,7 @@ write_config() {
       read -rp "Poll interval seconds [${DEFAULT_POLL}]: " POLL
       read -rp "Temperature offset °C [${DEFAULT_TEMP_OFFSET}]: " TEMP_OFFSET
       read -rp "Humidity offset % [${DEFAULT_HUM_OFFSET}]: " HUM_OFFSET
-      read -rp "CPU alpha (0-1) [${DEFAULT_CPU_ALPHA}]: " CPU_ALPHA
-      read -rp "CPU correction factor [${DEFAULT_CPU_CORR}]: " CPU_CORRECTION
+      read -rp "CPU temperature compensation factor (higher number lowers temp output) [${DEFAULT_CPU_TEMP_FACTOR}]: " CPU_TEMP_FACTOR
     fi
   fi
 
@@ -173,8 +162,7 @@ write_config() {
   : "${POLL:=${DEFAULT_POLL}}"
   : "${TEMP_OFFSET:=${DEFAULT_TEMP_OFFSET}}"
   : "${HUM_OFFSET:=${DEFAULT_HUM_OFFSET}}"
-  : "${CPU_ALPHA:=${DEFAULT_CPU_ALPHA}}"
-  : "${CPU_CORRECTION:=${DEFAULT_CPU_CORR}}"
+  : "${CPU_TEMP_FACTOR:=${DEFAULT_CPU_TEMP_FACTOR}}"
 
   # Write the complete configuration
   sudo tee "${CFG}" > /dev/null <<EOF
@@ -186,8 +174,7 @@ MQTT_DISCOVERY_PREFIX="${MQTT_DISCOVERY_PREFIX}"
 POLL_SEC="${POLL}"
 TEMP_OFFSET="${TEMP_OFFSET}"
 HUM_OFFSET="${HUM_OFFSET}"
-CPU_ALPHA="${CPU_ALPHA}"
-CPU_CORRECTION="${CPU_CORRECTION}"
+CPU_TEMP_FACTOR="${CPU_TEMP_FACTOR}"
 EOF
   sudo chmod 600 "${CFG}"
 }

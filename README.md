@@ -29,6 +29,7 @@ Additional system telemetry is included:
 - Plug-and-play Home Assistant discovery (no YAML setup)
 - Fast, configurable polling (default 2 s)
 - On-device temperature / humidity calibration offsets
+- CPU temperature compensation for accurate readings (higher number lowers temp. output)
 - Host metrics: uptime, CPU temp, load, RAM, disk
 - MQTT availability and discovery payloads
 - Home Assistant controls:
@@ -36,6 +37,7 @@ Additional system telemetry is included:
     - Restart service
     - Shutdown
     - Apply calibration offsets
+    - Adjust CPU temperature compensation factor
 - Structured logging (rotation-friendly)
 - Safe installer/uninstaller with config preservation
 - Designed for Pi Zero 2 W + Enviro+ HAT, but works anywhere the libraries do
@@ -74,11 +76,12 @@ Edit values safely, then restart the service:
     MQTT_HOST=homeassistant.local
     MQTT_PORT=1883
     MQTT_USER=enviro
-    MQTT_PASS="D33pd1v3@34"
+    MQTT_PASS=<use_your_own>
     MQTT_DISCOVERY_PREFIX=homeassistant
     POLL_SEC=2
     TEMP_OFFSET=0.0
     HUM_OFFSET=0.0
+    CPU_TEMP_FACTOR=1.8
     DEVICE_NAME="Enviro+ Satellite"
 
 ---
@@ -98,8 +101,8 @@ The uninstaller:
 
 ## 🧠 Notes
 
-- The temperature sensor runs warm due to CPU proximity.
-  Use offsets or enable CPU-temperature correction (planned).
+- **Temperature Compensation**: The temperature sensor runs warm due to CPU proximity. The agent now includes automatic CPU temperature compensation using a configurable factor (default 1.8). You can adjust this factor via Home Assistant or the config file for optimal accuracy.
+- **Calibration**: Use the `TEMP_OFFSET` for fine-tuning individual installations, and `CPU_TEMP_FACTOR` to adjust the CPU compensation algorithm.
 - Humidity readings depend on temperature calibration — adjust both together.
 - Sound and particulate sensors are optional; the agent functions fully without them.
 
