@@ -4,8 +4,10 @@
 #
 # This script can be executed in multiple ways:
 # 1. Interactive installation: ./install.sh
-# 2. Remote installation: bash <(wget -qO- https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/main/install.sh)
-# 3. Remote installation: bash <(curl -sL https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/main/install.sh)
+# 2. Install from specific branch: ./install.sh --branch your-branch-name
+# 3. Remote installation: bash <(wget -qO- https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/main/install.sh)
+# 4. Remote installation: bash <(curl -sL https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/main/install.sh)
+# 5. Remote from branch: bash <(wget -qO- https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/your-branch/install.sh)
 #
 # Features:
 # - Preserves existing configuration on updates
@@ -37,13 +39,17 @@ ensure_python() {
 }
 
 clone_or_update() {
+  local branch="${1:-main}"
+
   if [ -d "${APP_DIR}/.git" ]; then
     echo "==> Updating ${APP_NAME} at ${APP_DIR}..."
+    sudo git -C "${APP_DIR}" fetch origin
+    sudo git -C "${APP_DIR}" checkout "${branch}"
     sudo git -C "${APP_DIR}" pull --ff-only
   else
-    echo "==> Installing ${APP_NAME}..."
+    echo "==> Installing ${APP_NAME} from branch: ${branch}..."
     sudo rm -rf "${APP_DIR}"
-    sudo git clone https://github.com/JeffLuckett/${APP_NAME}.git "${APP_DIR}"
+    sudo git clone -b "${branch}" https://github.com/JeffLuckett/${APP_NAME}.git "${APP_DIR}"
   fi
 }
 
@@ -274,9 +280,31 @@ main() {
   echo "==> ${APP_NAME} Installer ${SCRIPT_VERSION}"
   echo
 
+  # Parse command line arguments
+  local branch="main"
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --branch|-b)
+        branch="$2"
+        shift 2
+        ;;
+      --help|-h)
+        echo "Usage: $0 [--branch BRANCH_NAME]"
+        echo "  --branch, -b    Install from specific branch (default: main)"
+        echo "  --help, -h      Show this help message"
+        exit 0
+        ;;
+      *)
+        echo "Unknown option: $1"
+        echo "Use --help for usage information"
+        exit 1
+        ;;
+    esac
+  done
+
   ensure_git
   ensure_python
-  clone_or_update
+  clone_or_update "${branch}"
   make_venv
   write_config
   install_service
