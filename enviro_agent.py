@@ -1,215 +1,295 @@
 #!/usr/bin/env python3
-"""
-Enviro+ → Home Assistant MQTT Agent
-Publishes Enviro+ and Pi system metrics via MQTT with Home Assistant discovery.
-"""
-
 import os, json, time, socket, psutil, subprocess, logging, platform
 from datetime import datetime, timezone
+
 import paho.mqtt.client as mqtt
 from bme280 import BME280
 from ltr559 import LTR559
 from enviroplus import gas
 
-AGENT_VERSION = "0.1.0"
+APP_NAME = "ha-enviro-plus"
+VERSION  = "0.1.0"
 
-# ------------------------------------------------------------------
-# Configuration from /etc/default/ha-enviro-plus
-# ------------------------------------------------------------------
-MQTT_HOST  = os.getenv("MQTT_HOST",  "homeassistant.local")
-MQTT_PORT  = int(os.getenv("MQTT_PORT", "1883"))
-MQTT_USER  = os.getenv("MQTT_USER",  "")
-MQTT_PASS  = os.getenv("MQTT_PASS",  "")
-DEVICE_NAME = os.getenv("DEVICE_NAME", "Enviro+")
-POLL_SEC    = float(os.getenv("POLL_SEC", "2"))
-TEMP_OFFSET = float(os.getenv("TEMP_OFFSET", "0"))
-HUM_OFFSET  = float(os.getenv("HUM_OFFSET", "0"))
-CPU_CORRECT = os.getenv("CPU_CORRECT", "true").lower() == "true"
-CPU_ALPHA   = float(os.getenv("CPU_ALPHA", "0.6"))
-DISCOVERY_PREFIX = os.getenv("MQTT_DISCOVERY_PREFIX", "homeassistant")
+# ---------- CONFIG via /etc/default/ha-enviro-plus ----------
+MQTT_HOST             = os.getenv("MQTT_HOST", "homeassistant.local")
+MQTT_PORT             = int(os.getenv("MQTT_PORT", "1883"))
+MQTT_USER             = os.getenv("MQTT_USER", "")
+MQTT_PASS             = os.getenv("MQTT_PASS", "")
+MQTT_DISCOVERY_PREFIX = os.getenv("MQTT_DISCOVERY_PREFIX", "homeassistant")
+POLL_SEC              = float(os.getenv("POLL_SEC", "2"))
+TEMP_OFFSET           = float(os.getenv("TEMP_OFFSET", "0.0"))
+HUM_OFFSET            = float(os.getenv("HUM_OFFSET", "0.0"))
+LOG_TO_FILE           = int(os.getenv("LOG_TO_FILE", "0")) == 1
+LOG_PATH              = f"/var/log/{APP_NAME}.log"
+# ------------------------------------------------------------
 
-# ------------------------------------------------------------------
-# Logging setup
-# ------------------------------------------------------------------
-LOG_PATH = "/var/log/ha-enviro-plus.log"
-logger = logging.getLogger("ha-enviro-plus")
+hostname  = socket.gethostname()
+device_id = f"enviro_{hostname.replace('-', '')}"
+root      = device_id  # topic root for states & commands
+avail_t   = f"{root}/status"
+cmd_t     = f"{root}/cmd"              # expects: reboot|shutdown|restart
+set_t     = f"{root}/set/+"            # retained settings, e.g. set/temp_offset
+
+def get_ipv4_prefer_wlan0():
+    try:
+        addrs = psutil.net_if_addrs()
+        # prefer wlan0, else first non-loopback IPv4
+        if "wlan0" in addrs:
+            for a in addrs["wlan0"]:
+                if a.family.name == "AF_INET":
+                    return a.address
+        for iface, lst in addrs.items():
+            for a in lst:
+                if a.family.name == "AF_INET" and not a.address.startswith("127."):
+                    return a.address
+    except Exception:
+        pass
+    return "unknown"
+
+def get_uptime_seconds():
+    try:
+        with open("/proc/uptime","r") as f:
+            return int(float(f.read().split()[0]))
+    except Exception:
+        return 0
+
+def get_model():
+    try:
+        with open("/proc/device-tree/model","rb") as f:
+            return f.read().decode(errors="ignore").strip("\x00")
+    except Exception:
+        return "Raspberry Pi"
+
+def get_serial():
+    try:
+        with open("/proc/cpuinfo","r") as f:
+            for line in f:
+                if line.startswith("Serial"):
+                    return line.split(":")[1].strip()
+    except Exception:
+        pass
+    return "unknown"
+
+# ---------- logging ----------
+logger = logging.getLogger(APP_NAME)
 logger.setLevel(logging.INFO)
 fmt = logging.Formatter("%(asctime)s %(levelname)s %(message)s", "%Y-%m-%d %H:%M:%S")
-fh = logging.FileHandler(LOG_PATH)
-fh.setFormatter(fmt)
-sh = logging.StreamHandler()
-sh.setFormatter(fmt)
-logger.addHandler(fh)
-logger.addHandler(sh)
-
-logger.info(f"ha-enviro-plus starting (v{AGENT_VERSION})")
-
-# ------------------------------------------------------------------
-# Helper functions
-# ------------------------------------------------------------------
-def get_system_info():
-    """Return hostname, IP, OS name."""
+handlers = [logging.StreamHandler()]
+if LOG_TO_FILE:
     try:
-        hostname = socket.gethostname()
+        fh = logging.FileHandler(LOG_PATH)
+        fh.setFormatter(fmt)
+        handlers.append(fh)
     except Exception:
-        hostname = "Unknown"
+        pass
+for h in handlers:
+    h.setFormatter(fmt)
+    logger.handlers = []
+    logger.addHandler(h)
+# ----------------------------
 
-    try:
-        ip = socket.gethostbyname(hostname)
-    except Exception:
-        ip = "Unknown"
-
-    try:
-        with open("/etc/os-release") as f:
-            os_name = next(
-                (line.split("=")[1].strip().strip('"') for line in f if line.startswith("PRETTY_NAME")),
-                "Unknown",
-            )
-    except Exception:
-        os_name = "Unknown"
-
-    return hostname, ip, os_name
-
-
-def get_uptime_human():
-    sec = time.time() - psutil.boot_time()
-    minutes = int(sec // 60)
-    return f"{minutes} min" if minutes < 60 else f"{minutes//60} hr"
-
-
-def corrected_temp(bme_temp):
-    """Optionally correct Enviro+ temp based on CPU heat."""
-    if not CPU_CORRECT:
-        return bme_temp + TEMP_OFFSET
-    try:
-        cpu_temp = psutil.sensors_temperatures()["cpu_thermal"][0].current
-    except Exception:
-        cpu_temp = bme_temp
-    smoothed = (CPU_ALPHA * cpu_temp) + ((1 - CPU_ALPHA) * bme_temp)
-    return bme_temp - (smoothed - bme_temp) + TEMP_OFFSET
-
-
-# ------------------------------------------------------------------
-# MQTT setup
-# ------------------------------------------------------------------
-hostname, ip, os_name = get_system_info()
-root_topic = f"enviro_{hostname.replace('-', '')}"
-availability_topic = f"{root_topic}/status"
-
-SENSORS = {
-    "bme280/temperature": ("Temperature", "°C", "temperature"),
-    "bme280/humidity": ("Humidity", "%", "humidity"),
-    "bme280/pressure": ("Pressure", "hPa", "atmospheric_pressure"),
-    "ltr559/lux": ("Illuminance", "lx", "illuminance"),
-    "gas/oxidising": ("Gas Oxidising (kΩ)", "kΩ", None),
-    "gas/reducing": ("Gas Reducing (kΩ)", "kΩ", None),
-    "gas/nh3": ("Gas NH3 (kΩ)", "kΩ", None),
-    "sys/uptime": ("Node Uptime", "", None),
-    "sys/mem_used": ("Node Memory Used", "%", None),
-    "sys/disk_used": ("Node Disk Used", "%", None),
-    "sys/cpu_temp": ("Node CPU Temp", "°C", "temperature"),
-    "sys/load": ("Node Load Avg (1m)", "", None),
-    "sys/ip": ("Network Address", "", None),
-    "sys/hostname": ("Host Name", "", None),
-    "sys/os": ("OS Release", "", None),
+DEVICE_INFO = {
+    "identifiers": [device_id],
+    "name": "Enviro+",
+    "manufacturer": "Pimoroni",
+    "model": "Enviro+ (no PMS5003)",
+    "sw_version": f"{APP_NAME} {VERSION}",
+    "configuration_url": "https://github.com/JeffLuckett/ha-enviro-plus",
 }
 
-def discovery_payload(topic_tail, name, unit, device_class=None):
-    return {
-        "name": f"{DEVICE_NAME} {name}",
-        "uniq_id": f"{root_topic}_{topic_tail.replace('/', '_')}",
-        "state_topic": f"{root_topic}/{topic_tail}",
-        "availability_topic": availability_topic,
-        "device": {
-            "identifiers": [root_topic],
-            "name": DEVICE_NAME,
-            "manufacturer": "Pimoroni",
-            "model": "Enviro+ for Raspberry Pi Zero 2W",
-            "sw_version": f"ha-enviro-plus v{AGENT_VERSION}",
-            "configuration_url": "https://github.com/JeffLuckett/ha-enviro-plus"
-        },
-        "unit_of_measurement": unit,
-        "state_class": "measurement",
-        **({"device_class": device_class} if device_class else {})
+SENSORS = {
+    "bme280/temperature": ("Temperature", "°C",  "temperature"),
+    "bme280/humidity":    ("Humidity",    "%",   "humidity"),
+    "bme280/pressure":    ("Pressure",    "hPa", "atmospheric_pressure"),
+    "ltr559/lux":         ("Illuminance", "lx",  "illuminance"),
+    "gas/oxidising":      ("Gas Oxidising (kΩ)", "kΩ", None),
+    "gas/reducing":       ("Gas Reducing (kΩ)",  "kΩ", None),
+    "gas/nh3":            ("Gas NH3 (kΩ)",       "kΩ", None),
+    "host/cpu_temp":      ("CPU Temp", "°C", "temperature"),
+    "host/cpu_usage":     ("CPU Usage", "%", None),
+    "host/mem_usage":     ("Mem Usage", "%", None),
+    "host/mem_size":      ("Mem Size", "GB", None),
+    "host/uptime":        ("Uptime", "s", "duration"),
+    "host/hostname":      ("Host Name", None, None),
+    "host/network":       ("Network Address", None, None),
+    "host/os_release":    ("OS Release", None, None),
+    "meta/last_update":   ("Last Update", None, None),
+}
+
+def disc_payload(topic_tail, name, unit, device_class=None, state_class="measurement", icon=None):
+    cfg = {
+        "name": name,
+        "uniq_id": f"{device_id}_{topic_tail.replace('/', '_')}",
+        "state_topic": f"{root}/{topic_tail}",
+        "availability_topic": avail_t,
+        "device": DEVICE_INFO,
     }
+    if unit:        cfg["unit_of_measurement"] = unit
+    if device_class:cfg["device_class"] = device_class
+    if state_class: cfg["state_class"] = state_class
+    if icon:        cfg["icon"] = icon
+    return cfg
 
-def publish_discovery(client):
-    for topic_tail, (name, unit, dev_class) in SENSORS.items():
-        disc_topic = f"{DISCOVERY_PREFIX}/sensor/{root_topic}/{topic_tail.replace('/', '_')}/config"
-        client.publish(disc_topic, json.dumps(discovery_payload(topic_tail, name, unit, dev_class)), qos=1, retain=True)
-    logger.info("Published discovery payloads")
+def publish_discovery(c):
+    # sensors
+    for tail, (name, unit, devcls) in SENSORS.items():
+        obj = tail.replace("/", "_")
+        topic = f"{MQTT_DISCOVERY_PREFIX}/sensor/{device_id}/{obj}/config"
+        c.publish(topic, json.dumps(disc_payload(tail, name, unit, devcls)), qos=1, retain=True)
+    # controls: simple button commands
+    def button(topic_key, name, icon):
+        cfg = {
+            "name": name,
+            "uniq_id": f"{device_id}_btn_{topic_key}",
+            "cmd_t": f"{root}/cmd",
+            "pl_prs": topic_key,
+            "availability_topic": avail_t,
+            "device": DEVICE_INFO,
+            "icon": icon
+        }
+        topic = f"{MQTT_DISCOVERY_PREFIX}/button/{device_id}/{topic_key}/config"
+        c.publish(topic, json.dumps(cfg), qos=1, retain=True)
+    button("reboot",          "Reboot Enviro Zero", "mdi:restart")
+    button("shutdown",        "Shutdown Enviro Zero", "mdi:power")
+    button("restart_service", "Restart Agent", "mdi:refresh")
 
-def read_sensors(bme, ltr):
-    t_raw = bme.get_temperature()
-    t = round(corrected_temp(t_raw), 2)
-    h = round(bme.get_humidity() + HUM_OFFSET, 2)
-    p = round(bme.get_pressure(), 2)
+    # number entities for offsets (so HA shows exact values)
+    def number(name, key, unit, minv, maxv, step):
+        cfg = {
+            "name": name,
+            "uniq_id": f"{device_id}_num_{key}",
+            "cmd_t": f"{root}/set/{key}",
+            "stat_t": f"{root}/set/{key}",
+            "availability_topic": avail_t,
+            "device": DEVICE_INFO,
+            "unit_of_measurement": unit,
+            "min": minv, "max": maxv, "step": step, "mode": "box"
+        }
+        topic = f"{MQTT_DISCOVERY_PREFIX}/number/{device_id}/{key}/config"
+        c.publish(topic, json.dumps(cfg), qos=1, retain=True)
+    number("Temp Offset", "temp_offset", "°C", -10, 10, 0.1)
+    number("Humidity Offset", "hum_offset", "%", -20, 20, 0.5)
+
+def read_cpu_temp():
+    try:
+        out = subprocess.check_output(["vcgencmd","measure_temp"], text=True).strip()
+        # temp=42.0'C
+        return float(out.split("=")[1].split("'")[0])
+    except Exception:
+        return 0.0
+
+def read_all(bme, ltr):
+    global TEMP_OFFSET, HUM_OFFSET
+    t  = round(bme.get_temperature() + TEMP_OFFSET, 2)
+    h  = round(max(0.0, min(100.0, bme.get_humidity() + HUM_OFFSET)), 2)
+    p  = round(bme.get_pressure(), 2)
     lux = round(ltr.get_lux(), 2)
-    g = gas.read_all()
-    ox = round(g.oxidising / 1000.0, 2)
-    red = round(g.reducing / 1000.0, 2)
-    nh3 = round(g.nh3 / 1000.0, 2)
+    g   = gas.read_all()
+    ox  = round(g.oxidising/1000.0, 2)
+    red = round(g.reducing/1000.0, 2)
+    nh3 = round(g.nh3/1000.0, 2)
+
     mem = psutil.virtual_memory()
-    disk = psutil.disk_usage("/")
-    cpu_temp = psutil.sensors_temperatures().get("cpu_thermal", [psutil._common.shwtemp(label="", current=t, high=None, critical=None)])[0].current
-    load1 = psutil.getloadavg()[0]
-    return {
+    vals = {
         "bme280/temperature": t,
-        "bme280/humidity": h,
-        "bme280/pressure": p,
-        "ltr559/lux": lux,
-        "gas/oxidising": ox,
-        "gas/reducing": red,
-        "gas/nh3": nh3,
-        "sys/uptime": get_uptime_human(),
-        "sys/mem_used": mem.percent,
-        "sys/disk_used": disk.percent,
-        "sys/cpu_temp": round(cpu_temp, 1),
-        "sys/load": round(load1, 2),
-        "sys/ip": ip,
-        "sys/hostname": hostname,
-        "sys/os": os_name,
+        "bme280/humidity":    h,
+        "bme280/pressure":    p,
+        "ltr559/lux":         lux,
+        "gas/oxidising":      ox,
+        "gas/reducing":       red,
+        "gas/nh3":            nh3,
+        "host/cpu_temp":      round(read_cpu_temp(), 1),
+        "host/cpu_usage":     round(psutil.cpu_percent(interval=None), 1),
+        "host/mem_usage":     round(mem.percent, 1),
+        "host/mem_size":      round(mem.total/1024/1024/1024, 3),
+        "host/uptime":        get_uptime_seconds(),
+        "host/hostname":      hostname,
+        "host/network":       get_ipv4_prefer_wlan0(),
+        "host/os_release":    platform.release(),
+        "meta/last_update":   datetime.now(timezone.utc).isoformat(),
     }
+    return vals
 
 def on_connect(client, userdata, flags, rc, properties=None):
-    client.publish(availability_topic, "online", retain=True)
+    logger.info("Connected to MQTT (%s:%s) RC=%s", MQTT_HOST, MQTT_PORT, mqtt.connack_string(rc))
+    client.publish(avail_t, "online", retain=True)
+    # (Re)publish discovery on connect
+    publish_discovery(client)
+    # Publish retained offsets so HA shows the current values
+    client.publish(f"{root}/set/temp_offset", str(TEMP_OFFSET), retain=True)
+    client.publish(f"{root}/set/hum_offset",  str(HUM_OFFSET), retain=True)
+    # Subscribe to commands and setters
+    client.subscribe([(cmd_t, 1), (set_t, 1)])
 
-# ------------------------------------------------------------------
-# Main
-# ------------------------------------------------------------------
+def on_message(client, userdata, msg):
+    global TEMP_OFFSET, HUM_OFFSET
+    try:
+        topic = msg.topic
+        payload = msg.payload.decode().strip()
+        if topic == cmd_t:
+            if payload == "reboot":
+                logger.info("Command: reboot")
+                client.publish(avail_t, "offline", retain=True)
+                subprocess.Popen(["sudo","reboot"])
+            elif payload == "shutdown":
+                logger.info("Command: shutdown")
+                client.publish(avail_t, "offline", retain=True)
+                subprocess.Popen(["sudo","shutdown","-h","now"])
+            elif payload == "restart_service":
+                logger.info("Command: restart service")
+                subprocess.Popen(["sudo","systemctl","restart",f"{APP_NAME}.service"])
+        elif topic.startswith(f"{root}/set/"):
+            key = topic.split("/")[-1]
+            if key == "temp_offset":
+                TEMP_OFFSET = float(payload)
+                client.publish(f"{root}/set/temp_offset", payload, retain=True)
+                logger.info("Set temp offset = %s", payload)
+            elif key == "hum_offset":
+                HUM_OFFSET = float(payload)
+                client.publish(f"{root}/set/hum_offset", payload, retain=True)
+                logger.info("Set humidity offset = %s", payload)
+    except Exception as e:
+        logger.exception("on_message error: %s", e)
+
 def main():
+    logger.info("%s starting (v%s)", APP_NAME, VERSION)
+    logger.info("Root topic: %s", root)
+    logger.info("Discovery prefix: %s", MQTT_DISCOVERY_PREFIX)
+    logger.info("Poll interval: %ss", POLL_SEC)
+    logger.info("Initial offsets: TEMP=%s°C HUM=%s%%", TEMP_OFFSET, HUM_OFFSET)
+
     bme = BME280(i2c_addr=0x76)
     ltr = LTR559()
 
-    client = mqtt.Client(client_id=root_topic, protocol=mqtt.MQTTv5)
+    client = mqtt.Client(client_id=root, protocol=mqtt.MQTTv5)
     if MQTT_USER:
         client.username_pw_set(MQTT_USER, MQTT_PASS)
-    client.will_set(availability_topic, "offline", retain=True)
+    client.will_set(avail_t, "offline", retain=True)
     client.on_connect = on_connect
+    client.on_message = on_message
 
     client.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
     client.loop_start()
 
-    publish_discovery(client)
-    client.publish(availability_topic, "online", retain=True)
-    logger.info(f"Root topic: {root_topic}")
-    logger.info(f"Discovery prefix: {DISCOVERY_PREFIX}")
-    logger.info(f"Poll interval: {POLL_SEC}s")
-    logger.info(f"Initial offsets: TEMP={TEMP_OFFSET}°C HUM={HUM_OFFSET}%")
+    # Publish static device attributes once
+    static = {
+        "model": get_model(),
+        "serial": get_serial(),
+    }
+    client.publish(f"{root}/device/attributes", json.dumps(static), retain=True)
 
     try:
         while True:
-            vals = read_sensors(bme, ltr)
-            for topic_tail, val in vals.items():
-                client.publish(f"{root_topic}/{topic_tail}", str(val), retain=True)
+            vals = read_all(bme, ltr)
+            for tail, val in vals.items():
+                client.publish(f"{root}/{tail}", str(val), retain=True)
             time.sleep(POLL_SEC)
     except KeyboardInterrupt:
-        logger.info("Stopping service (Ctrl+C)")
+        pass
     finally:
-        client.publish(availability_topic, "offline", retain=True)
+        client.publish(avail_t, "offline", retain=True)
         client.loop_stop()
         client.disconnect()
-        logger.info("Service stopped")
 
 if __name__ == "__main__":
     main()
