@@ -57,15 +57,29 @@ class EnviroPlusSensors:
         Read CPU temperature using vcgencmd.
 
         Returns:
-            CPU temperature in °C, or 0.0 if reading fails
+            CPU temperature in °C
+
+        Raises:
+            subprocess.CalledProcessError: If vcgencmd command fails
+            ValueError: If temperature parsing fails
+            Exception: For any other unexpected error
         """
         try:
             out = subprocess.check_output(["vcgencmd", "measure_temp"], text=True).strip()
-            # temp=42.0'C
-            return float(out.split("=")[1].split("'")[0])
+            # Parse output: temp=42.0'C
+            temp_str = out.split("=")[1].split("'")[0]
+            temp_value = float(temp_str)
+            self.logger.debug("CPU temperature: %.1f°C", temp_value)
+            return temp_value
+        except subprocess.CalledProcessError as e:
+            self.logger.error("vcgencmd command failed (exit code %d): %s", e.returncode, e)
+            raise
+        except (ValueError, IndexError) as e:
+            self.logger.error("Failed to parse CPU temperature from output '%s': %s", out, e)
+            raise
         except Exception as e:
-            self.logger.warning("Failed to read CPU temperature: %s", e)
-            return 0.0
+            self.logger.error("Unexpected error reading CPU temperature: %s", e)
+            raise
 
     def _apply_temp_compensation(self, raw_temp: float) -> float:
         """
@@ -75,12 +89,26 @@ class EnviroPlusSensors:
             raw_temp: Raw temperature reading from BME280
 
         Returns:
-            CPU-compensated temperature
+            CPU-compensated temperature, or raw_temp if compensation fails
+
+        Raises:
+            Never raises - always returns a fallback value
         """
-        cpu_temp = self._read_cpu_temp()
-        # Apply Pimoroni compensation formula: raw_temp - ((cpu_temp - raw_temp) / factor)
-        compensated_temp = raw_temp - ((cpu_temp - raw_temp) / self.cpu_temp_factor)
-        return compensated_temp
+        try:
+            cpu_temp = self._read_cpu_temp()
+            # Apply Pimoroni compensation formula: raw_temp - ((cpu_temp - raw_temp) / factor)
+            compensated_temp = raw_temp - ((cpu_temp - raw_temp) / self.cpu_temp_factor)
+            self.logger.debug(
+                "Temperature compensation: raw=%.1f°C, cpu=%.1f°C, compensated=%.1f°C",
+                raw_temp,
+                cpu_temp,
+                compensated_temp,
+            )
+            return compensated_temp
+        except Exception as e:
+            self.logger.warning("CPU temperature compensation failed: %s", e)
+            self.logger.info("Using raw temperature reading: %.1f°C", raw_temp)
+            return raw_temp
 
     # Temperature accessors
     def temp(self) -> float:
@@ -89,10 +117,25 @@ class EnviroPlusSensors:
 
         Returns:
             Temperature in °C (compensated + offset)
+
+        Raises:
+            Never raises - always returns a fallback value
         """
-        raw_temp = self.bme280.get_temperature()
-        compensated_temp = self._apply_temp_compensation(raw_temp)
-        return round(compensated_temp + self.temp_offset, 2)
+        try:
+            raw_temp = self.bme280.get_temperature()
+            compensated_temp = self._apply_temp_compensation(raw_temp)
+            final_temp = round(compensated_temp + self.temp_offset, 2)
+            self.logger.debug(
+                "Final temperature: %.2f°C (raw=%.2f, offset=%.2f)",
+                final_temp,
+                raw_temp,
+                self.temp_offset,
+            )
+            return final_temp
+        except Exception as e:
+            self.logger.error("Failed to read temperature: %s", e)
+            self.logger.info("Temperature will be reported as 0.0°C")
+            return 0.0
 
     def temp_raw(self) -> float:
         """
@@ -100,8 +143,17 @@ class EnviroPlusSensors:
 
         Returns:
             Raw temperature in °C
+
+        Raises:
+            Never raises - always returns a fallback value
         """
-        return round(float(self.bme280.get_temperature()), 2)
+        try:
+            raw_temp = self.bme280.get_temperature()
+            return round(float(raw_temp), 2)
+        except Exception as e:
+            self.logger.error("Failed to read raw temperature: %s", e)
+            self.logger.info("Raw temperature will be reported as 0.0°C")
+            return 0.0
 
     # Humidity accessors
     def humidity(self) -> float:

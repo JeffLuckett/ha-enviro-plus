@@ -41,7 +41,7 @@ def mock_ltr559(mocker):
 @pytest.fixture
 def mock_gas_sensor(mocker):
     """Mock gas sensor with realistic data."""
-    mock = mocker.patch("ha_enviro_plus.sensors.gas")
+    mock = mocker.patch("enviroplus.gas.read_all")
 
     # Create mock gas data object
     gas_data = Mock()
@@ -49,7 +49,7 @@ def mock_gas_sensor(mocker):
     gas_data.reducing = 30000.0  # 30kΩ
     gas_data.nh3 = 40000.0  # 40kΩ
 
-    mock.read_all.return_value = gas_data
+    mock.return_value = gas_data
     return gas_data
 
 
@@ -134,7 +134,13 @@ VERSION_ID="12"
         else:
             raise FileNotFoundError(f"No mock for {filename}")
 
+    def mock_exists_side_effect(path):
+        if path == "/etc/os-release":
+            return True
+        return True
+
     mocker.patch("builtins.open", side_effect=mock_open_side_effect)
+    mocker.patch("os.path.exists", side_effect=mock_exists_side_effect)
 
     return {
         "uptime": "12345.67 98765.43",
@@ -164,7 +170,13 @@ Serial		: 1234567890abcdef
         else:
             raise FileNotFoundError(f"No mock for {filename}")
 
+    def mock_exists_side_effect(path):
+        if path == "/etc/os-release":
+            return False
+        return True
+
     mocker.patch("builtins.open", side_effect=mock_open_side_effect)
+    mocker.patch("os.path.exists", side_effect=mock_exists_side_effect)
 
     return {
         "uptime": "12345.67 98765.43",

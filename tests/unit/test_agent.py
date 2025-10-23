@@ -140,6 +140,62 @@ VERSION_ID="12"
         os_release = get_os_release()
         assert os_release == "Linux-5.15.0-rpi4-aarch64-with-glibc2.31"
 
+    def test_get_ipv4_prefer_wlan0_exception_handling(self, mocker):
+        """Test IPv4 address detection when psutil raises an exception."""
+        # Mock psutil to raise an exception
+        mocker.patch(
+            "ha_enviro_plus.agent.psutil.net_if_addrs", side_effect=Exception("Network error")
+        )
+
+        ip = get_ipv4_prefer_wlan0()
+        assert ip == "unknown"
+
+    def test_get_uptime_seconds_malformed_file(self, mocker):
+        """Test uptime reading with malformed /proc/uptime."""
+        # Mock file with malformed content
+        mocker.patch("builtins.open", mock_open(read_data="invalid uptime data"))
+
+        uptime = get_uptime_seconds()
+        assert uptime == 0
+
+    def test_get_model_file_not_found(self, mocker):
+        """Test model detection when /proc/device-tree/model doesn't exist."""
+        # Mock file not found
+        mocker.patch("builtins.open", side_effect=FileNotFoundError("File not found"))
+
+        model = get_model()
+        assert model == "Raspberry Pi"
+
+    def test_get_serial_file_not_found(self, mocker):
+        """Test serial detection when /proc/cpuinfo doesn't exist."""
+        # Mock file not found
+        mocker.patch("builtins.open", side_effect=FileNotFoundError("File not found"))
+
+        serial = get_serial()
+        assert serial == "unknown"
+
+    def test_get_os_release_file_not_found(self, mocker):
+        """Test OS release when /etc/os-release doesn't exist."""
+        # Mock file not found and platform fallback
+        mocker.patch("builtins.open", side_effect=FileNotFoundError("File not found"))
+        mocker.patch(
+            "ha_enviro_plus.agent.platform.platform", return_value="Linux-5.15.0-rpi4-aarch64"
+        )
+
+        os_release = get_os_release()
+        assert os_release == "Linux-5.15.0-rpi4-aarch64"
+
+    def test_get_os_release_exception_handling(self, mocker):
+        """Test OS release when both file read and platform fail."""
+        # Mock both file read and platform to fail
+        mocker.patch("builtins.open", side_effect=Exception("File error"))
+        mocker.patch(
+            "ha_enviro_plus.agent.platform.platform", side_effect=Exception("Platform error")
+        )
+
+        os_release = get_os_release()
+        assert os_release == "unknown"
+
 
 class TestDiscoveryPayload:
     """Test discovery payload generation."""
@@ -153,7 +209,7 @@ class TestDiscoveryPayload:
         assert payload["state_topic"] == "enviro_raspberrypi/test/sensor"
         assert payload["availability_topic"] == "enviro_raspberrypi/status"
         assert payload["unit_of_measurement"] == "°C"
-        assert payload["device_class"] is None
+        assert "device_class" not in payload
         assert payload["state_class"] == "measurement"
         assert payload["device"] == DEVICE_INFO
 
@@ -220,7 +276,7 @@ class TestPublishDiscovery:
         reboot_config_call = None
         for call in calls:
             topic = call[0][0]
-            if "btn_reboot" in topic:
+            if "button" in topic and "reboot" in topic:
                 reboot_config_call = call
                 break
 
@@ -243,7 +299,7 @@ class TestPublishDiscovery:
         temp_offset_config_call = None
         for call in calls:
             topic = call[0][0]
-            if "num_temp_offset" in topic:
+            if "number" in topic and "temp_offset" in topic:
                 temp_offset_config_call = call
                 break
 
@@ -256,6 +312,187 @@ class TestPublishDiscovery:
         assert config["min"] == -10
         assert config["max"] == 10
         assert config["step"] == 0.1
+
+
+class TestLoggingSetup:
+    """Test logging setup and error handling."""
+
+    def test_log_file_handler_error(self, mocker):
+        """Test logging setup when file handler creation fails."""
+        # Mock FileHandler to raise an exception
+        mocker.patch("logging.FileHandler", side_effect=PermissionError("Permission denied"))
+
+        # Mock the LOG_TO_FILE constant to True
+        mocker.patch("ha_enviro_plus.agent.LOG_TO_FILE", True)
+
+        # Import the module to trigger the logging setup
+        import importlib
+        import ha_enviro_plus.agent
+
+        importlib.reload(ha_enviro_plus.agent)
+
+        # Should not raise an exception, just skip file logging
+        assert True  # If we get here, the error was handled gracefully
+
+
+class TestMainFunction:
+    """Test the main function and startup."""
+
+    def test_main_function_startup(self, mocker, mock_device_id):
+        """Test main function startup logging."""
+        # Mock all the dependencies
+        mocker.patch("ha_enviro_plus.agent.mqtt.Client")
+        mocker.patch("ha_enviro_plus.agent.EnviroPlusSensors")
+        mocker.patch("ha_enviro_plus.agent.time.sleep", side_effect=KeyboardInterrupt)
+
+        # Mock the logger to capture log messages
+        mock_logger = mocker.patch("ha_enviro_plus.agent.logger")
+
+        # Import and call main
+        from ha_enviro_plus.agent import main
+
+        try:
+            main()
+        except KeyboardInterrupt:
+            pass  # Expected from our mock
+
+        # Verify startup messages were logged
+        assert mock_logger.info.call_count >= 4  # At least startup messages
+        startup_calls = [
+            call for call in mock_logger.info.call_args_list if "starting" in str(call)
+        ]
+        assert len(startup_calls) > 0
+
+
+class TestMQTTErrorScenarios:
+    """Test MQTT error handling scenarios."""
+
+    def test_on_message_decode_error(self, mocker, mock_device_id):
+        """Test on_message when payload decode fails."""
+        # Create a mock message with decode error
+        mock_msg = Mock()
+        mock_msg.payload.decode.side_effect = UnicodeDecodeError("utf-8", b"", 0, 1, "invalid")
+        mock_msg.topic = "enviro_raspberrypi/cmd"
+
+        mock_client = Mock()
+        mock_sensors = Mock()
+        mock_logger = mocker.patch("ha_enviro_plus.agent.logger")
+
+        from ha_enviro_plus.agent import on_message
+
+        # Should handle decode error gracefully
+        on_message(mock_client, None, mock_msg, mock_sensors)
+
+        # Should log the error using logger.exception
+        assert mock_logger.exception.call_count > 0
+
+    def test_on_message_invalid_json(self, mocker, mock_device_id):
+        """Test on_message with malformed JSON in discovery."""
+        # Create a mock message with invalid JSON
+        mock_msg = Mock()
+        mock_msg.payload.decode.return_value = "invalid json {"
+        mock_msg.topic = "homeassistant/sensor/enviro_raspberrypi/test/config"
+
+        mock_client = Mock()
+        mock_sensors = Mock()
+        mock_logger = mocker.patch("ha_enviro_plus.agent.logger")
+
+        from ha_enviro_plus.agent import on_message
+
+        # Discovery messages are not processed by on_message, so no error should occur
+        on_message(mock_client, None, mock_msg, mock_sensors)
+
+        # No error should be logged since discovery messages are ignored
+        assert mock_logger.exception.call_count == 0
+
+    def test_on_message_unknown_command(self, mocker, mock_device_id):
+        """Test on_message with unknown command."""
+        mock_msg = Mock()
+        mock_msg.payload.decode.return_value = "unknown_command"
+        mock_msg.topic = "enviro_raspberrypi/cmd"
+
+        mock_client = Mock()
+        mock_sensors = Mock()
+        mock_logger = mocker.patch("ha_enviro_plus.agent.logger")
+
+        from ha_enviro_plus.agent import on_message
+
+        on_message(mock_client, None, mock_msg, mock_sensors)
+
+        # Unknown commands are silently ignored, no logging
+        assert mock_logger.info.call_count == 0
+        assert mock_logger.warning.call_count == 0
+        assert mock_logger.error.call_count == 0
+
+    def test_on_message_unknown_calibration_setting(self, mocker, mock_device_id):
+        """Test on_message with unknown calibration setting."""
+        mock_msg = Mock()
+        mock_msg.payload.decode.return_value = "5.0"
+        mock_msg.topic = "enviro_raspberrypi/set/unknown_setting"
+
+        mock_client = Mock()
+        mock_sensors = Mock()
+        mock_logger = mocker.patch("ha_enviro_plus.agent.logger")
+
+        from ha_enviro_plus.agent import on_message
+
+        on_message(mock_client, None, mock_msg, mock_sensors)
+
+        # Unknown settings are silently ignored, no logging
+        assert mock_logger.info.call_count == 0
+        assert mock_logger.warning.call_count == 0
+        assert mock_logger.error.call_count == 0
+
+    def test_on_message_invalid_calibration_value(self, mocker, mock_device_id):
+        """Test on_message with invalid calibration value."""
+        mock_msg = Mock()
+        mock_msg.payload.decode.return_value = "not_a_number"
+        mock_msg.topic = "enviro_raspberrypi/set/temp_offset"
+
+        mock_client = Mock()
+        mock_sensors = Mock()
+        mock_logger = mocker.patch("ha_enviro_plus.agent.logger")
+
+        from ha_enviro_plus.agent import on_message
+
+        on_message(mock_client, None, mock_msg, mock_sensors)
+
+        # Invalid values should cause an exception and be logged
+        assert mock_logger.exception.call_count > 0
+
+    def test_mqtt_connection_failure(self, mocker, mock_device_id):
+        """Test MQTT connection failure handling."""
+        mock_client = Mock()
+        mock_logger = mocker.patch("ha_enviro_plus.agent.logger")
+
+        from ha_enviro_plus.agent import on_connect
+
+        # Test connection failure (rc != 0)
+        on_connect(mock_client, None, None, 1)  # rc=1 indicates connection failure
+
+        # Should log the connection attempt with failure code
+        assert mock_logger.info.call_count > 0
+        # Check that it logged the connection attempt
+        log_calls = [
+            call for call in mock_logger.info.call_args_list if "Connected to MQTT" in str(call)
+        ]
+        assert len(log_calls) > 0
+
+    def test_mqtt_connection_success(self, mocker, mock_device_id):
+        """Test MQTT successful connection."""
+        mock_client = Mock()
+        mock_logger = mocker.patch("ha_enviro_plus.agent.logger")
+
+        from ha_enviro_plus.agent import on_connect
+
+        # Test successful connection (rc = 0)
+        on_connect(mock_client, None, None, 0)
+
+        # Should log successful connection and publish discovery
+        assert mock_logger.info.call_count > 0
+        # Should publish availability and discovery
+        assert mock_client.publish.call_count > 0
+        assert mock_client.subscribe.call_count > 0
 
 
 class TestReadAll:
@@ -277,7 +514,7 @@ class TestReadAll:
         mock_bme280.get_humidity.return_value = 45.0
         mock_bme280.get_pressure.return_value = 1013.25
         mock_ltr559.get_lux.return_value = 150.0
-        mock_subprocess.return_value = b"temp=42.0'C\n"
+        mock_subprocess.return_value = "temp=42.0'C\n"
 
         mock_gas_sensor.oxidising = 50000.0
         mock_gas_sensor.reducing = 30000.0
@@ -288,37 +525,50 @@ class TestReadAll:
         mock_psutil["vm"].total = 8 * 1024 * 1024 * 1024
         mock_psutil["cpu"].return_value = 12.5
 
-        # Mock file operations
-        with patch("builtins.open", mock_open(read_data="12345.67 98765.43")):
-            from ha_enviro_plus.sensors import EnviroPlusSensors
+        # Mock file operations and system functions
+        def mock_open_side_effect(filename, mode="r", **kwargs):
+            if filename == "/proc/uptime":
+                return mock_open(read_data="12345.67 98765.43")()
+            elif filename == "/etc/os-release":
+                return mock_open(read_data='PRETTY_NAME="Raspberry Pi OS Lite (64-bit)"\n')()
+            else:
+                raise FileNotFoundError(f"No mock for {filename}")
 
-            sensors = EnviroPlusSensors()
+        with patch("builtins.open", side_effect=mock_open_side_effect):
+            with patch("os.path.exists", return_value=True):
+                with patch("ha_enviro_plus.agent.hostname", "raspberrypi"):
+                    with patch(
+                        "ha_enviro_plus.agent.get_ipv4_prefer_wlan0", return_value="192.168.1.100"
+                    ):
+                        from ha_enviro_plus.sensors import EnviroPlusSensors
 
-            vals = read_all(sensors)
+                        sensors = EnviroPlusSensors()
 
-        # Verify sensor data
-        assert vals["bme280/temperature"] == pytest.approx(25.5, abs=0.1)
-        assert vals["bme280/humidity"] == pytest.approx(45.0, abs=0.1)
-        assert vals["bme280/pressure"] == pytest.approx(1013.25, abs=0.1)
-        assert vals["ltr559/lux"] == pytest.approx(150.0, abs=0.1)
-        assert vals["gas/oxidising"] == pytest.approx(50.0, abs=0.1)
-        assert vals["gas/reducing"] == pytest.approx(30.0, abs=0.1)
-        assert vals["gas/nh3"] == pytest.approx(40.0, abs=0.1)
+                        vals = read_all(sensors)
 
-        # Verify system data
-        assert vals["host/cpu_temp"] == 42.0
-        assert vals["host/cpu_usage"] == 12.5
-        assert vals["host/mem_usage"] == 45.2
-        assert vals["host/mem_size"] == 8.0
-        assert vals["host/uptime"] == 12345
-        assert vals["host/hostname"] == "raspberrypi"
-        assert vals["host/network"] == "192.168.1.100"
-        assert vals["host/os_release"] == "Raspberry Pi OS Lite (64-bit)"
+                        # Verify sensor data
+                        assert vals["bme280/temperature"] == pytest.approx(16.33, abs=0.1)
+                        assert vals["bme280/humidity"] == pytest.approx(45.0, abs=0.1)
+                        assert vals["bme280/pressure"] == pytest.approx(1013.25, abs=0.1)
+                        assert vals["ltr559/lux"] == pytest.approx(150.0, abs=0.1)
+                        assert vals["gas/oxidising"] == pytest.approx(50.0, abs=0.1)
+                        assert vals["gas/reducing"] == pytest.approx(30.0, abs=0.1)
+                        assert vals["gas/nh3"] == pytest.approx(40.0, abs=0.1)
 
-        # Verify metadata
-        assert "meta/last_update" in vals
-        # Should be ISO format timestamp
-        datetime.fromisoformat(vals["meta/last_update"].replace("Z", "+00:00"))
+                        # Verify system data
+                        assert vals["host/cpu_temp"] == 42.0
+                        assert vals["host/cpu_usage"] == 12.5
+                        assert vals["host/mem_usage"] == 45.2
+                        assert vals["host/mem_size"] == 8.0
+                        assert vals["host/uptime"] == 12345
+                        assert vals["host/hostname"] == "raspberrypi"
+                        assert vals["host/network"] == "192.168.1.100"
+                        assert vals["host/os_release"] == "Raspberry Pi OS Lite (64-bit)"
+
+                        # Verify metadata
+                        assert "meta/last_update" in vals
+                        # Should be ISO format timestamp
+                        datetime.fromisoformat(vals["meta/last_update"].replace("Z", "+00:00"))
 
 
 class TestOnConnect:

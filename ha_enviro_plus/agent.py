@@ -39,51 +39,126 @@ set_t = f"{root}/set/+"  # retained settings, e.g. set/temp_offset
 
 
 def get_ipv4_prefer_wlan0() -> str:
+    """
+    Get IPv4 address with preference for wlan0 interface.
+
+    Returns:
+        IPv4 address string, or "unknown" if unable to determine
+
+    Raises:
+        Never raises - always returns a fallback value
+    """
     try:
         addrs = psutil.net_if_addrs()
         # prefer wlan0, else first non-loopback IPv4
         if "wlan0" in addrs:
             for a in addrs["wlan0"]:
                 if a.family.name == "AF_INET" and not a.address.startswith("127."):
+                    logger.debug("Using wlan0 IPv4 address: %s", a.address)
                     return str(a.address)
         for iface, lst in addrs.items():
             for a in lst:
                 if a.family.name == "AF_INET" and not a.address.startswith("127."):
+                    logger.debug("Using %s IPv4 address: %s", iface, a.address)
                     return str(a.address)
     except Exception as e:
-        logger.warning("Failed to get network address: %s", e)
+        logger.error("Failed to get network address: %s", e)
+        logger.info("Network address will be reported as 'unknown'")
     return "unknown"
 
 
 def get_uptime_seconds() -> int:
+    """
+    Get system uptime in seconds from /proc/uptime.
+
+    Returns:
+        Uptime in seconds, or 0 if unable to read
+
+    Raises:
+        Never raises - always returns a fallback value
+    """
     try:
         with open("/proc/uptime", "r") as f:
-            return int(float(f.read().split()[0]))
-    except Exception:
+            uptime_str = f.read().split()[0]
+            uptime_seconds = int(float(uptime_str))
+            logger.debug("System uptime: %d seconds", uptime_seconds)
+            return uptime_seconds
+    except (FileNotFoundError, ValueError, IndexError) as e:
+        logger.error("Failed to read system uptime: %s", e)
+        logger.info("Uptime will be reported as 0 seconds")
+        return 0
+    except Exception as e:
+        logger.error("Unexpected error reading uptime: %s", e)
+        logger.info("Uptime will be reported as 0 seconds")
         return 0
 
 
 def get_model() -> str:
+    """
+    Get device model from /proc/device-tree/model.
+
+    Returns:
+        Device model string, or "Raspberry Pi" if unable to read
+
+    Raises:
+        Never raises - always returns a fallback value
+    """
     try:
         with open("/proc/device-tree/model", "rb") as f:
-            return f.read().decode(errors="ignore").strip("\x00")
-    except Exception:
+            model_bytes = f.read()
+            model_str = model_bytes.decode(errors="ignore").strip("\x00")
+            logger.debug("Device model: %s", model_str)
+            return model_str
+    except FileNotFoundError:
+        logger.warning("Device model file not found, using default")
+        logger.info("Device model will be reported as 'Raspberry Pi'")
+        return "Raspberry Pi"
+    except Exception as e:
+        logger.error("Failed to read device model: %s", e)
+        logger.info("Device model will be reported as 'Raspberry Pi'")
         return "Raspberry Pi"
 
 
 def get_serial() -> str:
+    """
+    Get device serial number from /proc/cpuinfo.
+
+    Returns:
+        Serial number string, or "unknown" if unable to read
+
+    Raises:
+        Never raises - always returns a fallback value
+    """
     try:
         with open("/proc/cpuinfo", "r") as f:
             for line in f:
                 if line.startswith("Serial"):
-                    return line.split(":")[1].strip()
-    except Exception:
-        pass
-    return "unknown"
+                    serial = line.split(":")[1].strip()
+                    logger.debug("Device serial: %s", serial)
+                    return serial
+        logger.warning("Serial number not found in cpuinfo")
+        logger.info("Serial number will be reported as 'unknown'")
+        return "unknown"
+    except FileNotFoundError:
+        logger.error("CPU info file not found")
+        logger.info("Serial number will be reported as 'unknown'")
+        return "unknown"
+    except Exception as e:
+        logger.error("Failed to read device serial: %s", e)
+        logger.info("Serial number will be reported as 'unknown'")
+        return "unknown"
 
 
 def get_os_release() -> str:
-    """Get OS release information."""
+    """
+    Get OS release information from /etc/os-release or platform fallback.
+
+    Returns:
+        OS release string, or "unknown" if unable to determine
+
+    Raises:
+        Never raises - always returns a fallback value
+    """
     try:
         # Try to get more detailed OS info
         if os.path.exists("/etc/os-release"):
@@ -91,11 +166,28 @@ def get_os_release() -> str:
                 lines = f.readlines()
             for line in lines:
                 if line.startswith("PRETTY_NAME="):
-                    return line.split("=", 1)[1].strip().strip('"')
+                    os_name = line.split("=", 1)[1].strip().strip('"')
+                    logger.debug("OS release from os-release: %s", os_name)
+                    return os_name
+
         # Fallback to platform info
-        return platform.platform()
+        platform_info = platform.platform()
+        logger.debug("OS release from platform: %s", platform_info)
+        return platform_info
+
+    except FileNotFoundError:
+        logger.warning("OS release file not found, using platform fallback")
+        try:
+            platform_info = platform.platform()
+            logger.info("OS release will be reported as: %s", platform_info)
+            return platform_info
+        except Exception as e:
+            logger.error("Platform fallback failed: %s", e)
+            logger.info("OS release will be reported as 'unknown'")
+            return "unknown"
     except Exception as e:
-        logger.warning("Failed to get OS release: %s", e)
+        logger.error("Failed to get OS release: %s", e)
+        logger.info("OS release will be reported as 'unknown'")
         return "unknown"
 
 
