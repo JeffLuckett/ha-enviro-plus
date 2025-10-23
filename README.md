@@ -1,72 +1,126 @@
-# ha-enviro-plus (v0.1.0)
+# ha-enviro-plus
 
-Enviro+ → Home Assistant MQTT agent for Raspberry Pi (Zero 2 W, 3/4/5).  
-Publishes Enviro+ sensor data and Pi host stats, exposes calibration + control via MQTT.
+**Enviro+ → Home Assistant MQTT Agent**
+A lightweight Python agent for publishing Pimoroni Enviro+ sensor data (temperature, humidity, pressure, light, gas, and system metrics) to Home Assistant via MQTT with automatic discovery.
 
-## One‑line install
+---
 
-```bash
-bash <(wget -qO- https://raw.githubusercontent.com/jeffluckett/ha-enviro-plus/main/install.sh)
-sudo systemctl start ha-enviro-plus.service
-tail -f /var/log/ha-enviro-plus.log
-```
+## 🚀 Overview
 
-> The installer prefers the Pimoroni virtualenv at `~/.virtualenvs/pimoroni` if present; otherwise it creates `~/.virtualenvs/ha-enviro-plus`.
+`ha-enviro-plus` turns a Raspberry Pi Zero 2 W (or any Pi running the Enviro+) into a self-contained Home Assistant satellite.
 
-## Configuration
+It reads data from:
+- **BME280** (temperature, humidity, pressure)
+- **LTR559** (ambient light)
+- **Gas sensor** (oxidising, reducing, NH₃)
+- Optional **sound** and **PMS5003 particulate** sensors
+and publishes them to Home Assistant over MQTT using native **HA Discovery**.
 
-File: `/etc/default/ha-enviro-plus`
+Additional system telemetry is included:
+- CPU temperature, load, and uptime
+- Memory and disk utilisation
+- Network info and hostname
+- Service availability and reboot/restart controls
 
-```ini
-MQTT_HOST=homeassistant.local
-MQTT_PORT=1883
-MQTT_USER=enviro
-MQTT_PASS=changeme
-MQTT_DISCOVERY_PREFIX=homeassistant
+---
 
-DEVICE_NAME="Enviro+"
-POLL_SEC=2.0
+## 🧩 Features
 
-TEMP_OFFSET_C=0.0
-HUM_OFFSET_PC=0.0
+- Plug-and-play Home Assistant discovery (no YAML setup)
+- Fast, configurable polling (default 2 s)
+- On-device temperature / humidity calibration offsets
+- Host metrics: uptime, CPU temp, load, RAM, disk
+- MQTT availability and discovery payloads
+- Home Assistant controls:
+    - Reboot device
+    - Restart service
+    - Shutdown
+    - Apply calibration offsets
+- Structured logging (rotation-friendly)
+- Safe installer/uninstaller with config preservation
+- Designed for Pi Zero 2 W + Enviro+ HAT, but works anywhere the libraries do
 
-# Optional overrides
-# ROOT_TOPIC=enviro_kitchen
-# LOG_PATH=/var/log/ha-enviro-plus.log
-```
+---
 
-Edit, then `sudo systemctl restart ha-enviro-plus`.
+## ⚙️ Quick Install
 
-## MQTT Topics
+Run this command **on your Raspberry Pi** (requires `sudo`):
 
-Root: `enviro_<hostname-without-dashes>` by default.
+    bash <(wget -qO- https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/main/install.sh)
 
-- State topics (retained), e.g. `enviro_zero/bme280/temperature`, `.../ltr559/lux`, `.../gas/nh3`, `.../host/cpu_temp`, `.../meta/last_update`
-- Availability: `enviro_zero/status` → `online` / `offline`
-- Commands:
-  - `.../cmd/restart` (no payload)
-  - `.../cmd/reboot` (no payload)
-  - `.../cmd/set_temp_offset` (float °C)
-  - `.../cmd/set_hum_offset` (float %)
-  - `.../cmd/identify` (no payload)
+The installer will:
+- Create `/opt/ha-enviro-plus` and a virtualenv
+- Prompt for MQTT host, username, and password
+- Prompt for poll interval and temperature / humidity offsets
+- Install dependencies and a systemd service
+- Start the agent immediately
 
-Offsets are persisted into `/etc/default/ha-enviro-plus`.
+Home Assistant should auto-discover the sensors within a few seconds.
 
-## Home Assistant
+---
 
-Enable the MQTT integration and make sure the agent can authenticate.  
-Entities are auto‑created via MQTT Discovery (`homeassistant/sensor/.../config`).
+## 🔧 Configuration
 
-## Logging
+Configuration lives at:
 
-Logs to `/var/log/ha-enviro-plus.log` with rotation (5×256KB).
+    /etc/default/ha-enviro-plus
 
-## Uninstall
+Edit values safely, then restart the service:
 
-```bash
-bash <(wget -qO- https://raw.githubusercontent.com/jeffluckett/ha-enviro-plus/main/uninstall.sh)
-```
+    sudo systemctl restart ha-enviro-plus
 
-## License
+**Example config:**
 
-MIT
+    MQTT_HOST=homeassistant.local
+    MQTT_PORT=1883
+    MQTT_USER=enviro
+    MQTT_PASS="D33pd1v3@34"
+    MQTT_DISCOVERY_PREFIX=homeassistant
+    POLL_SEC=2
+    TEMP_OFFSET=0.0
+    HUM_OFFSET=0.0
+    DEVICE_NAME="Enviro+ Satellite"
+
+---
+
+## 🧰 Uninstall
+
+Remove the agent and optionally keep the config:
+
+    wget -qO- https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/main/uninstall.sh | sudo bash
+
+The uninstaller:
+- Stops and disables the systemd service
+- Removes `/opt/ha-enviro-plus` and log files
+- Prompts to preserve `/etc/default/ha-enviro-plus`
+
+---
+
+## 🧠 Notes
+
+- The temperature sensor runs warm due to CPU proximity.
+  Use offsets or enable CPU-temperature correction (planned).
+- Humidity readings depend on temperature calibration — adjust both together.
+- Sound and particulate sensors are optional; the agent functions fully without them.
+
+---
+
+## 🧪 Version
+
+**v0.1.0 — Experimental pre-release**
+
+This version:
+- Establishes the base framework
+- Implements all major sensors and MQTT features
+- Adds host telemetry and Home Assistant control entities
+
+Next milestone:
+- Versioned installer (`--version` flag)
+- Web-based calibration adjustment
+- Optional local REST API
+
+---
+
+## 📜 License
+
+MIT © 2025 Jeff Luckett
