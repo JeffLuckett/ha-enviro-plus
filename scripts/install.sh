@@ -8,7 +8,7 @@
 # 3. Auto-detect branch from URL: ./install.sh --auto-detect
 # 4. Remote installation: bash <(wget -qO- https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/main/install.sh)
 # 5. Remote installation: bash <(curl -sL https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/main/install.sh)
-# 6. Remote from branch: bash <(wget -qO- https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/refs/heads/your-branch/scripts/install.sh)
+# 6. Remote from branch: bash <(wget -qO- https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/refs/heads/your-branch/scripts/install.sh) --branch your-branch
 # 7. Remote with auto-detect: bash <(wget -qO- https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/refs/heads/your-branch/scripts/install.sh) --auto-detect
 #
 # Features:
@@ -73,7 +73,7 @@ is_remote_execution() {
 
 # Auto-detect branch from URL when running remotely
 detect_branch_from_url() {
-  # Check if we're running from a GitHub raw URL
+  # Method 1: Check if we're running from a GitHub raw URL via SCRIPT_SOURCE
   if [ -n "${SCRIPT_SOURCE:-}" ]; then
     # Extract branch from URL like: .../refs/heads/BRANCH_NAME/scripts/install.sh
     if echo "$SCRIPT_SOURCE" | grep -q "refs/heads/"; then
@@ -81,7 +81,42 @@ detect_branch_from_url() {
       return 0
     fi
   fi
+
+  # Method 2: Check command line arguments for URL patterns
+  # This works when the URL is passed as an argument
+  for arg in "$@"; do
+    if echo "$arg" | grep -q "refs/heads/"; then
+      echo "$arg" | sed -n 's/.*refs\/heads\/\([^/]*\)\/.*/\1/p'
+      return 0
+    fi
+  done
+
+  # Method 3: Check if we're running from a pipe (wget/curl)
+  # This is a heuristic - if we're not interactive and not from a file, we might be from a URL
+  if [ ! -t 0 ] && [ -z "${BASH_SOURCE[0]:-}" ]; then
+    # We're running from a pipe, but can't detect the URL
+    # This is a limitation of bash <(curl ...) - the URL isn't available
+    return 1
+  fi
+
   return 1
+}
+
+# Alternative: Create a wrapper script that can detect the URL
+create_branch_detector() {
+  cat << 'EOF'
+#!/bin/bash
+# Branch detector wrapper
+URL="$1"
+if echo "$URL" | grep -q "refs/heads/"; then
+  BRANCH=$(echo "$URL" | sed -n 's/.*refs\/heads\/\([^/]*\)\/.*/\1/p')
+  echo "==> Auto-detected branch: $BRANCH"
+  bash <(curl -sL "$URL") --branch "$BRANCH"
+else
+  echo "==> Could not auto-detect branch from URL: $URL"
+  bash <(curl -sL "$URL")
+fi
+EOF
 }
 
 # Load existing config values
@@ -320,6 +355,13 @@ main() {
         echo "  $0                           # Install from main branch"
         echo "  $0 --branch feature-branch   # Install from specific branch"
         echo "  $0 --auto-detect             # Auto-detect branch from URL"
+        echo
+        echo "Remote Installation:"
+        echo "  # Install from specific branch (recommended)"
+        echo "  bash <(curl -sL https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/refs/heads/BRANCH/scripts/install.sh) --branch BRANCH"
+        echo
+        echo "  # Auto-detect branch (limited - URL not available to script)"
+        echo "  bash <(curl -sL https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/refs/heads/BRANCH/scripts/install.sh) --auto-detect"
         exit 0
         ;;
       *)
