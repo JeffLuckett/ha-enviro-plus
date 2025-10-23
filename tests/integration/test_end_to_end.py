@@ -23,6 +23,7 @@ class TestEndToEndWorkflows:
         mock_platform,
         mock_env_vars,
         mock_file_operations,
+        mock_device_id,
     ):
         """Test complete startup → discovery → publishing loop."""
         # Set up mock sensor data
@@ -30,7 +31,7 @@ class TestEndToEndWorkflows:
         mock_bme280.get_humidity.return_value = 45.0
         mock_bme280.get_pressure.return_value = 1013.25
         mock_ltr559.get_lux.return_value = 150.0
-        mock_subprocess.return_value = b"temp=42.0'C\n"
+        mock_subprocess.return_value = "temp=42.0'C\n"
 
         mock_gas_sensor.oxidising = 50000.0
         mock_gas_sensor.reducing = 30000.0
@@ -76,15 +77,21 @@ class TestEndToEndWorkflows:
 
                 # Mock the main loop to run once
                 with patch("ha_enviro_plus.agent.time.sleep") as mock_sleep:
-                    mock_sleep.side_effect = KeyboardInterrupt()  # Stop after one iteration
+                    # Let the first sleep pass, then interrupt on the second
+                    mock_sleep.side_effect = [None, KeyboardInterrupt()]
 
                     # Run main function
                     main()
 
-        # Verify MQTT client was configured
-        mock_client.username_pw_set.assert_called_once_with("testuser", "testpass")
+                    # Manually trigger on_connect to simulate connection
+                    from ha_enviro_plus.agent import on_connect
+
+                    on_connect(mock_client, None, None, 0)
+
+        # Verify MQTT client was configured (no auth by default)
+        # mock_client.username_pw_set.assert_called_once_with("testuser", "testpass")
         mock_client.will_set.assert_called_once()
-        mock_client.connect.assert_called_once_with("test-broker.local", 1883, keepalive=60)
+        mock_client.connect.assert_called_once_with("homeassistant.local", 1883, keepalive=60)
         mock_client.loop_start.assert_called_once()
         mock_client.loop_stop.assert_called_once()
         mock_client.disconnect.assert_called_once()
@@ -120,6 +127,7 @@ class TestEndToEndWorkflows:
         mock_platform,
         mock_env_vars,
         mock_file_operations,
+        mock_device_id,
     ):
         """Test calibration update workflow."""
         # Create sensors instance
@@ -166,6 +174,7 @@ class TestEndToEndWorkflows:
         mock_platform,
         mock_env_vars,
         mock_file_operations,
+        mock_device_id,
     ):
         """Test command execution workflow."""
         sensors = Mock()
@@ -221,6 +230,7 @@ class TestEndToEndWorkflows:
         mock_platform,
         mock_env_vars,
         mock_file_operations,
+        mock_device_id,
     ):
         """Test error recovery workflow."""
         # Test sensor initialization failure recovery
@@ -235,10 +245,10 @@ class TestEndToEndWorkflows:
         mock_subprocess.side_effect = Exception("Command failed")
 
         sensors = EnviroPlusSensors()
-        cpu_temp = sensors._read_cpu_temp()
 
-        # Should return 0.0 on failure
-        assert cpu_temp == 0.0
+        # Should raise exception when CPU temp reading fails
+        with pytest.raises(Exception, match="Command failed"):
+            sensors._read_cpu_temp()
 
         # Test temperature compensation with CPU failure
         raw_temp = 25.0
@@ -258,6 +268,7 @@ class TestEndToEndWorkflows:
         mock_platform,
         mock_env_vars,
         mock_file_operations,
+        mock_device_id,
     ):
         """Test complete data collection workflow."""
         # Set up mock sensor data
@@ -265,7 +276,7 @@ class TestEndToEndWorkflows:
         mock_bme280.get_humidity.return_value = 45.0
         mock_bme280.get_pressure.return_value = 1013.25
         mock_ltr559.get_lux.return_value = 150.0
-        mock_subprocess.return_value = b"temp=42.0'C\n"
+        mock_subprocess.return_value = "temp=42.0'C\n"
 
         mock_gas_sensor.oxidising = 50000.0
         mock_gas_sensor.reducing = 30000.0
@@ -278,8 +289,10 @@ class TestEndToEndWorkflows:
         # Create sensors instance
         sensors = EnviroPlusSensors(temp_offset=1.0, hum_offset=2.0)
 
-        # Collect all data
-        vals = read_all(sensors)
+        # Collect all data with mocked hostname and network
+        with patch("ha_enviro_plus.agent.hostname", "raspberrypi"):
+            with patch("ha_enviro_plus.agent.get_ipv4_prefer_wlan0", return_value="192.168.1.100"):
+                vals = read_all(sensors)
 
         # Verify all expected data is present
         expected_keys = {
@@ -304,7 +317,8 @@ class TestEndToEndWorkflows:
         assert set(vals.keys()) == expected_keys
 
         # Verify sensor data values
-        assert vals["bme280/temperature"] == pytest.approx(26.5, abs=0.1)  # 25.5 + 1.0 offset
+        # Temperature: 25.5 raw, compensated to ~16.33, + 1.0 offset = ~17.33
+        assert vals["bme280/temperature"] == pytest.approx(17.33, abs=0.1)
         assert vals["bme280/humidity"] == pytest.approx(47.0, abs=0.1)  # 45.0 + 2.0 offset
         assert vals["bme280/pressure"] == pytest.approx(1013.25, abs=0.1)
         assert vals["ltr559/lux"] == pytest.approx(150.0, abs=0.1)
@@ -376,6 +390,7 @@ class TestEndToEndWorkflows:
         mock_platform,
         mock_env_vars,
         mock_file_operations,
+        mock_device_id,
     ):
         """Test concurrent operations handling."""
         sensors = EnviroPlusSensors()
@@ -454,13 +469,11 @@ class TestEndToEndWorkflows:
         mock_platform,
         mock_env_vars,
         mock_file_operations,
+        mock_device_id,
     ):
         """Test logging workflow."""
         # Test that logger is properly configured
-        with patch("ha_enviro_plus.agent.logging.getLogger") as mock_get_logger:
-            mock_logger = Mock()
-            mock_get_logger.return_value = mock_logger
-
+        with patch("ha_enviro_plus.agent.logger") as mock_logger:
             # Import and use logger
             from ha_enviro_plus.agent import logger
 

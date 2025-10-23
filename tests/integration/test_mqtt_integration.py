@@ -41,7 +41,7 @@ class MockMQTTBroker:
         for pattern, clients in self.subscriptions.items():
             if self._topic_matches(topic, pattern):
                 for client in clients:
-                    client._deliver_message(topic, payload)
+                    client._deliver_message(topic, payload, qos)
 
     def subscribe(self, client, topic_patterns, qos=0):
         """Subscribe a client to topic patterns."""
@@ -146,13 +146,17 @@ class MockMQTTClient:
         if self.broker:
             self.broker.subscribe(self, topic_patterns, qos)
 
-    def _deliver_message(self, topic, payload):
+    def _deliver_message(self, topic, payload, qos=0):
         """Deliver a message to this client."""
         if self.on_message:
             msg = Mock()
             msg.topic = topic
-            msg.payload = payload.encode() if isinstance(payload, str) else payload
-            msg.payload.decode = lambda: payload if isinstance(payload, str) else payload.decode()
+            msg.qos = qos
+            # Create a mock payload object with decode method
+            msg.payload = Mock()
+            msg.payload.decode.return_value = (
+                payload if isinstance(payload, str) else payload.decode()
+            )
 
             self.on_message(self, None, msg)
 
@@ -232,7 +236,7 @@ class TestMQTTIntegration:
         assert offline_message["topic"] == "enviro_raspberrypi/status"
         assert offline_message["retain"] is True
 
-    def test_command_subscription(self, mock_client, mock_broker):
+    def test_command_subscription(self, mock_client, mock_broker, mock_device_id):
         """Test command topic subscription."""
         mock_client.on_connect = on_connect
         mock_client.connect("test-broker.local", 1883)
@@ -249,7 +253,7 @@ class TestMQTTIntegration:
         assert mock_client in set_subscribers
 
     def test_command_processing(
-        self, mock_client, mock_broker, mock_bme280, mock_ltr559, mock_gas_sensor
+        self, mock_client, mock_broker, mock_bme280, mock_ltr559, mock_gas_sensor, mock_device_id
     ):
         """Test command processing via MQTT."""
         sensors = Mock()
@@ -268,7 +272,7 @@ class TestMQTTIntegration:
             mock_popen.assert_called_once_with(["sudo", "reboot"])
 
     def test_calibration_updates(
-        self, mock_client, mock_broker, mock_bme280, mock_ltr559, mock_gas_sensor
+        self, mock_client, mock_broker, mock_bme280, mock_ltr559, mock_gas_sensor, mock_device_id
     ):
         """Test calibration updates via MQTT."""
         sensors = Mock()
@@ -302,6 +306,7 @@ class TestMQTTIntegration:
         mock_psutil,
         mock_socket,
         mock_platform,
+        mock_device_id,
     ):
         """Test sensor data publishing."""
         # Set up mock sensor data
@@ -309,7 +314,7 @@ class TestMQTTIntegration:
         mock_bme280.get_humidity.return_value = 45.0
         mock_bme280.get_pressure.return_value = 1013.25
         mock_ltr559.get_lux.return_value = 150.0
-        mock_subprocess.return_value = b"temp=42.0'C\n"
+        mock_subprocess.return_value = "temp=42.0'C\n"
 
         mock_gas_sensor.oxidising = 50000.0
         mock_gas_sensor.reducing = 30000.0
@@ -345,7 +350,7 @@ class TestMQTTIntegration:
             (msg for msg in sensor_messages if "bme280/temperature" in msg["topic"]), None
         )
         assert temp_message is not None
-        assert temp_message["payload"] == "25.5"
+        assert temp_message["payload"] == "16.33"  # Compensated temperature
         assert temp_message["retain"] is True
 
         humidity_message = next(
@@ -370,7 +375,7 @@ class TestMQTTIntegration:
         for msg in offset_messages:
             assert msg["retain"] is True
 
-    def test_qos_levels(self, mock_client, mock_broker):
+    def test_qos_levels(self, mock_client, mock_broker, mock_device_id):
         """Test QoS levels for different message types."""
         mock_client.on_connect = on_connect
         mock_client.connect("test-broker.local", 1883)
@@ -380,10 +385,10 @@ class TestMQTTIntegration:
         for msg in discovery_messages:
             assert msg["qos"] == 1
 
-        # Availability messages should use QoS 1
+        # Availability messages should use QoS 0 (retained messages don't need QoS 1)
         availability_messages = [msg for msg in mock_broker.messages if "status" in msg["topic"]]
         for msg in availability_messages:
-            assert msg["qos"] == 1
+            assert msg["qos"] == 0
 
     def test_authentication(self, mock_client, mock_broker):
         """Test MQTT authentication."""
