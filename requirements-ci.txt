@@ -1,0 +1,3 @@
+# CI requirements - excludes hardware dependencies that can't be installed on Ubuntu runners
+paho-mqtt>=2.0
+psutil
