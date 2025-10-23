@@ -263,11 +263,9 @@ def on_message(client, userdata, msg):
             key = topic.split("/")[-1]
             if key == "temp_offset":
                 TEMP_OFFSET = float(payload)
-                client.publish(f"{root}/set/temp_offset", payload, retain=True)
                 logger.info("Set temp offset = %s", payload)
             elif key == "hum_offset":
                 HUM_OFFSET = float(payload)
-                client.publish(f"{root}/set/hum_offset", payload, retain=True)
                 logger.info("Set humidity offset = %s", payload)
     except Exception as e:
         logger.exception("on_message error: %s", e)
