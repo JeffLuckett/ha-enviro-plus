@@ -3,7 +3,7 @@
 import json
 import pytest
 import time
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch, MagicMock, mock_open
 import threading
 
 from ha_enviro_plus.agent import (
