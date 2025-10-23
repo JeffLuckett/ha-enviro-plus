@@ -37,14 +37,14 @@ def get_ipv4_prefer_wlan0():
         # prefer wlan0, else first non-loopback IPv4
         if "wlan0" in addrs:
             for a in addrs["wlan0"]:
-                if a.family.name == "AF_INET":
+                if a.family.name == "AF_INET" and not a.address.startswith("127."):
                     return a.address
         for iface, lst in addrs.items():
             for a in lst:
                 if a.family.name == "AF_INET" and not a.address.startswith("127."):
                     return a.address
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to get network address: %s", e)
     return "unknown"
 
 def get_uptime_seconds():
@@ -70,6 +70,22 @@ def get_serial():
     except Exception:
         pass
     return "unknown"
+
+def get_os_release():
+    """Get OS release information."""
+    try:
+        # Try to get more detailed OS info
+        if os.path.exists("/etc/os-release"):
+            with open("/etc/os-release", "r") as f:
+                lines = f.readlines()
+            for line in lines:
+                if line.startswith("PRETTY_NAME="):
+                    return line.split("=", 1)[1].strip().strip('"')
+        # Fallback to platform info
+        return platform.platform()
+    except Exception as e:
+        logger.warning("Failed to get OS release: %s", e)
+        return "unknown"
 
 # ---------- logging ----------
 logger = logging.getLogger(APP_NAME)
@@ -204,11 +220,15 @@ def read_all(bme, ltr):
         "host/mem_usage":     round(mem.percent, 1),
         "host/mem_size":      round(mem.total/1024/1024/1024, 3),
         "host/uptime":        get_uptime_seconds(),
-        "host/hostname":      hostname,
+        "host/hostname":      str(hostname),
         "host/network":       get_ipv4_prefer_wlan0(),
-        "host/os_release":    platform.release(),
+        "host/os_release":    get_os_release(),
         "meta/last_update":   datetime.now(timezone.utc).isoformat(),
     }
+    # Debug logging for problematic values
+    logger.info("Hostname: %s, Network: %s, OS: %s, Last Update: %s",
+                vals["host/hostname"], vals["host/network"],
+                vals["host/os_release"], vals["meta/last_update"])
     return vals
 
 def on_connect(client, userdata, flags, rc, properties=None):
