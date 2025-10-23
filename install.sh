@@ -3,91 +3,115 @@ set -euo pipefail
 
 APP_NAME="ha-enviro-plus"
 APP_DIR="/opt/${APP_NAME}"
-VENV_DIR="${APP_DIR}/.venv"
-SERVICE_FILE="/etc/systemd/system/${APP_NAME}.service"
-DEFAULTS="/etc/default/${APP_NAME}"
+SERVICE="/etc/systemd/system/${APP_NAME}.service"
+CFG="/etc/default/${APP_NAME}"
+VENV="${APP_DIR}/.venv"
 
-# Detect the user that should own/run the service
-RUN_AS="${SUDO_USER:-$(whoami)}"
+require_root() {
+  if [ "${EUID:-$(id -u)}" -ne 0 ]; then
+    echo "✖ Please run as root: sudo bash install.sh"
+    exit 1
+  fi
+}
 
-need_cmd() { command -v "$1" >/dev/null 2>&1 || { echo "Missing: $1"; exit 1; }; }
+ensure_git() {
+  if ! command -v git >/dev/null 2>&1; then
+    apt-get update -y
+    apt-get install -y git
+  fi
+}
 
-need_cmd sudo
-need_cmd python3
-need_cmd wget
-need_cmd systemctl
+ensure_python() {
+  apt-get update -y
+  apt-get install -y python3 python3-venv python3-pip
+}
 
-echo "==> Installing ${APP_NAME}..."
+clone_or_update() {
+  if [ -d "${APP_DIR}/.git" ]; then
+    echo "==> Updating ${APP_NAME} at ${APP_DIR}..."
+    git -C "${APP_DIR}" pull --ff-only
+  else
+    echo "==> Installing ${APP_NAME}..."
+    rm -rf "${APP_DIR}"
+    git clone https://github.com/JeffLuckett/${APP_NAME}.git "${APP_DIR}"
+  fi
+}
 
-# Ensure git for first install (your repo clones itself when using the wget installer)
-if ! command -v git >/dev/null 2>&1; then
-  echo "==> Installing git..."
-  sudo apt-get update -y
-  sudo apt-get install -y git
-fi
+make_venv() {
+  if [ ! -d "${VENV}" ]; then
+    python3 -m venv "${VENV}"
+  fi
+  "${VENV}/bin/pip" install --upgrade pip
+  # NOTE: requirements.txt (plural)
+  if [ -f "${APP_DIR}/requirements.txt" ]; then
+    "${VENV}/bin/pip" install -r "${APP_DIR}/requirements.txt" || echo "⚠ pip install warnings ignored"
+  else
+    echo "⚠ ${APP_DIR}/requirements.txt not found; skipping dependency install"
+  fi
+}
 
-# Fresh clone or update to main
-if [ -d "${APP_DIR}/.git" ]; then
-  echo "==> Updating existing checkout in ${APP_DIR}..."
-  sudo git -C "${APP_DIR}" fetch --depth=1 origin main
-  sudo git -C "${APP_DIR}" reset --hard origin/main
-else
-  echo "==> Cloning to ${APP_DIR}..."
-  sudo rm -rf "${APP_DIR}"
-  sudo git clone --depth=1 https://github.com/JeffLuckett/${APP_NAME}.git "${APP_DIR}"
-fi
-
-# Create venv (inside /opt so the service user can use it)
-if [ ! -d "${VENV_DIR}" ]; then
-  echo "==> Creating virtualenv..."
-  sudo python3 -m venv "${VENV_DIR}"
-  # Make sure the service user can read/execute it
-  sudo chown -R "${RUN_AS}:${RUN_AS}" "${APP_DIR}"
-fi
-
-echo "==> Installing Python dependencies..."
-sudo -u "${RUN_AS}" "${VENV_DIR}/bin/pip" install --upgrade pip
-# Install directly (no requirements.txt dependency)
-sudo -u "${RUN_AS}" "${VENV_DIR}/bin/pip" install \
-  paho-mqtt==2.* psutil enviroplus
-
-# Create defaults if missing (interactive; safe re-run preserves existing config)
-if [ ! -f "${DEFAULTS}" ]; then
+write_config() {
   echo "==> Creating new config..."
-  read -r -p "MQTT host [homeassistant.local]: " MQTT_HOST
-  MQTT_HOST=${MQTT_HOST:-homeassistant.local}
-  read -r -p "MQTT port [1883]: " MQTT_PORT
-  MQTT_PORT=${MQTT_PORT:-1883}
-  read -r -p "MQTT username (blank for none): " MQTT_USER
-  read -r -s -p "MQTT password (blank for none): " MQTT_PASS; echo
-  read -r -p "MQTT discovery prefix [homeassistant]: " MQTT_DISCOVERY_PREFIX
-  MQTT_DISCOVERY_PREFIX=${MQTT_DISCOVERY_PREFIX:-homeassistant}
-  read -r -p "Poll interval seconds [2]: " POLL_SEC
-  POLL_SEC=${POLL_SEC:-2}
-  read -r -p "Initial temperature offset (°C) [0.0]: " TEMP_OFFSET
-  TEMP_OFFSET=${TEMP_OFFSET:-0.0}
-  read -r -p "Initial humidity offset (%) [0.0]: " HUM_OFFSET
-  HUM_OFFSET=${HUM_OFFSET:-0.0}
+  mkdir -p "$(dirname "${CFG}")"
 
-  sudo tee "${DEFAULTS}" >/dev/null <<EOF
-# ${APP_NAME} /etc/default
+  # Defaults (non-interactive safe)
+  DEFAULT_MQTT_HOST="homeassistant.local"
+  DEFAULT_MQTT_PORT="1883"
+  DEFAULT_MQTT_USER="enviro"
+  DEFAULT_MQTT_PASS=""
+  DEFAULT_DISCOVERY="homeassistant"
+  DEFAULT_POLL="2"
+  DEFAULT_TEMP_OFFSET="0"
+  DEFAULT_HUM_OFFSET="0"
+  DEFAULT_CPU_ALPHA="0.8"
+  DEFAULT_CPU_CORR="1.5"
+
+  # Interactive if stdin is a TTY
+  if [ -t 0 ]; then
+    read -rp "MQTT host [${DEFAULT_MQTT_HOST}]: " MQTT_HOST
+    read -rp "MQTT port [${DEFAULT_MQTT_PORT}]: " MQTT_PORT
+    read -rp "MQTT username [${DEFAULT_MQTT_USER}]: " MQTT_USER
+    read -rsp "MQTT password (input hidden) [empty ok]: " MQTT_PASS; echo
+    read -rp "Home Assistant discovery prefix [${DEFAULT_DISCOVERY}]: " MQTT_DISCOVERY_PREFIX
+    read -rp "Poll interval seconds [${DEFAULT_POLL}]: " POLL
+    read -rp "Temperature offset °C [${DEFAULT_TEMP_OFFSET}]: " TEMP_OFFSET
+    read -rp "Humidity offset % [${DEFAULT_HUM_OFFSET}]: " HUM_OFFSET
+    read -rp "CPU alpha (0-1) [${DEFAULT_CPU_ALPHA}]: " CPU_ALPHA
+    read -rp "CPU correction factor [${DEFAULT_CPU_CORR}]: " CPU_CORR
+  fi
+
+  : "${MQTT_HOST:=${DEFAULT_MQTT_HOST}}"
+  : "${MQTT_PORT:=${DEFAULT_MQTT_PORT}}"
+  : "${MQTT_USER:=${DEFAULT_MQTT_USER}}"
+  : "${MQTT_PASS:=${DEFAULT_MQTT_PASS}}"
+  : "${MQTT_DISCOVERY_PREFIX:=${DEFAULT_DISCOVERY}}"
+  : "${POLL:=${DEFAULT_POLL}}"
+  : "${TEMP_OFFSET:=${DEFAULT_TEMP_OFFSET}}"
+  : "${HUM_OFFSET:=${DEFAULT_HUM_OFFSET}}"
+  : "${CPU_ALPHA:=${DEFAULT_CPU_ALPHA}}"
+  : "${CPU_CORR:=${DEFAULT_CPU_CORR}}"
+
+  cat > "${CFG}" <<EOF
+# ${APP_NAME} configuration
 MQTT_HOST="${MQTT_HOST}"
-MQTT_PORT=${MQTT_PORT}
+MQTT_PORT="${MQTT_PORT}"
 MQTT_USER="${MQTT_USER}"
 MQTT_PASS="${MQTT_PASS}"
 MQTT_DISCOVERY_PREFIX="${MQTT_DISCOVERY_PREFIX}"
-POLL_SEC=${POLL_SEC}
-TEMP_OFFSET=${TEMP_OFFSET}
-HUM_OFFSET=${HUM_OFFSET}
-# Optional: LOG_TO_FILE=1 to write /var/log/${APP_NAME}.log (otherwise journald only)
-LOG_TO_FILE=0
-EOF
-else
-  echo "==> Preserving existing ${DEFAULTS}"
-fi
 
-echo "==> Writing systemd service..."
-sudo tee "${SERVICE_FILE}" >/dev/null <<EOF
+POLL_SEC="${POLL}"
+TEMP_OFFSET="${TEMP_OFFSET}"
+HUM_OFFSET="${HUM_OFFSET}"
+
+CPU_ALPHA="${CPU_ALPHA}"
+CPU_CORRECTION="${CPU_CORR}"
+EOF
+  chmod 600 "${CFG}"
+}
+
+install_service() {
+  echo "==> Installing systemd service..."
+  cat > "${SERVICE}" <<EOF
 [Unit]
 Description=Enviro+ → Home Assistant MQTT Agent
 After=network-online.target
@@ -95,32 +119,55 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=${RUN_AS}
-Group=${RUN_AS}
-EnvironmentFile=${DEFAULTS}
+EnvironmentFile=${CFG}
 WorkingDirectory=${APP_DIR}
-ExecStart=${VENV_DIR}/bin/python ${APP_DIR}/enviro_agent.py
+ExecStart=${VENV}/bin/python ${APP_DIR}/enviro_agent.py
 Restart=on-failure
 RestartSec=5
-# Hardening
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=full
-ProtectHome=false
+
+# Log to journal; don't fight file perms
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-sudo systemctl daemon-reload
-sudo systemctl enable "${APP_NAME}.service"
+  systemctl daemon-reload
+  systemctl enable ${APP_NAME}.service
+}
 
-echo "==> Installation complete!
+start_service() {
+  systemctl restart ${APP_NAME}.service || systemctl start ${APP_NAME}.service
+}
 
-Start the service:
-  sudo systemctl start ${APP_NAME}.service
+post_message() {
+  echo "==> Installation complete!"
+  echo
+  echo "Start the service:"
+  echo "  sudo systemctl start ${APP_NAME}.service"
+  echo
+  echo "Follow logs (journal):"
+  echo "  sudo journalctl -u ${APP_NAME} -f"
+  echo
+  echo "Config file:"
+  echo "  ${CFG}"
+  echo
+  echo "Repository:"
+  echo "  https://github.com/JeffLuckett/${APP_NAME}"
+}
 
-Follow logs:
-  journalctl -u ${APP_NAME} -f --no-pager
-"
-exit 0
+main() {
+  require_root
+  ensure_git
+  ensure_python
+  clone_or_update
+  make_venv
+  write_config
+  install_service
+  start_service
+  post_message
+  exit 0
+}
+
+main "$@"
