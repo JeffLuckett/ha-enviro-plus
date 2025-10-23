@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ha-enviro-plus"
+version = "0.1.0"
+description = "Enviro+ to Home Assistant MQTT Agent"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [{name = "Jeff Luckett"}]
+keywords = ["homeassistant", "mqtt", "enviro", "raspberry-pi", "sensors"]
+
+dependencies = [
+    "enviroplus",
+    "paho-mqtt>=2.0",
+    "psutil",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "pytest-mock>=3.11.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-timeout>=2.1.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+    "mypy>=1.5.0",
+]
+
+[project.scripts]
+ha-enviro-plus = "ha_enviro_plus.agent:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+markers = [
+    "hardware: tests requiring physical hardware",
+    "slow: slow running tests",
+]
+addopts = [
+    "--strict-markers",
+]
+
+[tool.coverage.run]
+source = ["ha_enviro_plus"]
+omit = ["tests/*", "*/site-packages/*"]
+
+[tool.black]
+line-length = 100
+target-version = ['py39']
+
+[tool.flake8]
+max-line-length = 100
+extend-ignore = ["E203", "W503"]
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
