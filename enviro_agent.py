@@ -56,22 +56,6 @@ def _ipv4_prefer_wlan0():
         pass
     return "Unknown"
 
-def get_os_release():
-    """Get OS release information."""
-    try:
-        # Try to get more detailed OS info
-        if os.path.exists("/etc/os-release"):
-            with open("/etc/os-release", "r") as f:
-                lines = f.readlines()
-            for line in lines:
-                if line.startswith("PRETTY_NAME="):
-                    return line.split("=", 1)[1].strip().strip('"')
-        # Fallback to platform info
-        return platform.platform()
-    except Exception as e:
-        logger.warning("Failed to get OS release: %s", e)
-        return "Unknown"
-
 def discovery_sensor(topic_tail, name, unit, device_class=None, state_class="measurement", icon=None, extra=None):
     cfg = {
         "name": name,
@@ -105,16 +89,14 @@ SENSORS = {
     "gas/oxidising":      ("Gas Oxidising (kΩ)", "kΩ", None),
     "gas/reducing":       ("Gas Reducing (kΩ)",  "kΩ", None),
     "gas/nh3":            ("Gas NH3 (kΩ)",       "kΩ", None),
-    "agent/hostname":     ("Hostname", "", None),
-    "agent/last_update":  ("Last Update", "", None),
-    "agent/network_address": ("Network Address", "", None),
-    "agent/os_release":   ("OS Release", "", None),
+    # Optional: a human uptime sensor (string)
+    "agent/uptime_human": ("Uptime (human)", "",  None),
 }
 
 def publish_discovery(client):
     for tail, (name, unit, devclass) in SENSORS.items():
         disc = f"{MQTT_DISCOVERY_PREFIX}/sensor/{ROOT_TOPIC}/{tail.replace('/', '_')}/config"
-        payload = discovery_sensor(tail, name, unit, device_class=devclass)
+        payload = discovery_sensor(tail, f"{hostname} {name}", unit, device_class=devclass)
         client.publish(disc, json.dumps(payload), qos=1, retain=True)
 
 def cpu_temperature_c():
@@ -235,14 +217,11 @@ def main():
             # Meta / attributes
             up_s = int(time.time() - boot_ts)
             client.publish(f"{ROOT_TOPIC}/agent/uptime", str(up_s), retain=True)
+            client.publish(f"{ROOT_TOPIC}/agent/uptime_human", to_human_duration(up_s), retain=True)
 
-            # Current timestamp for last update
-            current_time = datetime.now(timezone.utc).isoformat()
-
-            client.publish(f"{ROOT_TOPIC}/agent/hostname", hostname, retain=True)
-            client.publish(f"{ROOT_TOPIC}/agent/last_update", current_time, retain=True)
+            client.publish(f"{ROOT_TOPIC}/agent/host_name", hostname, retain=True)
             client.publish(f"{ROOT_TOPIC}/agent/network_address", _ipv4_prefer_wlan0(), retain=True)
-            client.publish(f"{ROOT_TOPIC}/agent/os_release", get_os_release(), retain=True)
+            client.publish(f"{ROOT_TOPIC}/agent/os_release", platform.platform(), retain=True)
 
             time.sleep(POLL_SEC)
     except KeyboardInterrupt:
