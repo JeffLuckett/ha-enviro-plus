@@ -52,8 +52,8 @@ def _ipv4_prefer_wlan0():
             for a in lst:
                 if a.family.name == "AF_INET" and a.address != "127.0.0.1":
                     return a.address
-    except Exception as e:
-        logger.warning("Failed to get network address: %s", e)
+    except Exception:
+        pass
     return "Unknown"
 
 def get_os_release():
@@ -97,67 +97,24 @@ def discovery_sensor(topic_tail, name, unit, device_class=None, state_class="mea
         cfg.update(extra)
     return cfg
 
-def discovery_control(topic_tail, name, unit, icon=None, extra=None):
-    cfg = {
-        "name": name,
-        "uniq_id": f"{ROOT_TOPIC}_{topic_tail.replace('/', '_')}",
-        "state_topic": f"{ROOT_TOPIC}/{topic_tail}",
-        "command_topic": f"{ROOT_TOPIC}/{topic_tail}/set",
-        "availability_topic": AVAIL_TOPIC,
-        "device": {
-            "identifiers": [ROOT_TOPIC],
-            "name": f"Enviro+ ({hostname})",
-            "manufacturer": "Pimoroni",
-            "model": "Enviro+ (no PMS5003)",
-            "sw_version": APP_VER,
-            "configuration_url": "https://github.com/JeffLuckett/ha-enviro-plus"
-        },
-        "unit_of_measurement": unit
-    }
-    if icon:
-        cfg["icon"] = icon
-    if extra:
-        cfg.update(extra)
-    return cfg
-
 SENSORS = {
-    "bme280/temperature": ("Temperature", "°C", "temperature", "mdi:thermometer"),
-    "bme280/humidity":    ("Humidity",    "%",  "humidity", "mdi:water-percent"),
-    "bme280/pressure":    ("Pressure",    "hPa","atmospheric_pressure", "mdi:gauge"),
-    "ltr559/lux":         ("Illuminance", "lx", "illuminance", "mdi:brightness-6"),
-    "gas/oxidising":      ("Gas Oxidising (kΩ)", "kΩ", None, "mdi:eye"),
-    "gas/reducing":       ("Gas Reducing (kΩ)",  "kΩ", None, "mdi:eye"),
-    "gas/nh3":            ("Gas NH3 (kΩ)",       "kΩ", None, "mdi:eye"),
-    "agent/cpu_temp":     ("CPU Temp", "°C", "temperature", "mdi:thermometer"),
-    "agent/cpu_usage":    ("CPU Usage", "%", None, "mdi:eye"),
-    "agent/mem_size":     ("Mem Size", "GB", None, "mdi:eye"),
-    "agent/mem_usage":    ("Mem Usage", "%", None, "mdi:eye"),
-    "agent/hostname":     ("Host Name", "", None, "mdi:eye"),
-    "agent/last_update":  ("Last Update", "", None, "mdi:eye"),
-    "agent/network_address": ("Network Address", "", None, "mdi:eye"),
-    "agent/os_release":   ("OS Release", "", None, "mdi:eye"),
-    "agent/uptime":       ("Uptime", "s", None, "mdi:clock"),
-}
-
-CONTROLS = {
-    "controls/hum_offset": ("Humidity Offset", "%", None, "mdi:water-percent"),
-    "controls/temp_offset": ("Temp Offset", "°C", None, "mdi:thermometer"),
-    "controls/reboot":     ("Reboot Enviro Zero", "", None, "mdi:restart"),
-    "controls/restart":    ("Restart Agent", "", None, "mdi:restart"),
-    "controls/shutdown":   ("Shutdown Enviro Zero", "", None, "mdi:power"),
+    "bme280/temperature": ("Temperature", "°C", "temperature"),
+    "bme280/humidity":    ("Humidity",    "%",  "humidity"),
+    "bme280/pressure":    ("Pressure",    "hPa","atmospheric_pressure"),
+    "ltr559/lux":         ("Illuminance", "lx", "illuminance"),
+    "gas/oxidising":      ("Gas Oxidising (kΩ)", "kΩ", None),
+    "gas/reducing":       ("Gas Reducing (kΩ)",  "kΩ", None),
+    "gas/nh3":            ("Gas NH3 (kΩ)",       "kΩ", None),
+    "agent/hostname":     ("Hostname", "", None),
+    "agent/last_update":  ("Last Update", "", None),
+    "agent/network_address": ("Network Address", "", None),
+    "agent/os_release":   ("OS Release", "", None),
 }
 
 def publish_discovery(client):
-    # Publish sensor discoveries
-    for tail, (name, unit, devclass, icon) in SENSORS.items():
+    for tail, (name, unit, devclass) in SENSORS.items():
         disc = f"{MQTT_DISCOVERY_PREFIX}/sensor/{ROOT_TOPIC}/{tail.replace('/', '_')}/config"
-        payload = discovery_sensor(tail, name, unit, device_class=devclass, icon=icon)
-        client.publish(disc, json.dumps(payload), qos=1, retain=True)
-
-    # Publish control discoveries
-    for tail, (name, unit, icon) in CONTROLS.items():
-        disc = f"{MQTT_DISCOVERY_PREFIX}/number/{ROOT_TOPIC}/{tail.replace('/', '_')}/config"
-        payload = discovery_control(tail, name, unit, icon=icon)
+        payload = discovery_sensor(tail, name, unit, device_class=devclass)
         client.publish(disc, json.dumps(payload), qos=1, retain=True)
 
 def cpu_temperature_c():
@@ -169,23 +126,6 @@ def cpu_temperature_c():
     except Exception:
         pass
     return None
-
-def get_cpu_usage():
-    """Get CPU usage percentage."""
-    try:
-        return psutil.cpu_percent(interval=1)
-    except Exception:
-        return 0.0
-
-def get_memory_info():
-    """Get memory size and usage."""
-    try:
-        mem = psutil.virtual_memory()
-        size_gb = round(mem.total / (1024**3), 3)
-        usage_percent = mem.percent
-        return size_gb, usage_percent
-    except Exception:
-        return 0.0, 0.0
 
 def compensated_temp(raw_c, last_cpu=None):
     """Optional CPU heat compensation (simple exponential smoothing)."""
@@ -227,15 +167,12 @@ def main():
         cl.publish(AVAIL_TOPIC, "online", retain=True)
         # subscribe to control topics (reboot, restart, offsets)
         cl.subscribe(f"{ROOT_TOPIC}/control/#", qos=1)
-        cl.subscribe(f"{ROOT_TOPIC}/controls/#/set", qos=1)
 
     client.on_connect = _on_connect
 
     def _on_message(cl, ud, msg):
         topic = msg.topic
         payload = msg.payload.decode("utf-8", "ignore").strip()
-
-        # Handle legacy control topics
         if topic.endswith("/control/reboot") and payload.lower() == "now":
             logger.warning("Reboot requested via MQTT")
             subprocess.Popen(["sudo", "reboot"])
@@ -247,7 +184,7 @@ def main():
                 val = float(payload)
                 os.environ["TEMP_OFFSET"] = str(val)
                 globals()["TEMP_OFFSET"] = val
-                cl.publish(f"{ROOT_TOPIC}/controls/temp_offset", str(val), retain=True)
+                cl.publish(f"{ROOT_TOPIC}/agent/controls/temp_offset", str(val), retain=True)
                 logger.info("Set temp offset = %s", val)
             except Exception:
                 logger.exception("Bad temp_offset: %r", payload)
@@ -256,39 +193,10 @@ def main():
                 val = float(payload)
                 os.environ["HUM_OFFSET"] = str(val)
                 globals()["HUM_OFFSET"] = val
-                cl.publish(f"{ROOT_TOPIC}/controls/hum_offset", str(val), retain=True)
+                cl.publish(f"{ROOT_TOPIC}/agent/controls/hum_offset", str(val), retain=True)
                 logger.info("Set humidity offset = %s", val)
             except Exception:
                 logger.exception("Bad hum_offset: %r", payload)
-
-        # Handle new control topics
-        elif topic.endswith("/controls/temp_offset/set"):
-            try:
-                val = float(payload)
-                os.environ["TEMP_OFFSET"] = str(val)
-                globals()["TEMP_OFFSET"] = val
-                cl.publish(f"{ROOT_TOPIC}/controls/temp_offset", str(val), retain=True)
-                logger.info("Set temp offset = %s", val)
-            except Exception:
-                logger.exception("Bad temp_offset: %r", payload)
-        elif topic.endswith("/controls/hum_offset/set"):
-            try:
-                val = float(payload)
-                os.environ["HUM_OFFSET"] = str(val)
-                globals()["HUM_OFFSET"] = val
-                cl.publish(f"{ROOT_TOPIC}/controls/hum_offset", str(val), retain=True)
-                logger.info("Set humidity offset = %s", val)
-            except Exception:
-                logger.exception("Bad hum_offset: %r", payload)
-        elif topic.endswith("/controls/reboot/set") and payload.lower() == "now":
-            logger.warning("Reboot requested via MQTT")
-            subprocess.Popen(["sudo", "reboot"])
-        elif topic.endswith("/controls/restart/set") and payload.lower() == "now":
-            logger.warning("Service restart requested via MQTT")
-            subprocess.Popen(["sudo", "systemctl", "restart", "ha-enviro-plus.service"])
-        elif topic.endswith("/controls/shutdown/set") and payload.lower() == "now":
-            logger.warning("Shutdown requested via MQTT")
-            subprocess.Popen(["sudo", "shutdown", "-h", "now"])
 
     client.on_message = _on_message
 
@@ -331,26 +239,10 @@ def main():
             # Current timestamp for last update
             current_time = datetime.now(timezone.utc).isoformat()
 
-            # System information
-            cpu_temp = cpu_temperature_c()
-            cpu_usage = get_cpu_usage()
-            mem_size, mem_usage = get_memory_info()
-
-            client.publish(f"{ROOT_TOPIC}/agent/cpu_temp", str(cpu_temp) if cpu_temp else "Unknown", retain=True)
-            client.publish(f"{ROOT_TOPIC}/agent/cpu_usage", str(cpu_usage), retain=True)
-            client.publish(f"{ROOT_TOPIC}/agent/mem_size", str(mem_size), retain=True)
-            client.publish(f"{ROOT_TOPIC}/agent/mem_usage", str(mem_usage), retain=True)
             client.publish(f"{ROOT_TOPIC}/agent/hostname", hostname, retain=True)
             client.publish(f"{ROOT_TOPIC}/agent/last_update", current_time, retain=True)
             client.publish(f"{ROOT_TOPIC}/agent/network_address", _ipv4_prefer_wlan0(), retain=True)
             client.publish(f"{ROOT_TOPIC}/agent/os_release", get_os_release(), retain=True)
-
-            # Control values
-            client.publish(f"{ROOT_TOPIC}/controls/hum_offset", str(HUM_OFFSET), retain=True)
-            client.publish(f"{ROOT_TOPIC}/controls/temp_offset", str(TEMP_OFFSET), retain=True)
-            client.publish(f"{ROOT_TOPIC}/controls/reboot", "unknown", retain=True)
-            client.publish(f"{ROOT_TOPIC}/controls/restart", "unknown", retain=True)
-            client.publish(f"{ROOT_TOPIC}/controls/shutdown", "unknown", retain=True)
 
             time.sleep(POLL_SEC)
     except KeyboardInterrupt:
