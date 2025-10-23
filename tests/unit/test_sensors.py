@@ -272,8 +272,6 @@ class TestGasReadings:
 
     def test_gas_oxidising(self, mock_bme280, mock_ltr559, mock_gas_sensor):
         """Test oxidising gas reading in kΩ."""
-        mock_gas_sensor.oxidising = 50000.0  # 50kΩ
-
         sensors = EnviroPlusSensors()
         gas_value = sensors.gas_oxidising()
 
@@ -281,8 +279,6 @@ class TestGasReadings:
 
     def test_gas_oxidising_raw(self, mock_bme280, mock_ltr559, mock_gas_sensor):
         """Test raw oxidising gas reading in Ω."""
-        mock_gas_sensor.oxidising = 50000.0
-
         sensors = EnviroPlusSensors()
         gas_value = sensors.gas_oxidising_raw()
 
@@ -290,8 +286,6 @@ class TestGasReadings:
 
     def test_gas_reducing(self, mock_bme280, mock_ltr559, mock_gas_sensor):
         """Test reducing gas reading in kΩ."""
-        mock_gas_sensor.reducing = 30000.0  # 30kΩ
-
         sensors = EnviroPlusSensors()
         gas_value = sensors.gas_reducing()
 
@@ -299,8 +293,6 @@ class TestGasReadings:
 
     def test_gas_reducing_raw(self, mock_bme280, mock_ltr559, mock_gas_sensor):
         """Test raw reducing gas reading in Ω."""
-        mock_gas_sensor.reducing = 30000.0
-
         sensors = EnviroPlusSensors()
         gas_value = sensors.gas_reducing_raw()
 
@@ -308,8 +300,6 @@ class TestGasReadings:
 
     def test_gas_nh3(self, mock_bme280, mock_ltr559, mock_gas_sensor):
         """Test NH3 gas reading in kΩ."""
-        mock_gas_sensor.nh3 = 40000.0  # 40kΩ
-
         sensors = EnviroPlusSensors()
         gas_value = sensors.gas_nh3()
 
@@ -317,8 +307,6 @@ class TestGasReadings:
 
     def test_gas_nh3_raw(self, mock_bme280, mock_ltr559, mock_gas_sensor):
         """Test raw NH3 gas reading in Ω."""
-        mock_gas_sensor.nh3 = 40000.0
-
         sensors = EnviroPlusSensors()
         gas_value = sensors.gas_nh3_raw()
 
@@ -387,11 +375,7 @@ class TestGetAllSensorData:
         mock_bme280.get_humidity.return_value = 45.0
         mock_bme280.get_pressure.return_value = 1013.25
         mock_ltr559.get_lux.return_value = 150.0
-        mock_subprocess.return_value = b"temp=42.0'C\n"
-
-        mock_gas_sensor.oxidising = 50000.0
-        mock_gas_sensor.reducing = 30000.0
-        mock_gas_sensor.nh3 = 40000.0
+        mock_subprocess.return_value = "temp=42.0'C\n"
 
         sensors = EnviroPlusSensors(temp_offset=1.0, hum_offset=2.0)
         data = sensors.get_all_sensor_data()

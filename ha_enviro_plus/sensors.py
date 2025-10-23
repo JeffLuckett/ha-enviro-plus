@@ -85,7 +85,7 @@ class EnviroPlusSensors:
             self.logger.error("vcgencmd command failed (exit code %d): %s", e.returncode, e)
             raise
         except (ValueError, IndexError) as e:
-            self.logger.error("Failed to parse CPU temperature from output '%s': %s", out, e)
+            self.logger.error("Failed to parse CPU temperature from output '%s': %s", str(out), e)
             raise
         except Exception as e:
             self.logger.error("Unexpected error reading CPU temperature: %s", e)
