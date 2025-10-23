@@ -15,6 +15,9 @@
 #
 set -euo pipefail
 
+# Script version for debugging
+SCRIPT_VERSION="v2.0.0"
+
 APP_NAME="ha-enviro-plus"
 APP_DIR="/opt/${APP_NAME}"
 SERVICE="/etc/systemd/system/${APP_NAME}.service"
@@ -64,6 +67,13 @@ is_remote_execution() {
 load_existing_config() {
   if [ -f "${CFG}" ]; then
     # Read config file with sudo and export variables
+    # Use a temporary approach to avoid permission issues
+    local temp_config
+    temp_config=$(sudo cat "${CFG}" 2>/dev/null) || {
+      echo "Warning: Could not read existing config file ${CFG}"
+      return 1
+    }
+
     while IFS='=' read -r key value; do
       # Skip empty lines and comments
       if [ -n "$key" ] && [ "${key#\#}" = "$key" ]; then
@@ -71,7 +81,7 @@ load_existing_config() {
         value=$(echo "$value" | sed 's/^"//;s/"$//')
         export "$key"="$value"
       fi
-    done < <(sudo cat "${CFG}")
+    done <<< "$temp_config"
     return 0
   fi
   return 1
@@ -274,6 +284,9 @@ post_message() {
 }
 
 main() {
+  echo "==> ${APP_NAME} Installer ${SCRIPT_VERSION}"
+  echo
+
   ensure_git
   ensure_python
   clone_or_update
