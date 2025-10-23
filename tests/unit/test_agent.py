@@ -32,15 +32,11 @@ class TestNetworkFunctions:
     def test_get_ipv4_prefer_wlan0_no_wlan0(self, mocker):
         """Test getting IPv4 address when wlan0 is not available."""
         mock_addrs = {
-            'eth0': [
-                Mock(family=Mock(name='AF_INET'), address='10.0.0.5')
-            ],
-            'lo': [
-                Mock(family=Mock(name='AF_INET'), address='127.0.0.1')
-            ]
+            "eth0": [Mock(family=Mock(name="AF_INET"), address="10.0.0.5")],
+            "lo": [Mock(family=Mock(name="AF_INET"), address="127.0.0.1")],
         }
 
-        mock_psutil = mocker.patch('ha_enviro_plus.agent.psutil.net_if_addrs')
+        mock_psutil = mocker.patch("ha_enviro_plus.agent.psutil.net_if_addrs")
         mock_psutil.return_value = mock_addrs
 
         ip = get_ipv4_prefer_wlan0()
@@ -48,13 +44,9 @@ class TestNetworkFunctions:
 
     def test_get_ipv4_prefer_wlan0_no_non_loopback(self, mocker):
         """Test getting IPv4 address when only loopback is available."""
-        mock_addrs = {
-            'lo': [
-                Mock(family=Mock(name='AF_INET'), address='127.0.0.1')
-            ]
-        }
+        mock_addrs = {"lo": [Mock(family=Mock(name="AF_INET"), address="127.0.0.1")]}
 
-        mock_psutil = mocker.patch('ha_enviro_plus.agent.psutil.net_if_addrs')
+        mock_psutil = mocker.patch("ha_enviro_plus.agent.psutil.net_if_addrs")
         mock_psutil.return_value = mock_addrs
 
         ip = get_ipv4_prefer_wlan0()
@@ -62,7 +54,7 @@ class TestNetworkFunctions:
 
     def test_get_ipv4_prefer_wlan0_exception(self, mocker):
         """Test getting IPv4 address when exception occurs."""
-        mock_psutil = mocker.patch('ha_enviro_plus.agent.psutil.net_if_addrs')
+        mock_psutil = mocker.patch("ha_enviro_plus.agent.psutil.net_if_addrs")
         mock_psutil.side_effect = Exception("Network error")
 
         ip = get_ipv4_prefer_wlan0()
@@ -263,7 +255,16 @@ class TestPublishDiscovery:
 class TestReadAll:
     """Test read_all function."""
 
-    def test_read_all_complete_data(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess, mock_psutil, mock_socket, mock_platform):
+    def test_read_all_complete_data(
+        self,
+        mock_bme280,
+        mock_ltr559,
+        mock_gas_sensor,
+        mock_subprocess,
+        mock_psutil,
+        mock_socket,
+        mock_platform,
+    ):
         """Test reading all sensor and system data."""
         # Set up mock sensor data
         mock_bme280.get_temperature.return_value = 25.5
@@ -277,13 +278,14 @@ class TestReadAll:
         mock_gas_sensor.nh3 = 40000.0
 
         # Set up mock system data
-        mock_psutil['vm'].percent = 45.2
-        mock_psutil['vm'].total = 8 * 1024 * 1024 * 1024
-        mock_psutil['cpu'].return_value = 12.5
+        mock_psutil["vm"].percent = 45.2
+        mock_psutil["vm"].total = 8 * 1024 * 1024 * 1024
+        mock_psutil["cpu"].return_value = 12.5
 
         # Mock file operations
         with patch("builtins.open", mock_open(read_data="12345.67 98765.43")):
             from ha_enviro_plus.sensors import EnviroPlusSensors
+
             sensors = EnviroPlusSensors()
 
             vals = read_all(sensors)
@@ -310,7 +312,7 @@ class TestReadAll:
         # Verify metadata
         assert "meta/last_update" in vals
         # Should be ISO format timestamp
-        datetime.fromisoformat(vals["meta/last_update"].replace('Z', '+00:00'))
+        datetime.fromisoformat(vals["meta/last_update"].replace("Z", "+00:00"))
 
 
 class TestOnConnect:
@@ -337,7 +339,10 @@ class TestOnConnect:
         # Should subscribe to commands and settings
         subscribe_calls = client.subscribe.call_args_list
         assert len(subscribe_calls) == 1
-        assert subscribe_calls[0][0][0] == [("enviro_raspberrypi/cmd", 1), ("enviro_raspberrypi/set/+", 1)]
+        assert subscribe_calls[0][0][0] == [
+            ("enviro_raspberrypi/cmd", 1),
+            ("enviro_raspberrypi/set/+", 1),
+        ]
 
     def test_on_connect_publishes_offsets(self, mock_mqtt_client, mock_env_vars):
         """Test on_connect publishes current offset values."""
@@ -377,7 +382,9 @@ class TestOnConnect:
 class TestOnMessage:
     """Test MQTT on_message handler."""
 
-    def test_on_message_reboot_command(self, mock_mqtt_client, mock_bme280, mock_ltr559, mock_gas_sensor):
+    def test_on_message_reboot_command(
+        self, mock_mqtt_client, mock_bme280, mock_ltr559, mock_gas_sensor
+    ):
         """Test reboot command handling."""
         client = mock_mqtt_client.return_value
 
@@ -386,7 +393,7 @@ class TestOnMessage:
         msg.topic = "enviro_raspberrypi/cmd"
         msg.payload.decode.return_value = "reboot"
 
-        with patch('ha_enviro_plus.agent.subprocess.Popen') as mock_popen:
+        with patch("ha_enviro_plus.agent.subprocess.Popen") as mock_popen:
             on_message(client, None, msg, Mock())
 
             # Should publish offline status
@@ -402,7 +409,9 @@ class TestOnMessage:
             # Should call reboot command
             mock_popen.assert_called_once_with(["sudo", "reboot"])
 
-    def test_on_message_shutdown_command(self, mock_mqtt_client, mock_bme280, mock_ltr559, mock_gas_sensor):
+    def test_on_message_shutdown_command(
+        self, mock_mqtt_client, mock_bme280, mock_ltr559, mock_gas_sensor
+    ):
         """Test shutdown command handling."""
         client = mock_mqtt_client.return_value
 
@@ -410,13 +419,15 @@ class TestOnMessage:
         msg.topic = "enviro_raspberrypi/cmd"
         msg.payload.decode.return_value = "shutdown"
 
-        with patch('ha_enviro_plus.agent.subprocess.Popen') as mock_popen:
+        with patch("ha_enviro_plus.agent.subprocess.Popen") as mock_popen:
             on_message(client, None, msg, Mock())
 
             # Should call shutdown command
             mock_popen.assert_called_once_with(["sudo", "shutdown", "-h", "now"])
 
-    def test_on_message_restart_service_command(self, mock_mqtt_client, mock_bme280, mock_ltr559, mock_gas_sensor):
+    def test_on_message_restart_service_command(
+        self, mock_mqtt_client, mock_bme280, mock_ltr559, mock_gas_sensor
+    ):
         """Test restart service command handling."""
         client = mock_mqtt_client.return_value
 
@@ -424,13 +435,17 @@ class TestOnMessage:
         msg.topic = "enviro_raspberrypi/cmd"
         msg.payload.decode.return_value = "restart_service"
 
-        with patch('ha_enviro_plus.agent.subprocess.Popen') as mock_popen:
+        with patch("ha_enviro_plus.agent.subprocess.Popen") as mock_popen:
             on_message(client, None, msg, Mock())
 
             # Should call restart service command
-            mock_popen.assert_called_once_with(["sudo", "systemctl", "restart", "ha-enviro-plus.service"])
+            mock_popen.assert_called_once_with(
+                ["sudo", "systemctl", "restart", "ha-enviro-plus.service"]
+            )
 
-    def test_on_message_temp_offset_update(self, mock_mqtt_client, mock_bme280, mock_ltr559, mock_gas_sensor):
+    def test_on_message_temp_offset_update(
+        self, mock_mqtt_client, mock_bme280, mock_ltr559, mock_gas_sensor
+    ):
         """Test temperature offset update."""
         client = mock_mqtt_client.return_value
 
@@ -444,7 +459,9 @@ class TestOnMessage:
         # Should update calibration
         sensors.update_calibration.assert_called_once_with(temp_offset=2.5)
 
-    def test_on_message_hum_offset_update(self, mock_mqtt_client, mock_bme280, mock_ltr559, mock_gas_sensor):
+    def test_on_message_hum_offset_update(
+        self, mock_mqtt_client, mock_bme280, mock_ltr559, mock_gas_sensor
+    ):
         """Test humidity offset update."""
         client = mock_mqtt_client.return_value
 
@@ -458,7 +475,9 @@ class TestOnMessage:
         # Should update calibration
         sensors.update_calibration.assert_called_once_with(hum_offset=-3.0)
 
-    def test_on_message_cpu_factor_update(self, mock_mqtt_client, mock_bme280, mock_ltr559, mock_gas_sensor):
+    def test_on_message_cpu_factor_update(
+        self, mock_mqtt_client, mock_bme280, mock_ltr559, mock_gas_sensor
+    ):
         """Test CPU temperature factor update."""
         client = mock_mqtt_client.return_value
 
@@ -472,7 +491,9 @@ class TestOnMessage:
         # Should update calibration
         sensors.update_calibration.assert_called_once_with(cpu_temp_factor=2.5)
 
-    def test_on_message_invalid_command(self, mock_mqtt_client, mock_bme280, mock_ltr559, mock_gas_sensor):
+    def test_on_message_invalid_command(
+        self, mock_mqtt_client, mock_bme280, mock_ltr559, mock_gas_sensor
+    ):
         """Test handling of invalid command."""
         client = mock_mqtt_client.return_value
 
@@ -486,7 +507,9 @@ class TestOnMessage:
         # Should not call any system commands
         assert not sensors.update_calibration.called
 
-    def test_on_message_invalid_topic(self, mock_mqtt_client, mock_bme280, mock_ltr559, mock_gas_sensor):
+    def test_on_message_invalid_topic(
+        self, mock_mqtt_client, mock_bme280, mock_ltr559, mock_gas_sensor
+    ):
         """Test handling of invalid topic."""
         client = mock_mqtt_client.return_value
 
@@ -500,7 +523,9 @@ class TestOnMessage:
         # Should not do anything
         assert not sensors.update_calibration.called
 
-    def test_on_message_exception_handling(self, mock_mqtt_client, mock_bme280, mock_ltr559, mock_gas_sensor):
+    def test_on_message_exception_handling(
+        self, mock_mqtt_client, mock_bme280, mock_ltr559, mock_gas_sensor
+    ):
         """Test exception handling in on_message."""
         client = mock_mqtt_client.return_value
 

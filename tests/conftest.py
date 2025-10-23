@@ -11,7 +11,7 @@ import pytest
 @pytest.fixture
 def mock_bme280(mocker):
     """Mock BME280 sensor with realistic data."""
-    mock = mocker.patch('ha_enviro_plus.sensors.BME280')
+    mock = mocker.patch("ha_enviro_plus.sensors.BME280")
     instance = Mock()
     instance.get_temperature.return_value = 25.5
     instance.get_humidity.return_value = 45.0
@@ -23,7 +23,7 @@ def mock_bme280(mocker):
 @pytest.fixture
 def mock_ltr559(mocker):
     """Mock LTR559 light sensor with realistic data."""
-    mock = mocker.patch('ha_enviro_plus.sensors.LTR559')
+    mock = mocker.patch("ha_enviro_plus.sensors.LTR559")
     instance = Mock()
     instance.get_lux.return_value = 150.0
     mock.return_value = instance
@@ -33,13 +33,13 @@ def mock_ltr559(mocker):
 @pytest.fixture
 def mock_gas_sensor(mocker):
     """Mock gas sensor with realistic data."""
-    mock = mocker.patch('ha_enviro_plus.sensors.gas')
+    mock = mocker.patch("ha_enviro_plus.sensors.gas")
 
     # Create mock gas data object
     gas_data = Mock()
     gas_data.oxidising = 50000.0  # 50kΩ
-    gas_data.reducing = 30000.0   # 30kΩ
-    gas_data.nh3 = 40000.0        # 40kΩ
+    gas_data.reducing = 30000.0  # 30kΩ
+    gas_data.nh3 = 40000.0  # 40kΩ
 
     mock.read_all.return_value = gas_data
     return gas_data
@@ -48,7 +48,7 @@ def mock_gas_sensor(mocker):
 @pytest.fixture
 def mock_subprocess(mocker):
     """Mock subprocess for CPU temperature reading."""
-    mock = mocker.patch('ha_enviro_plus.sensors.subprocess.check_output')
+    mock = mocker.patch("ha_enviro_plus.sensors.subprocess.check_output")
     mock.return_value = b"temp=42.0'C\n"
     return mock
 
@@ -56,7 +56,7 @@ def mock_subprocess(mocker):
 @pytest.fixture
 def mock_logger(mocker):
     """Mock logger for testing."""
-    mock = mocker.patch('ha_enviro_plus.sensors.logging.getLogger')
+    mock = mocker.patch("ha_enviro_plus.sensors.logging.getLogger")
     logger = Mock()
     mock.return_value = logger
     return logger
@@ -65,7 +65,7 @@ def mock_logger(mocker):
 @pytest.fixture
 def mock_mqtt_client(mocker):
     """Mock MQTT client for testing."""
-    mock = mocker.patch('ha_enviro_plus.agent.mqtt.Client')
+    mock = mocker.patch("ha_enviro_plus.agent.mqtt.Client")
     client = Mock()
     mock.return_value = client
     return client
@@ -74,16 +74,16 @@ def mock_mqtt_client(mocker):
 @pytest.fixture
 def mock_psutil(mocker):
     """Mock psutil for system metrics."""
-    mock_vm = mocker.patch('ha_enviro_plus.agent.psutil.virtual_memory')
+    mock_vm = mocker.patch("ha_enviro_plus.agent.psutil.virtual_memory")
     vm = Mock()
     vm.percent = 45.2
     vm.total = 8 * 1024 * 1024 * 1024  # 8GB
     mock_vm.return_value = vm
 
-    mock_cpu = mocker.patch('ha_enviro_plus.agent.psutil.cpu_percent')
+    mock_cpu = mocker.patch("ha_enviro_plus.agent.psutil.cpu_percent")
     mock_cpu.return_value = 12.5
 
-    return {'vm': vm, 'cpu': mock_cpu}
+    return {"vm": vm, "cpu": mock_cpu}
 
 
 @pytest.fixture
@@ -114,10 +114,10 @@ VERSION_ID="12"
     mocker.patch("builtins.open", os_release_mock)
 
     return {
-        'uptime': uptime_mock,
-        'model': model_mock,
-        'cpuinfo': cpuinfo_mock,
-        'os_release': os_release_mock
+        "uptime": uptime_mock,
+        "model": model_mock,
+        "cpuinfo": cpuinfo_mock,
+        "os_release": os_release_mock,
     }
 
 
@@ -125,19 +125,15 @@ VERSION_ID="12"
 def mock_network_interfaces(mocker):
     """Mock network interface detection."""
     mock_addrs = {
-        'wlan0': [
-            Mock(family=Mock(name='AF_INET'), address='192.168.1.100'),
-            Mock(family=Mock(name='AF_INET6'), address='fe80::1234')
+        "wlan0": [
+            Mock(family=Mock(name="AF_INET"), address="192.168.1.100"),
+            Mock(family=Mock(name="AF_INET6"), address="fe80::1234"),
         ],
-        'eth0': [
-            Mock(family=Mock(name='AF_INET'), address='10.0.0.5')
-        ],
-        'lo': [
-            Mock(family=Mock(name='AF_INET'), address='127.0.0.1')
-        ]
+        "eth0": [Mock(family=Mock(name="AF_INET"), address="10.0.0.5")],
+        "lo": [Mock(family=Mock(name="AF_INET"), address="127.0.0.1")],
     }
 
-    mock_psutil = mocker.patch('ha_enviro_plus.agent.psutil.net_if_addrs')
+    mock_psutil = mocker.patch("ha_enviro_plus.agent.psutil.net_if_addrs")
     mock_psutil.return_value = mock_addrs
 
     return mock_addrs
@@ -183,6 +179,7 @@ def hardware_available():
     """Check if hardware is available for testing."""
     try:
         from bme280 import BME280
+
         BME280(i2c_addr=0x76)
         return True
     except Exception:
@@ -192,43 +189,40 @@ def hardware_available():
 @pytest.fixture
 def hardware_skipif():
     """Skipif marker for hardware tests."""
-    return pytest.mark.skipif(
-        not hardware_available(),
-        reason="Hardware not detected"
-    )
+    return pytest.mark.skipif(not hardware_available(), reason="Hardware not detected")
 
 
 @pytest.fixture
 def mock_env_vars(mocker):
     """Mock environment variables."""
     env_vars = {
-        'MQTT_HOST': 'test-broker.local',
-        'MQTT_PORT': '1883',
-        'MQTT_USER': 'testuser',
-        'MQTT_PASS': 'testpass',
-        'MQTT_DISCOVERY_PREFIX': 'homeassistant',
-        'POLL_SEC': '2',
-        'TEMP_OFFSET': '0.0',
-        'HUM_OFFSET': '0.0',
-        'CPU_TEMP_FACTOR': '1.8',
-        'LOG_TO_FILE': '0',
+        "MQTT_HOST": "test-broker.local",
+        "MQTT_PORT": "1883",
+        "MQTT_USER": "testuser",
+        "MQTT_PASS": "testpass",
+        "MQTT_DISCOVERY_PREFIX": "homeassistant",
+        "POLL_SEC": "2",
+        "TEMP_OFFSET": "0.0",
+        "HUM_OFFSET": "0.0",
+        "CPU_TEMP_FACTOR": "1.8",
+        "LOG_TO_FILE": "0",
     }
 
-    mocker.patch.dict('os.environ', env_vars)
+    mocker.patch.dict("os.environ", env_vars)
     return env_vars
 
 
 @pytest.fixture
 def mock_socket(mocker):
     """Mock socket operations."""
-    mock_gethostname = mocker.patch('ha_enviro_plus.agent.socket.gethostname')
-    mock_gethostname.return_value = 'raspberrypi'
+    mock_gethostname = mocker.patch("ha_enviro_plus.agent.socket.gethostname")
+    mock_gethostname.return_value = "raspberrypi"
     return mock_gethostname
 
 
 @pytest.fixture
 def mock_platform(mocker):
     """Mock platform operations."""
-    mock_platform = mocker.patch('ha_enviro_plus.agent.platform.platform')
-    mock_platform.return_value = 'Linux-5.15.0-rpi4-aarch64-with-glibc2.31'
+    mock_platform = mocker.patch("ha_enviro_plus.agent.platform.platform")
+    mock_platform.return_value = "Linux-5.15.0-rpi4-aarch64-with-glibc2.31"
     return mock_platform

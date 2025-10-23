@@ -157,13 +157,20 @@ class TestHardwareSensors:
 
         # Verify all expected keys are present
         expected_keys = {
-            "temperature", "temperature_raw",
-            "humidity", "humidity_raw",
-            "pressure", "pressure_raw",
-            "lux", "lux_raw",
-            "gas_oxidising", "gas_oxidising_raw",
-            "gas_reducing", "gas_reducing_raw",
-            "gas_nh3", "gas_nh3_raw",
+            "temperature",
+            "temperature_raw",
+            "humidity",
+            "humidity_raw",
+            "pressure",
+            "pressure_raw",
+            "lux",
+            "lux_raw",
+            "gas_oxidising",
+            "gas_oxidising_raw",
+            "gas_reducing",
+            "gas_reducing_raw",
+            "gas_nh3",
+            "gas_nh3_raw",
         }
 
         assert set(data.keys()) == expected_keys
@@ -294,11 +301,7 @@ class TestHardwareSensors:
     def test_sensor_initialization_with_custom_params(self):
         """Test sensor initialization with custom parameters."""
         # Test with custom offsets
-        sensors = EnviroPlusSensors(
-            temp_offset=5.0,
-            hum_offset=-10.0,
-            cpu_temp_factor=2.5
-        )
+        sensors = EnviroPlusSensors(temp_offset=5.0, hum_offset=-10.0, cpu_temp_factor=2.5)
 
         assert sensors.temp_offset == 5.0
         assert sensors.hum_offset == -10.0

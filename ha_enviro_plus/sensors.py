@@ -22,8 +22,13 @@ class EnviroPlusSensors:
     Provides temperature compensation, calibration offsets, and consistent data formatting.
     """
 
-    def __init__(self, temp_offset: float = 0.0, hum_offset: float = 0.0,
-                 cpu_temp_factor: float = 1.8, logger: Optional[logging.Logger] = None):
+    def __init__(
+        self,
+        temp_offset: float = 0.0,
+        hum_offset: float = 0.0,
+        cpu_temp_factor: float = 1.8,
+        logger: Optional[logging.Logger] = None,
+    ):
         """
         Initialize the Enviro+ sensor manager.
 
@@ -218,9 +223,12 @@ class EnviroPlusSensors:
         gas_data = gas.read_all()
         return round(gas_data.nh3, 2)
 
-    def update_calibration(self, temp_offset: Optional[float] = None,
-                          hum_offset: Optional[float] = None,
-                          cpu_temp_factor: Optional[float] = None) -> None:
+    def update_calibration(
+        self,
+        temp_offset: Optional[float] = None,
+        hum_offset: Optional[float] = None,
+        cpu_temp_factor: Optional[float] = None,
+    ) -> None:
         """
         Update calibration parameters.
 
@@ -252,19 +260,15 @@ class EnviroPlusSensors:
             # Temperature
             "temperature": self.temp(),
             "temperature_raw": self.temp_raw(),
-
             # Humidity
             "humidity": self.humidity(),
             "humidity_raw": self.humidity_raw(),
-
             # Pressure
             "pressure": self.pressure(),
             "pressure_raw": self.pressure_raw(),
-
             # Light
             "lux": self.lux(),
             "lux_raw": self.lux_raw(),
-
             # Gas sensors
             "gas_oxidising": self.gas_oxidising(),
             "gas_oxidising_raw": self.gas_oxidising_raw(),

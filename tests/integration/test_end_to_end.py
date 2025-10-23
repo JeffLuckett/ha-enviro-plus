@@ -14,7 +14,18 @@ from ha_enviro_plus.sensors import EnviroPlusSensors
 class TestEndToEndWorkflows:
     """Test complete end-to-end workflows."""
 
-    def test_startup_discovery_publishing_loop(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess, mock_psutil, mock_socket, mock_platform, mock_env_vars, mock_file_operations):
+    def test_startup_discovery_publishing_loop(
+        self,
+        mock_bme280,
+        mock_ltr559,
+        mock_gas_sensor,
+        mock_subprocess,
+        mock_psutil,
+        mock_socket,
+        mock_platform,
+        mock_env_vars,
+        mock_file_operations,
+    ):
         """Test complete startup → discovery → publishing loop."""
         # Set up mock sensor data
         mock_bme280.get_temperature.return_value = 25.5
@@ -27,9 +38,9 @@ class TestEndToEndWorkflows:
         mock_gas_sensor.reducing = 30000.0
         mock_gas_sensor.nh3 = 40000.0
 
-        mock_psutil['vm'].percent = 45.2
-        mock_psutil['vm'].total = 8 * 1024 * 1024 * 1024
-        mock_psutil['cpu'].return_value = 12.5
+        mock_psutil["vm"].percent = 45.2
+        mock_psutil["vm"].total = 8 * 1024 * 1024 * 1024
+        mock_psutil["cpu"].return_value = 12.5
 
         # Mock MQTT client
         mock_client = Mock()
@@ -40,11 +51,11 @@ class TestEndToEndWorkflows:
         mock_client.loop_stop = Mock()
         mock_client.disconnect = Mock()
 
-        with patch('ha_enviro_plus.agent.mqtt.Client') as mock_mqtt_class:
+        with patch("ha_enviro_plus.agent.mqtt.Client") as mock_mqtt_class:
             mock_mqtt_class.return_value = mock_client
 
             # Mock the main function components
-            with patch('ha_enviro_plus.agent.EnviroPlusSensors') as mock_sensors_class:
+            with patch("ha_enviro_plus.agent.EnviroPlusSensors") as mock_sensors_class:
                 mock_sensors = Mock()
                 mock_sensors_class.return_value = mock_sensors
                 mock_sensors.get_all_sensor_data.return_value = {
@@ -66,7 +77,7 @@ class TestEndToEndWorkflows:
                 mock_sensors._read_cpu_temp.return_value = 42.0
 
                 # Mock the main loop to run once
-                with patch('ha_enviro_plus.agent.time.sleep') as mock_sleep:
+                with patch("ha_enviro_plus.agent.time.sleep") as mock_sleep:
                     mock_sleep.side_effect = KeyboardInterrupt()  # Stop after one iteration
 
                     # Run main function
@@ -81,18 +92,37 @@ class TestEndToEndWorkflows:
         mock_client.disconnect.assert_called_once()
 
         # Verify discovery was published
-        discovery_calls = [call for call in mock_client.publish.call_args_list if "config" in call[0][0]]
+        discovery_calls = [
+            call for call in mock_client.publish.call_args_list if "config" in call[0][0]
+        ]
         assert len(discovery_calls) > 0
 
         # Verify sensor data was published
-        sensor_calls = [call for call in mock_client.publish.call_args_list if "enviro_raspberrypi/" in call[0][0] and "config" not in call[0][0]]
+        sensor_calls = [
+            call
+            for call in mock_client.publish.call_args_list
+            if "enviro_raspberrypi/" in call[0][0] and "config" not in call[0][0]
+        ]
         assert len(sensor_calls) > 0
 
         # Verify availability was published
-        availability_calls = [call for call in mock_client.publish.call_args_list if "status" in call[0][0]]
+        availability_calls = [
+            call for call in mock_client.publish.call_args_list if "status" in call[0][0]
+        ]
         assert len(availability_calls) >= 2  # online and offline
 
-    def test_calibration_update_workflow(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess, mock_psutil, mock_socket, mock_platform, mock_env_vars, mock_file_operations):
+    def test_calibration_update_workflow(
+        self,
+        mock_bme280,
+        mock_ltr559,
+        mock_gas_sensor,
+        mock_subprocess,
+        mock_psutil,
+        mock_socket,
+        mock_platform,
+        mock_env_vars,
+        mock_file_operations,
+    ):
         """Test calibration update workflow."""
         # Create sensors instance
         sensors = EnviroPlusSensors(temp_offset=0.0, hum_offset=0.0)
@@ -127,7 +157,18 @@ class TestEndToEndWorkflows:
         # Verify CPU factor was updated
         assert sensors.cpu_temp_factor == 2.0
 
-    def test_command_execution_workflow(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess, mock_psutil, mock_socket, mock_platform, mock_env_vars, mock_file_operations):
+    def test_command_execution_workflow(
+        self,
+        mock_bme280,
+        mock_ltr559,
+        mock_gas_sensor,
+        mock_subprocess,
+        mock_psutil,
+        mock_socket,
+        mock_platform,
+        mock_env_vars,
+        mock_file_operations,
+    ):
         """Test command execution workflow."""
         sensors = Mock()
 
@@ -139,20 +180,22 @@ class TestEndToEndWorkflows:
         mock_msg.topic = "enviro_raspberrypi/cmd"
         mock_msg.payload.decode.return_value = "reboot"
 
-        with patch('ha_enviro_plus.agent.subprocess.Popen') as mock_popen:
+        with patch("ha_enviro_plus.agent.subprocess.Popen") as mock_popen:
             on_message(mock_client, None, mock_msg, sensors)
 
             # Verify reboot command was executed
             mock_popen.assert_called_once_with(["sudo", "reboot"])
 
             # Verify offline status was published
-            offline_calls = [call for call in mock_client.publish.call_args_list if call[0][1] == "offline"]
+            offline_calls = [
+                call for call in mock_client.publish.call_args_list if call[0][1] == "offline"
+            ]
             assert len(offline_calls) > 0
 
         # Test shutdown command
         mock_msg.payload.decode.return_value = "shutdown"
 
-        with patch('ha_enviro_plus.agent.subprocess.Popen') as mock_popen:
+        with patch("ha_enviro_plus.agent.subprocess.Popen") as mock_popen:
             on_message(mock_client, None, mock_msg, sensors)
 
             # Verify shutdown command was executed
@@ -161,16 +204,29 @@ class TestEndToEndWorkflows:
         # Test restart service command
         mock_msg.payload.decode.return_value = "restart_service"
 
-        with patch('ha_enviro_plus.agent.subprocess.Popen') as mock_popen:
+        with patch("ha_enviro_plus.agent.subprocess.Popen") as mock_popen:
             on_message(mock_client, None, mock_msg, sensors)
 
             # Verify restart service command was executed
-            mock_popen.assert_called_once_with(["sudo", "systemctl", "restart", "ha-enviro-plus.service"])
+            mock_popen.assert_called_once_with(
+                ["sudo", "systemctl", "restart", "ha-enviro-plus.service"]
+            )
 
-    def test_error_recovery_workflow(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess, mock_psutil, mock_socket, mock_platform, mock_env_vars, mock_file_operations):
+    def test_error_recovery_workflow(
+        self,
+        mock_bme280,
+        mock_ltr559,
+        mock_gas_sensor,
+        mock_subprocess,
+        mock_psutil,
+        mock_socket,
+        mock_platform,
+        mock_env_vars,
+        mock_file_operations,
+    ):
         """Test error recovery workflow."""
         # Test sensor initialization failure recovery
-        with patch('ha_enviro_plus.sensors.BME280') as mock_bme280_class:
+        with patch("ha_enviro_plus.sensors.BME280") as mock_bme280_class:
             mock_bme280_class.side_effect = Exception("Sensor not found")
 
             # Should raise exception during initialization
@@ -193,7 +249,18 @@ class TestEndToEndWorkflows:
         # Should return raw temp when CPU temp fails
         assert compensated_temp == raw_temp
 
-    def test_data_collection_workflow(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess, mock_psutil, mock_socket, mock_platform, mock_env_vars, mock_file_operations):
+    def test_data_collection_workflow(
+        self,
+        mock_bme280,
+        mock_ltr559,
+        mock_gas_sensor,
+        mock_subprocess,
+        mock_psutil,
+        mock_socket,
+        mock_platform,
+        mock_env_vars,
+        mock_file_operations,
+    ):
         """Test complete data collection workflow."""
         # Set up mock sensor data
         mock_bme280.get_temperature.return_value = 25.5
@@ -206,9 +273,9 @@ class TestEndToEndWorkflows:
         mock_gas_sensor.reducing = 30000.0
         mock_gas_sensor.nh3 = 40000.0
 
-        mock_psutil['vm'].percent = 45.2
-        mock_psutil['vm'].total = 8 * 1024 * 1024 * 1024
-        mock_psutil['cpu'].return_value = 12.5
+        mock_psutil["vm"].percent = 45.2
+        mock_psutil["vm"].total = 8 * 1024 * 1024 * 1024
+        mock_psutil["cpu"].return_value = 12.5
 
         # Create sensors instance
         sensors = EnviroPlusSensors(temp_offset=1.0, hum_offset=2.0)
@@ -218,18 +285,29 @@ class TestEndToEndWorkflows:
 
         # Verify all expected data is present
         expected_keys = {
-            "bme280/temperature", "bme280/humidity", "bme280/pressure",
-            "ltr559/lux", "gas/oxidising", "gas/reducing", "gas/nh3",
-            "host/cpu_temp", "host/cpu_usage", "host/mem_usage", "host/mem_size",
-            "host/uptime", "host/hostname", "host/network", "host/os_release",
-            "meta/last_update"
+            "bme280/temperature",
+            "bme280/humidity",
+            "bme280/pressure",
+            "ltr559/lux",
+            "gas/oxidising",
+            "gas/reducing",
+            "gas/nh3",
+            "host/cpu_temp",
+            "host/cpu_usage",
+            "host/mem_usage",
+            "host/mem_size",
+            "host/uptime",
+            "host/hostname",
+            "host/network",
+            "host/os_release",
+            "meta/last_update",
         }
 
         assert set(vals.keys()) == expected_keys
 
         # Verify sensor data values
         assert vals["bme280/temperature"] == pytest.approx(26.5, abs=0.1)  # 25.5 + 1.0 offset
-        assert vals["bme280/humidity"] == pytest.approx(47.0, abs=0.1)     # 45.0 + 2.0 offset
+        assert vals["bme280/humidity"] == pytest.approx(47.0, abs=0.1)  # 45.0 + 2.0 offset
         assert vals["bme280/pressure"] == pytest.approx(1013.25, abs=0.1)
         assert vals["ltr559/lux"] == pytest.approx(150.0, abs=0.1)
         assert vals["gas/oxidising"] == pytest.approx(50.0, abs=0.1)
@@ -249,9 +327,20 @@ class TestEndToEndWorkflows:
         # Verify metadata
         assert "meta/last_update" in vals
         # Should be ISO format timestamp
-        datetime.fromisoformat(vals["meta/last_update"].replace('Z', '+00:00'))
+        datetime.fromisoformat(vals["meta/last_update"].replace("Z", "+00:00"))
 
-    def test_graceful_shutdown_workflow(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess, mock_psutil, mock_socket, mock_platform, mock_env_vars, mock_file_operations):
+    def test_graceful_shutdown_workflow(
+        self,
+        mock_bme280,
+        mock_ltr559,
+        mock_gas_sensor,
+        mock_subprocess,
+        mock_psutil,
+        mock_socket,
+        mock_platform,
+        mock_env_vars,
+        mock_file_operations,
+    ):
         """Test graceful shutdown workflow."""
         # Mock MQTT client
         mock_client = Mock()
@@ -278,7 +367,18 @@ class TestEndToEndWorkflows:
         mock_client.loop_stop.assert_called_once()
         mock_client.disconnect.assert_called_once()
 
-    def test_concurrent_operations(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess, mock_psutil, mock_socket, mock_platform, mock_env_vars, mock_file_operations):
+    def test_concurrent_operations(
+        self,
+        mock_bme280,
+        mock_ltr559,
+        mock_gas_sensor,
+        mock_subprocess,
+        mock_psutil,
+        mock_socket,
+        mock_platform,
+        mock_env_vars,
+        mock_file_operations,
+    ):
         """Test concurrent operations handling."""
         sensors = EnviroPlusSensors()
 
@@ -312,44 +412,67 @@ class TestEndToEndWorkflows:
         assert sensors.temp_offset == 1.0
         assert sensors.hum_offset == 2.0
 
-    def test_configuration_persistence(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess, mock_psutil, mock_socket, mock_platform, mock_env_vars, mock_file_operations):
+    def test_configuration_persistence(
+        self,
+        mock_bme280,
+        mock_ltr559,
+        mock_gas_sensor,
+        mock_subprocess,
+        mock_psutil,
+        mock_socket,
+        mock_platform,
+        mock_env_vars,
+        mock_file_operations,
+    ):
         """Test configuration persistence across restarts."""
         # Test that environment variables are properly loaded
-        assert mock_env_vars['TEMP_OFFSET'] == '0.0'
-        assert mock_env_vars['HUM_OFFSET'] == '0.0'
-        assert mock_env_vars['CPU_TEMP_FACTOR'] == '1.8'
-        assert mock_env_vars['MQTT_HOST'] == 'test-broker.local'
-        assert mock_env_vars['MQTT_PORT'] == '1883'
-        assert mock_env_vars['MQTT_USER'] == 'testuser'
-        assert mock_env_vars['MQTT_PASS'] == 'testpass'
+        assert mock_env_vars["TEMP_OFFSET"] == "0.0"
+        assert mock_env_vars["HUM_OFFSET"] == "0.0"
+        assert mock_env_vars["CPU_TEMP_FACTOR"] == "1.8"
+        assert mock_env_vars["MQTT_HOST"] == "test-broker.local"
+        assert mock_env_vars["MQTT_PORT"] == "1883"
+        assert mock_env_vars["MQTT_USER"] == "testuser"
+        assert mock_env_vars["MQTT_PASS"] == "testpass"
 
         # Test that sensors are initialized with correct values
         sensors = EnviroPlusSensors(
-            temp_offset=float(mock_env_vars['TEMP_OFFSET']),
-            hum_offset=float(mock_env_vars['HUM_OFFSET']),
-            cpu_temp_factor=float(mock_env_vars['CPU_TEMP_FACTOR'])
+            temp_offset=float(mock_env_vars["TEMP_OFFSET"]),
+            hum_offset=float(mock_env_vars["HUM_OFFSET"]),
+            cpu_temp_factor=float(mock_env_vars["CPU_TEMP_FACTOR"]),
         )
 
         assert sensors.temp_offset == 0.0
         assert sensors.hum_offset == 0.0
         assert sensors.cpu_temp_factor == 1.8
 
-    def test_logging_workflow(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess, mock_psutil, mock_socket, mock_platform, mock_env_vars, mock_file_operations):
+    def test_logging_workflow(
+        self,
+        mock_bme280,
+        mock_ltr559,
+        mock_gas_sensor,
+        mock_subprocess,
+        mock_psutil,
+        mock_socket,
+        mock_platform,
+        mock_env_vars,
+        mock_file_operations,
+    ):
         """Test logging workflow."""
         # Test that logger is properly configured
-        with patch('ha_enviro_plus.agent.logging.getLogger') as mock_get_logger:
+        with patch("ha_enviro_plus.agent.logging.getLogger") as mock_get_logger:
             mock_logger = Mock()
             mock_get_logger.return_value = mock_logger
 
             # Import and use logger
             from ha_enviro_plus.agent import logger
+
             logger.info("Test message")
 
             # Verify logger was called
             mock_logger.info.assert_called_with("Test message")
 
         # Test sensor logging
-        with patch('ha_enviro_plus.sensors.logging.getLogger') as mock_get_logger:
+        with patch("ha_enviro_plus.sensors.logging.getLogger") as mock_get_logger:
             mock_logger = Mock()
             mock_get_logger.return_value = mock_logger
 
