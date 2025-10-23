@@ -63,10 +63,15 @@ is_remote_execution() {
 # Load existing config values
 load_existing_config() {
   if [ -f "${CFG}" ]; then
-    # Source the existing config file
-    set -a  # automatically export all variables
-    . "${CFG}"
-    set +a
+    # Read config file with sudo and export variables
+    while IFS='=' read -r key value; do
+      # Skip empty lines and comments
+      if [ -n "$key" ] && [ "${key#\#}" = "$key" ]; then
+        # Remove quotes from value if present
+        value=$(echo "$value" | sed 's/^"//;s/"$//')
+        export "$key"="$value"
+      fi
+    done < <(sudo cat "${CFG}")
     return 0
   fi
   return 1
@@ -147,19 +152,19 @@ write_config() {
       read -rp "CPU alpha (0-1) [${DEFAULT_CPU_ALPHA}]: " CPU_ALPHA
       read -rp "CPU correction factor [${DEFAULT_CPU_CORR}]: " CPU_CORRECTION
     fi
-
-    # Set defaults for any unset variables
-    : "${MQTT_HOST:=${DEFAULT_MQTT_HOST}}"
-    : "${MQTT_PORT:=${DEFAULT_MQTT_PORT}}"
-    : "${MQTT_USER:=${DEFAULT_MQTT_USER}}"
-    : "${MQTT_PASS:=${DEFAULT_MQTT_PASS}}"
-    : "${MQTT_DISCOVERY_PREFIX:=${DEFAULT_DISCOVERY}}"
-    : "${POLL:=${DEFAULT_POLL}}"
-    : "${TEMP_OFFSET:=${DEFAULT_TEMP_OFFSET}}"
-    : "${HUM_OFFSET:=${DEFAULT_HUM_OFFSET}}"
-    : "${CPU_ALPHA:=${DEFAULT_CPU_ALPHA}}"
-    : "${CPU_CORRECTION:=${DEFAULT_CPU_CORR}}"
   fi
+
+  # Set defaults for any unset variables (this handles both new and existing configs)
+  : "${MQTT_HOST:=${DEFAULT_MQTT_HOST}}"
+  : "${MQTT_PORT:=${DEFAULT_MQTT_PORT}}"
+  : "${MQTT_USER:=${DEFAULT_MQTT_USER}}"
+  : "${MQTT_PASS:=${DEFAULT_MQTT_PASS}}"
+  : "${MQTT_DISCOVERY_PREFIX:=${DEFAULT_DISCOVERY}}"
+  : "${POLL:=${DEFAULT_POLL}}"
+  : "${TEMP_OFFSET:=${DEFAULT_TEMP_OFFSET}}"
+  : "${HUM_OFFSET:=${DEFAULT_HUM_OFFSET}}"
+  : "${CPU_ALPHA:=${DEFAULT_CPU_ALPHA}}"
+  : "${CPU_CORRECTION:=${DEFAULT_CPU_CORR}}"
 
   # Write the complete configuration
   sudo tee "${CFG}" > /dev/null <<EOF
