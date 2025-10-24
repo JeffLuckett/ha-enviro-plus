@@ -70,7 +70,6 @@ jobs:
           fi
 
       - name: Upload to PyPI
-        if: github.event_name == 'release' && github.event.action == 'published'
         run: |
           pip install twine
           twine upload dist/*
