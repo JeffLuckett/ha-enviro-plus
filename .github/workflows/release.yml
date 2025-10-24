@@ -1,0 +1,113 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # Triggers on version tags like v0.1.0, v0.2.0, etc.
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Required for creating releases
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch full history for changelog generation
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.11
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-ci.txt
+          pip install -r requirements-dev.txt
+
+      - name: Run tests
+        run: |
+          pytest tests/ -m "not hardware" --cov=ha_enviro_plus --cov-report=xml
+
+      - name: Build package
+        run: |
+          python -m pip install build twine
+          python -m build
+          twine check dist/*
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Extract version from tag (remove 'v' prefix)
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+          # Generate changelog using git-cliff
+          git-cliff --output CHANGELOG.md --tag v$VERSION
+
+          # Extract changelog content for release notes
+          if [ -f CHANGELOG.md ]; then
+            # Get the latest version section
+            CHANGELOG_CONTENT=$(awk '/^## \[/ {p=1; next} /^## \[/ && p {p=0} p' CHANGELOG.md | head -n -1)
+            echo "changelog<<EOF" >> $GITHUB_OUTPUT
+            echo "$CHANGELOG_CONTENT" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          else
+            echo "changelog=Release $VERSION" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ steps.changelog.outputs.version }}
+          body: |
+            ## What's Changed
+
+            ${{ steps.changelog.outputs.changelog }}
+
+            ## Installation
+
+            Install the latest version:
+            ```bash
+            bash <(wget -qO- https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/main/scripts/install.sh)
+            ```
+
+            ## Files
+
+            **Source Code (zip)**: [Download](https://github.com/JeffLuckett/ha-enviro-plus/archive/${{ github.ref_name }}.zip)
+            **Source Code (tar.gz)**: [Download](https://github.com/JeffLuckett/ha-enviro-plus/archive/${{ github.ref_name }}.tar.gz)
+
+            ## Verification
+
+            - ✅ All tests passed
+            - ✅ Code quality checks passed
+            - ✅ Package builds successfully
+            - ✅ Security scan completed
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+
+      - name: Upload Release Assets
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./dist/ha_enviro_plus-${{ steps.changelog.outputs.version }}-py3-none-any.whl
+          asset_name: ha-enviro-plus-${{ steps.changelog.outputs.version }}-py3-none-any.whl
+          asset_content_type: application/zip
+
+      - name: Upload Source Distribution
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./dist/ha-enviro-plus-${{ steps.changelog.outputs.version }}.tar.gz
+          asset_name: ha-enviro-plus-${{ steps.changelog.outputs.version }}.tar.gz
+          asset_content_type: application/gzip

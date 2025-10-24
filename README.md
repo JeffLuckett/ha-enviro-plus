@@ -1,5 +1,11 @@
 # ha-enviro-plus
 
+[![Tests](https://github.com/JeffLuckett/ha-enviro-plus/workflows/Tests/badge.svg)](https://github.com/JeffLuckett/ha-enviro-plus/actions)
+[![codecov](https://codecov.io/gh/JeffLuckett/ha-enviro-plus/branch/main/graph/badge.svg)](https://codecov.io/gh/JeffLuckett/ha-enviro-plus)
+[![Python Version](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Latest Release](https://img.shields.io/github/v/release/JeffLuckett/ha-enviro-plus)](https://github.com/JeffLuckett/ha-enviro-plus/releases/latest)
+
 **Enviro+ → Home Assistant MQTT Agent**
 A lightweight Python agent for publishing Pimoroni Enviro+ sensor data (temperature, humidity, pressure, light, gas, and system metrics) to Home Assistant via MQTT with automatic discovery.
 
@@ -46,9 +52,9 @@ Additional system telemetry is included:
 
 ## ⚙️ Quick Install
 
-Run this command **on your Raspberry Pi** (requires `sudo`):
+Run this command **on your Raspberry Pi**:
 
-    bash <(wget -qO- https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/main/install.sh)
+    bash <(wget -qO- https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/main/scripts/install.sh)
 
 The installer will:
 - Create `/opt/ha-enviro-plus` and a virtualenv
@@ -82,7 +88,6 @@ Edit values safely, then restart the service:
     TEMP_OFFSET=0.0
     HUM_OFFSET=0.0
     CPU_TEMP_FACTOR=1.8
-    DEVICE_NAME="Enviro+ Satellite"
 
 ---
 
@@ -90,7 +95,7 @@ Edit values safely, then restart the service:
 
 Remove the agent and optionally keep the config:
 
-    wget -qO- https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/main/uninstall.sh | sudo bash
+    wget -qO- https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/main/scripts/uninstall.sh | sudo bash
 
 The uninstaller:
 - Stops and disables the systemd service
