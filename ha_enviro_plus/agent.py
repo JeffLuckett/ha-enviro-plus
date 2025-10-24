@@ -366,13 +366,23 @@ def on_connect(
     publish_discovery(client)
 
     # Get settings manager from userdata
-    settings_manager = userdata.get('settings_manager') if userdata else None
+    settings_manager = userdata.get("settings_manager") if userdata else None
     if settings_manager:
         # Publish retained offsets so HA shows the current values
-        client.publish(f"{root}/set/temp_offset", str(settings_manager.get_temp_offset()), retain=True)
-        client.publish(f"{root}/set/hum_offset", str(settings_manager.get_hum_offset()), retain=True)
-        client.publish(f"{root}/set/cpu_temp_factor", str(settings_manager.get_cpu_temp_factor()), retain=True)
-        client.publish(f"{root}/set/cpu_temp_smoothing", str(settings_manager.get_cpu_temp_smoothing()), retain=True)
+        client.publish(
+            f"{root}/set/temp_offset", str(settings_manager.get_temp_offset()), retain=True
+        )
+        client.publish(
+            f"{root}/set/hum_offset", str(settings_manager.get_hum_offset()), retain=True
+        )
+        client.publish(
+            f"{root}/set/cpu_temp_factor", str(settings_manager.get_cpu_temp_factor()), retain=True
+        )
+        client.publish(
+            f"{root}/set/cpu_temp_smoothing",
+            str(settings_manager.get_cpu_temp_smoothing()),
+            retain=True,
+        )
     else:
         # Fallback to environment variables if settings manager not available
         client.publish(f"{root}/set/temp_offset", str(TEMP_OFFSET), retain=True)
@@ -384,7 +394,9 @@ def on_connect(
     client.subscribe([(cmd_t, 1), (set_t, 1)])
 
 
-def _handle_command(client: mqtt.Client, payload: str, settings_manager: Optional[SettingsManager] = None) -> None:
+def _handle_command(
+    client: mqtt.Client, payload: str, settings_manager: Optional[SettingsManager] = None
+) -> None:
     """Handle system commands."""
     if payload == "reboot":
         logger.info("Command: reboot")
@@ -403,10 +415,22 @@ def _handle_command(client: mqtt.Client, payload: str, settings_manager: Optiona
             try:
                 settings_manager.reset_to_defaults()
                 # Publish the reset values to MQTT
-                client.publish(f"{root}/set/temp_offset", str(settings_manager.get_temp_offset()), retain=True)
-                client.publish(f"{root}/set/hum_offset", str(settings_manager.get_hum_offset()), retain=True)
-                client.publish(f"{root}/set/cpu_temp_factor", str(settings_manager.get_cpu_temp_factor()), retain=True)
-                client.publish(f"{root}/set/cpu_temp_smoothing", str(settings_manager.get_cpu_temp_smoothing()), retain=True)
+                client.publish(
+                    f"{root}/set/temp_offset", str(settings_manager.get_temp_offset()), retain=True
+                )
+                client.publish(
+                    f"{root}/set/hum_offset", str(settings_manager.get_hum_offset()), retain=True
+                )
+                client.publish(
+                    f"{root}/set/cpu_temp_factor",
+                    str(settings_manager.get_cpu_temp_factor()),
+                    retain=True,
+                )
+                client.publish(
+                    f"{root}/set/cpu_temp_smoothing",
+                    str(settings_manager.get_cpu_temp_smoothing()),
+                    retain=True,
+                )
                 logger.info("Settings reset successfully")
             except Exception as e:
                 logger.error("Failed to reset settings: %s", e)
@@ -415,7 +439,10 @@ def _handle_command(client: mqtt.Client, payload: str, settings_manager: Optiona
 
 
 def _handle_calibration_setting(
-    topic: str, payload: str, enviro_sensors: EnviroPlusSensors, settings_manager: Optional[SettingsManager] = None
+    topic: str,
+    payload: str,
+    enviro_sensors: EnviroPlusSensors,
+    settings_manager: Optional[SettingsManager] = None,
 ) -> None:
     """Handle calibration setting updates."""
     key = topic.split("/")[-1]
@@ -458,7 +485,7 @@ def on_message(
         payload = msg.payload.decode().strip()
 
         # Get settings manager from userdata
-        settings_manager = userdata.get('settings_manager') if userdata else None
+        settings_manager = userdata.get("settings_manager") if userdata else None
 
         if topic == cmd_t:
             _handle_command(client, payload, settings_manager)
@@ -506,7 +533,7 @@ def main() -> None:
     client.will_set(avail_t, "offline", retain=True)
 
     # Set userdata to pass settings manager to callbacks
-    client.user_data_set({'settings_manager': settings_manager})
+    client.user_data_set({"settings_manager": settings_manager})
 
     client.on_connect = on_connect
 

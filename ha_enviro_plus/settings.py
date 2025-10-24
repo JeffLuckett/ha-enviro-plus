@@ -32,9 +32,7 @@ class SettingsManager:
 
         # Settings file path
         self.settings_dir = Path("/var/lib/ha-enviro-plus")
-        self.settings_file = (
-            self.settings_dir / "settings.json"
-        )
+        self.settings_file = self.settings_dir / "settings.json"
 
         # Default settings values
         self.default_settings = {
@@ -59,44 +57,32 @@ class SettingsManager:
             self.settings_dir.mkdir(parents=True, exist_ok=True)
             # Set permissions to be readable/writable by the service user
             os.chmod(self.settings_dir, 0o755)
-            self.logger.debug(
-                "Settings directory ensured: %s", self.settings_dir
-            )
+            self.logger.debug("Settings directory ensured: %s", self.settings_dir)
         except Exception as e:
-            self.logger.error(
-                "Failed to create settings directory %s: %s",
-                self.settings_dir, e
-            )
+            self.logger.error("Failed to create settings directory %s: %s", self.settings_dir, e)
             raise
 
     def _load_settings(self) -> None:
         """Load settings from the settings file."""
         try:
             if self.settings_file.exists():
-                with open(self.settings_file, 'r', encoding='utf-8') as f:
+                with open(self.settings_file, "r", encoding="utf-8") as f:
                     loaded_settings = json.load(f)
 
                 # Merge with defaults to ensure all keys exist
                 self._settings_cache = {**self.default_settings, **loaded_settings}
                 self.logger.info(
-                    "Loaded settings from %s: %s",
-                    self.settings_file, self._settings_cache
+                    "Loaded settings from %s: %s", self.settings_file, self._settings_cache
                 )
             else:
                 # Use defaults if file doesn't exist
                 self._settings_cache = self.default_settings.copy()
-                self.logger.info(
-                    "No settings file found, using defaults: %s",
-                    self._settings_cache
-                )
+                self.logger.info("No settings file found, using defaults: %s", self._settings_cache)
                 # Save defaults to file
                 self._save_settings()
 
         except (json.JSONDecodeError, IOError) as e:
-            self.logger.error(
-                "Failed to load settings from %s: %s",
-                self.settings_file, e
-            )
+            self.logger.error("Failed to load settings from %s: %s", self.settings_file, e)
             self.logger.info("Using default settings due to load error")
             self._settings_cache = self.default_settings.copy()
             # Try to save defaults
@@ -109,9 +95,9 @@ class SettingsManager:
         """Save current settings to the settings file."""
         try:
             # Create a temporary file first for atomic write
-            temp_file = self.settings_file.with_suffix('.tmp')
+            temp_file = self.settings_file.with_suffix(".tmp")
 
-            with open(temp_file, 'w', encoding='utf-8') as f:
+            with open(temp_file, "w", encoding="utf-8") as f:
                 json.dump(self._settings_cache, f, indent=2, sort_keys=True)
 
             # Atomic move
@@ -120,16 +106,10 @@ class SettingsManager:
             # Set proper permissions
             os.chmod(self.settings_file, 0o644)
 
-            self.logger.debug(
-                "Settings saved to %s: %s",
-                self.settings_file, self._settings_cache
-            )
+            self.logger.debug("Settings saved to %s: %s", self.settings_file, self._settings_cache)
 
         except Exception as e:
-            self.logger.error(
-                "Failed to save settings to %s: %s",
-                self.settings_file, e
-            )
+            self.logger.error("Failed to save settings to %s: %s", self.settings_file, e)
             raise
 
     def get_setting(self, key: str) -> Any:
@@ -168,16 +148,12 @@ class SettingsManager:
         old_value = self._settings_cache.get(key)
         self._settings_cache[key] = value
 
-        self.logger.info(
-            "Setting %s changed from %s to %s", key, old_value, value
-        )
+        self.logger.info("Setting %s changed from %s to %s", key, old_value, value)
 
         try:
             self._save_settings()
         except Exception as e:
-            self.logger.error(
-                "Failed to save setting %s=%s: %s", key, value, e
-            )
+            self.logger.error("Failed to save setting %s=%s: %s", key, value, e)
             # Revert the change
             self._settings_cache[key] = old_value
             raise
@@ -192,8 +168,7 @@ class SettingsManager:
         try:
             self._save_settings()
             self.logger.info(
-                "Settings reset successfully from %s to %s",
-                old_settings, self._settings_cache
+                "Settings reset successfully from %s to %s", old_settings, self._settings_cache
             )
         except Exception as e:
             self.logger.error("Failed to reset settings: %s", e)

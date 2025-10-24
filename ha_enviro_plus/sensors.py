@@ -137,8 +137,8 @@ class EnviroPlusSensors:
             # Apply exponential moving average
             # EMA = smoothing_factor * new_value + (1 - smoothing_factor) * previous_EMA
             self._cpu_temp_smoothed = (
-                self.cpu_temp_smoothing * raw_cpu_temp +
-                (1.0 - self.cpu_temp_smoothing) * self._cpu_temp_smoothed
+                self.cpu_temp_smoothing * raw_cpu_temp
+                + (1.0 - self.cpu_temp_smoothing) * self._cpu_temp_smoothed
             )
             self._cpu_temp_last_update = current_time
 
@@ -192,7 +192,9 @@ class EnviroPlusSensors:
 
             # If CPU temperature is 0.0 and we have no previous smoothed value, skip compensation
             if cpu_temp == 0.0 and self._cpu_temp_last_update == 0.0:
-                self.logger.warning("CPU temperature compensation skipped: no valid CPU temperature")
+                self.logger.warning(
+                    "CPU temperature compensation skipped: no valid CPU temperature"
+                )
                 self.logger.info("Using raw temperature reading: %.1f°C", raw_temp)
                 return raw_temp
 

@@ -13,8 +13,8 @@ class TestSettingsManager:
 
     def test_default_settings(self):
         """Test that default settings are correct."""
-        with patch('ha_enviro_plus.settings.Path') as mock_path_class:
-            with patch('os.chmod'):
+        with patch("ha_enviro_plus.settings.Path") as mock_path_class:
+            with patch("os.chmod"):
                 mock_path_instance = Mock()
                 mock_path_instance.mkdir = Mock()
                 mock_path_instance.exists.return_value = False
@@ -30,8 +30,8 @@ class TestSettingsManager:
 
     def test_set_and_get_settings(self):
         """Test setting and getting individual settings."""
-        with patch('ha_enviro_plus.settings.Path') as mock_path_class:
-            with patch('os.chmod'):
+        with patch("ha_enviro_plus.settings.Path") as mock_path_class:
+            with patch("os.chmod"):
                 mock_path_instance = Mock()
                 mock_path_instance.mkdir = Mock()
                 mock_path_instance.exists.return_value = False
@@ -41,7 +41,7 @@ class TestSettingsManager:
                 manager = SettingsManager()
 
                 # Test setters
-                with patch('builtins.open', mock_open()):
+                with patch("builtins.open", mock_open()):
                     manager.set_temp_offset(1.5)
                     manager.set_hum_offset(2.0)
                     manager.set_cpu_temp_factor(2.5)
@@ -55,8 +55,8 @@ class TestSettingsManager:
 
     def test_reset_to_defaults(self):
         """Test that reset_to_defaults works correctly."""
-        with patch('ha_enviro_plus.settings.Path') as mock_path_class:
-            with patch('os.chmod'):
+        with patch("ha_enviro_plus.settings.Path") as mock_path_class:
+            with patch("os.chmod"):
                 mock_path_instance = Mock()
                 mock_path_instance.mkdir = Mock()
                 mock_path_instance.exists.return_value = False
@@ -66,7 +66,7 @@ class TestSettingsManager:
                 manager = SettingsManager()
 
                 # Set some custom values
-                with patch('builtins.open', mock_open()):
+                with patch("builtins.open", mock_open()):
                     manager.set_temp_offset(5.0)
                     manager.set_hum_offset(10.0)
 
@@ -80,8 +80,8 @@ class TestSettingsManager:
 
     def test_get_all_settings(self):
         """Test that get_all_settings returns all current settings."""
-        with patch('ha_enviro_plus.settings.Path') as mock_path_class:
-            with patch('os.chmod'):
+        with patch("ha_enviro_plus.settings.Path") as mock_path_class:
+            with patch("os.chmod"):
                 mock_path_instance = Mock()
                 mock_path_instance.mkdir = Mock()
                 mock_path_instance.exists.return_value = False
@@ -93,8 +93,10 @@ class TestSettingsManager:
                 settings = manager.get_all_settings()
 
                 expected_keys = {
-                    "temp_offset", "hum_offset", "cpu_temp_factor",
-                    "cpu_temp_smoothing"
+                    "temp_offset",
+                    "hum_offset",
+                    "cpu_temp_factor",
+                    "cpu_temp_smoothing",
                 }
                 assert set(settings.keys()) == expected_keys
                 assert settings["temp_offset"] == 0.0
@@ -104,8 +106,8 @@ class TestSettingsManager:
 
     def test_set_setting_validates_key(self):
         """Test that setting an unknown key is handled gracefully."""
-        with patch('ha_enviro_plus.settings.Path') as mock_path_class:
-            with patch('os.chmod'):
+        with patch("ha_enviro_plus.settings.Path") as mock_path_class:
+            with patch("os.chmod"):
                 mock_path_instance = Mock()
                 mock_path_instance.mkdir = Mock()
                 mock_path_instance.exists.return_value = False
@@ -119,7 +121,7 @@ class TestSettingsManager:
 
     def test_file_operations_error_handling(self):
         """Test handling of file operation errors."""
-        with patch('ha_enviro_plus.settings.Path') as mock_path_class:
+        with patch("ha_enviro_plus.settings.Path") as mock_path_class:
             mock_path_instance = Mock()
             mock_path_instance.mkdir = Mock(side_effect=OSError("Cannot create directory"))
             mock_path_instance.__truediv__ = Mock(return_value=mock_path_instance)
@@ -141,8 +143,8 @@ class TestSettingsManagerIntegration:
         settings_dir.mkdir()
 
         # Mock the path to use our temporary directory
-        with patch('ha_enviro_plus.settings.Path') as mock_path_class:
-            with patch('os.chmod'):
+        with patch("ha_enviro_plus.settings.Path") as mock_path_class:
+            with patch("os.chmod"):
                 mock_path_instance = Mock()
                 mock_path_instance.mkdir = Mock()
                 mock_path_instance.exists.return_value = False
@@ -172,8 +174,8 @@ class TestSettingsManagerIntegration:
         settings_dir = tmp_path / "settings"
         settings_dir.mkdir()
 
-        with patch('ha_enviro_plus.settings.Path') as mock_path_class:
-            with patch('os.chmod'):
+        with patch("ha_enviro_plus.settings.Path") as mock_path_class:
+            with patch("os.chmod"):
                 mock_path_instance = Mock()
                 mock_path_instance.mkdir = Mock()
                 mock_path_instance.exists.return_value = False
