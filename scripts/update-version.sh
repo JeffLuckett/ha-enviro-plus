@@ -107,9 +107,13 @@ if [ "$CREATE_RELEASE" = true ]; then
     echo ""
     echo "🚀 Creating GitHub release..."
 
-    # Commit the version changes
+    # Commit the version changes (only if there are changes)
     git add ha_enviro_plus/__init__.py README.md scripts/install.sh scripts/uninstall.sh
-    git commit -m "Bump version to ${NEW_VERSION}"
+    if ! git diff --cached --quiet; then
+        git commit -m "Bump version to ${NEW_VERSION}"
+    else
+        echo "ℹ️  No changes to commit (version already set to ${NEW_VERSION})"
+    fi
 
     # Create and push tag
     git tag "v${NEW_VERSION}"
