@@ -26,7 +26,11 @@ class TestEnviroPlusSensorsInit:
         """Test initialization with custom values."""
         logger = logging.getLogger("test")
         sensors = EnviroPlusSensors(
-            temp_offset=2.5, hum_offset=-5.0, cpu_temp_factor=2.0, cpu_temp_smoothing=0.3, logger=logger
+            temp_offset=2.5,
+            hum_offset=-5.0,
+            cpu_temp_factor=2.0,
+            cpu_temp_smoothing=0.3,
+            logger=logger,
         )
 
         assert sensors.temp_offset == 2.5
