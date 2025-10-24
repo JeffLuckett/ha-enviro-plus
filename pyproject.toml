@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ha-enviro-plus"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Enviro+ to Home Assistant MQTT Agent"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -32,6 +32,9 @@ dev = [
 
 [project.scripts]
 ha-enviro-plus = "ha_enviro_plus.agent:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "ha_enviro_plus.__version__"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
