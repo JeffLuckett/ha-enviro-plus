@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.0] - 2025-01-XX
 
 ### Features
 - Initial release with Enviro+ sensor support
@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Home Assistant control entities (reboot, restart, shutdown)
 - Configurable polling intervals and calibration offsets
 - CPU temperature compensation for accurate readings
-- Comprehensive test suite with 75% coverage covering all critical paths and edge cases
+- Comprehensive test suite with >=75% coverage covering all critical paths and edge cases
 
 ### Documentation
 - Complete README with installation and configuration instructions
@@ -28,3 +28,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Coverage reporting with Codecov integration
 - Security scanning with Safety and Bandit
 - Hardware tests for real Enviro+ devices
+
+## [Unreleased]

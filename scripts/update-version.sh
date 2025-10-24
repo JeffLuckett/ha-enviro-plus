@@ -43,37 +43,44 @@ fi
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# Detect OS type for sed compatibility
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    SED_INPLACE="sed -i.bak"
+else
+    SED_INPLACE="sed -i"
+fi
+
 echo "Updating version to ${NEW_VERSION}..."
 
 # Update __init__.py
 INIT_FILE="${PROJECT_ROOT}/ha_enviro_plus/__init__.py"
 if [ -f "$INIT_FILE" ]; then
-    sed -i.bak "s/__version__ = \".*\"/__version__ = \"${NEW_VERSION}\"/" "$INIT_FILE"
-    rm "${INIT_FILE}.bak"
+    $SED_INPLACE "s/__version__ = \".*\"/__version__ = \"${NEW_VERSION}\"/" "$INIT_FILE"
+    rm -f "${INIT_FILE}.bak"
     echo "✅ Updated ${INIT_FILE}"
 fi
 
 # Update README.md version section
 README_FILE="${PROJECT_ROOT}/README.md"
 if [ -f "$README_FILE" ]; then
-    sed -i.bak "s/\*\*v[0-9.]* —/\*\*v${NEW_VERSION} —/" "$README_FILE"
-    rm "${README_FILE}.bak"
+    $SED_INPLACE "s/\*\*v[0-9.]* —/\*\*v${NEW_VERSION} —/" "$README_FILE"
+    rm -f "${README_FILE}.bak"
     echo "✅ Updated ${README_FILE}"
 fi
 
 # Update install script fallback version
 INSTALL_SCRIPT="${PROJECT_ROOT}/scripts/install.sh"
 if [ -f "$INSTALL_SCRIPT" ]; then
-    sed -i.bak "s/SCRIPT_VERSION=\"v[0-9.]*\"/SCRIPT_VERSION=\"v${NEW_VERSION}\"/" "$INSTALL_SCRIPT"
-    rm "${INSTALL_SCRIPT}.bak"
+    $SED_INPLACE "s/SCRIPT_VERSION=\"v[0-9.]*\"/SCRIPT_VERSION=\"v${NEW_VERSION}\"/" "$INSTALL_SCRIPT"
+    rm -f "${INSTALL_SCRIPT}.bak"
     echo "✅ Updated ${INSTALL_SCRIPT}"
 fi
 
 # Update uninstall script version
 UNINSTALL_SCRIPT="${PROJECT_ROOT}/scripts/uninstall.sh"
 if [ -f "$UNINSTALL_SCRIPT" ]; then
-    sed -i.bak "s/SCRIPT_VERSION=\"v[0-9.]*\"/SCRIPT_VERSION=\"v${NEW_VERSION}\"/" "$UNINSTALL_SCRIPT"
-    rm "${UNINSTALL_SCRIPT}.bak"
+    $SED_INPLACE "s/SCRIPT_VERSION=\"v[0-9.]*\"/SCRIPT_VERSION=\"v${NEW_VERSION}\"/" "$UNINSTALL_SCRIPT"
+    rm -f "${UNINSTALL_SCRIPT}.bak"
     echo "✅ Updated ${UNINSTALL_SCRIPT}"
 fi
 
