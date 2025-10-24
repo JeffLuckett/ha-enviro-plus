@@ -105,15 +105,15 @@ CHANGELOG_FILE="${PROJECT_ROOT}/CHANGELOG.md"
 if [ -f "$CHANGELOG_FILE" ]; then
     # Get current date in YYYY-MM-DD format
     RELEASE_DATE=$(date +%Y-%m-%d)
-    
+
     # Replace ## [Unreleased] with ## [NEW_VERSION] - RELEASE_DATE
     $SED_INPLACE "s/## \[Unreleased\]/## [${NEW_VERSION}] - ${RELEASE_DATE}/" "$CHANGELOG_FILE"
-    
+
     # Add new ## [Unreleased] section after the version section
     $SED_INPLACE "/## \[${NEW_VERSION}\] - ${RELEASE_DATE}/a\\
 \\
 ## [Unreleased]" "$CHANGELOG_FILE"
-    
+
     rm -f "${CHANGELOG_FILE}.bak"
     echo "✅ Updated ${CHANGELOG_FILE}"
 fi
