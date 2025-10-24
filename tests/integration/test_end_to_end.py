@@ -54,39 +54,48 @@ class TestEndToEndWorkflows:
             mock_mqtt_class.return_value = mock_client
 
             # Mock the main function components
-            with patch("ha_enviro_plus.agent.EnviroPlusSensors") as mock_sensors_class:
-                mock_sensors = Mock()
-                mock_sensors_class.return_value = mock_sensors
-                mock_sensors.get_all_sensor_data.return_value = {
-                    "temperature": 25.5,
-                    "temperature_raw": 25.5,
-                    "humidity": 45.0,
-                    "humidity_raw": 45.0,
-                    "pressure": 1013.25,
-                    "pressure_raw": 1013.25,
-                    "lux": 150.0,
-                    "lux_raw": 150.0,
-                    "gas_oxidising": 50.0,
-                    "gas_oxidising_raw": 50000.0,
-                    "gas_reducing": 30.0,
-                    "gas_reducing_raw": 30000.0,
-                    "gas_nh3": 40.0,
-                    "gas_nh3_raw": 40000.0,
-                }
-                mock_sensors._read_cpu_temp.return_value = 42.0
+            with patch("ha_enviro_plus.agent.SettingsManager") as mock_settings_class:
+                mock_settings = Mock()
+                mock_settings_class.return_value = mock_settings
+                mock_settings.get_temp_offset.return_value = 0.0
+                mock_settings.get_hum_offset.return_value = 0.0
+                mock_settings.get_cpu_temp_factor.return_value = 1.8
+                mock_settings.get_cpu_temp_smoothing.return_value = 0.1
 
-                # Mock the main loop to run once
-                with patch("ha_enviro_plus.agent.time.sleep") as mock_sleep:
-                    # Let the first sleep pass, then interrupt on the second
-                    mock_sleep.side_effect = [None, KeyboardInterrupt()]
+                with patch("ha_enviro_plus.agent.EnviroPlusSensors") as mock_sensors_class:
+                    mock_sensors = Mock()
+                    mock_sensors_class.return_value = mock_sensors
+                    mock_sensors.get_all_sensor_data.return_value = {
+                        "temperature": 25.5,
+                        "temperature_raw": 25.5,
+                        "humidity": 45.0,
+                        "humidity_raw": 45.0,
+                        "pressure": 1013.25,
+                        "pressure_raw": 1013.25,
+                        "lux": 150.0,
+                        "lux_raw": 150.0,
+                        "gas_oxidising": 50.0,
+                        "gas_oxidising_raw": 50000.0,
+                        "gas_reducing": 30.0,
+                        "gas_reducing_raw": 30000.0,
+                        "gas_nh3": 40.0,
+                        "gas_nh3_raw": 40000.0,
+                    }
+                    mock_sensors._read_cpu_temp.return_value = 42.0
+                    mock_sensors.cpu_temp.return_value = 42.0
 
-                    # Run main function
-                    main()
+                    # Mock the main loop to run once
+                    with patch("ha_enviro_plus.agent.time.sleep") as mock_sleep:
+                        # Let the first sleep pass, then interrupt on the second
+                        mock_sleep.side_effect = [None, KeyboardInterrupt()]
 
-                    # Manually trigger on_connect to simulate connection
-                    from ha_enviro_plus.agent import on_connect
+                        # Run main function
+                        main()
 
-                    on_connect(mock_client, None, None, 0)
+                        # Manually trigger on_connect to simulate connection
+                        from ha_enviro_plus.agent import on_connect
+
+                        on_connect(mock_client, None, None, 0)
 
         # Verify MQTT client was configured (no auth by default)
         # mock_client.username_pw_set.assert_called_once_with("testuser", "testpass")
