@@ -29,4 +29,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Security scanning with Safety and Bandit
 - Hardware tests for real Enviro+ devices
 
+## [0.1.2] - 2025-10-24
+
 ## [Unreleased]

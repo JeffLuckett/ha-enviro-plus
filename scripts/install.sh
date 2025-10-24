@@ -21,7 +21,7 @@
 set -euo pipefail
 
 # Script version for debugging
-SCRIPT_VERSION="v0.1.1"
+SCRIPT_VERSION="v0.1.2"
 
 APP_NAME="ha-enviro-plus"
 APP_DIR="/opt/${APP_NAME}"
