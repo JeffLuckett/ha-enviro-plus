@@ -69,6 +69,14 @@ if [ -f "$INSTALL_SCRIPT" ]; then
     echo "✅ Updated ${INSTALL_SCRIPT}"
 fi
 
+# Update uninstall script version
+UNINSTALL_SCRIPT="${PROJECT_ROOT}/scripts/uninstall.sh"
+if [ -f "$UNINSTALL_SCRIPT" ]; then
+    sed -i.bak "s/SCRIPT_VERSION=\"v[0-9.]*\"/SCRIPT_VERSION=\"v${NEW_VERSION}\"/" "$UNINSTALL_SCRIPT"
+    rm "${UNINSTALL_SCRIPT}.bak"
+    echo "✅ Updated ${UNINSTALL_SCRIPT}"
+fi
+
 echo ""
 echo "🎉 Version updated to ${NEW_VERSION}!"
 
@@ -90,7 +98,7 @@ if [ "$CREATE_RELEASE" = true ]; then
     fi
 
     # Commit the version changes
-    git add ha_enviro_plus/__init__.py README.md scripts/install.sh
+    git add ha_enviro_plus/__init__.py README.md scripts/install.sh scripts/uninstall.sh
     git commit -m "Bump version to ${NEW_VERSION}"
 
     # Create and push tag
