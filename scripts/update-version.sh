@@ -52,6 +52,22 @@ fi
 
 echo "Updating version to ${NEW_VERSION}..."
 
+# Check for uncommitted changes BEFORE making any changes
+if [ "$CREATE_RELEASE" = true ]; then
+    # Check if we're in a git repository
+    if ! git rev-parse --git-dir > /dev/null 2>&1; then
+        echo "❌ Error: Not in a git repository"
+        exit 1
+    fi
+
+    # Check if there are uncommitted changes
+    if ! git diff-index --quiet HEAD --; then
+        echo "❌ Error: You have uncommitted changes. Please commit or stash them first."
+        echo "Run: git status"
+        exit 1
+    fi
+fi
+
 # Update __init__.py
 INIT_FILE="${PROJECT_ROOT}/ha_enviro_plus/__init__.py"
 if [ -f "$INIT_FILE" ]; then
@@ -90,19 +106,6 @@ echo "🎉 Version updated to ${NEW_VERSION}!"
 if [ "$CREATE_RELEASE" = true ]; then
     echo ""
     echo "🚀 Creating GitHub release..."
-
-    # Check if we're in a git repository
-    if ! git rev-parse --git-dir > /dev/null 2>&1; then
-        echo "❌ Error: Not in a git repository"
-        exit 1
-    fi
-
-    # Check if there are uncommitted changes
-    if ! git diff-index --quiet HEAD --; then
-        echo "❌ Error: You have uncommitted changes. Please commit or stash them first."
-        echo "Run: git status"
-        exit 1
-    fi
 
     # Commit the version changes
     git add ha_enviro_plus/__init__.py README.md scripts/install.sh scripts/uninstall.sh
