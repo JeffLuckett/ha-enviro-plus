@@ -345,6 +345,7 @@ class TestMainFunction:
         # Mock all the dependencies
         mocker.patch("ha_enviro_plus.agent.mqtt.Client")
         mocker.patch("ha_enviro_plus.agent.EnviroPlusSensors")
+        mocker.patch("ha_enviro_plus.agent.SettingsManager")
         mocker.patch("ha_enviro_plus.agent.time.sleep", side_effect=KeyboardInterrupt)
 
         # Mock the logger to capture log messages
@@ -440,9 +441,10 @@ class TestMQTTErrorScenarios:
 
         on_message(mock_client, None, mock_msg, mock_sensors)
 
-        # Unknown settings are silently ignored, no logging
-        assert mock_logger.info.call_count == 0
-        assert mock_logger.warning.call_count == 0
+        # Unknown settings should log a warning
+        assert mock_logger.warning.call_count == 1
+        warning_call = mock_logger.warning.call_args[0][0]
+        assert "Unknown calibration setting" in warning_call
         assert mock_logger.error.call_count == 0
 
     def test_on_message_invalid_calibration_value(self, mocker, mock_device_id):
@@ -459,8 +461,10 @@ class TestMQTTErrorScenarios:
 
         on_message(mock_client, None, mock_msg, mock_sensors)
 
-        # Invalid values should cause an exception and be logged
-        assert mock_logger.exception.call_count > 0
+        # Invalid values should be logged as an error
+        assert mock_logger.error.call_count > 0
+        error_call = mock_logger.error.call_args[0][0]
+        assert "Invalid value for" in error_call
 
     def test_mqtt_connection_failure(self, mocker, mock_device_id):
         """Test MQTT connection failure handling."""
