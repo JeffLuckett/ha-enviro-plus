@@ -356,6 +356,8 @@ class TestMainFunction:
 
         try:
             main()
+        except SystemExit as e:
+            assert e.code == 0  # Successful graceful shutdown
         except KeyboardInterrupt:
             pass  # Expected from our mock
 
