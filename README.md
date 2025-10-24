@@ -95,12 +95,13 @@ Edit values safely, then restart the service:
 
 Remove the agent and optionally keep the config:
 
-    wget -qO- https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/main/scripts/uninstall.sh | sudo bash
+    bash <(wget -qO- https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/main/scripts/uninstall.sh)
 
 The uninstaller:
 - Stops and disables the systemd service
-- Removes `/opt/ha-enviro-plus` and log files
-- Prompts to preserve `/etc/default/ha-enviro-plus`
+- Removes `/opt/ha-enviro-plus`, log files, and settings directory
+- Prompts to preserve `/etc/default/ha-enviro-plus` (interactive mode)
+- Works in both interactive and non-interactive modes
 
 ---
 
