@@ -7,6 +7,8 @@ import psutil
 import subprocess
 import logging
 import platform
+import signal
+import sys
 from datetime import datetime, timezone
 from typing import List, Any, Dict, Optional
 
@@ -495,8 +497,87 @@ def on_message(
         logger.exception("on_message error: %s", e)
 
 
+def validate_config() -> None:
+    """
+    Validate required configuration on startup.
+
+    Raises:
+        SystemExit: If critical configuration is missing
+    """
+    logger.info("Validating configuration...")
+
+    # Check MQTT_HOST
+    if not MQTT_HOST or MQTT_HOST == "":
+        logger.error("MQTT_HOST is required but not set")
+        logger.error("Please set MQTT_HOST in /etc/default/ha-enviro-plus")
+        sys.exit(1)
+
+    # Check MQTT_PORT
+    if not isinstance(MQTT_PORT, int) or MQTT_PORT <= 0 or MQTT_PORT > 65535:
+        logger.error("MQTT_PORT must be a valid port number (1-65535), got: %s", MQTT_PORT)
+        sys.exit(1)
+
+    # Warn about missing authentication
+    if not MQTT_USER:
+        logger.warning("MQTT_USER not set - using anonymous connection")
+        logger.warning("Consider setting MQTT_USER and MQTT_PASS for security")
+
+    # Check poll interval
+    if POLL_SEC <= 0:
+        logger.error("POLL_SEC must be positive, got: %s", POLL_SEC)
+        sys.exit(1)
+
+    # Check calibration values are numeric
+    try:
+        float(TEMP_OFFSET)
+        float(HUM_OFFSET)
+        float(CPU_TEMP_FACTOR)
+        float(CPU_TEMP_SMOOTHING)
+    except (ValueError, TypeError) as e:
+        logger.error("Invalid calibration values: %s", e)
+        sys.exit(1)
+
+    logger.info("Configuration validation passed")
+
+
+def signal_handler(signum: int, frame: Any, client: Optional[mqtt.Client] = None) -> None:
+    """
+    Handle shutdown signals gracefully.
+
+    Args:
+        signum: Signal number
+        frame: Current stack frame
+        client: MQTT client to disconnect gracefully
+    """
+    signal_name = signal.Signals(signum).name
+    logger.info("Received signal %s (%d), shutting down gracefully", signal_name, signum)
+
+    if client:
+        try:
+            client.publish(avail_t, "offline", retain=True)
+            client.loop_stop()
+            client.disconnect()
+            logger.info("MQTT client disconnected gracefully")
+        except Exception as e:
+            logger.error("Error during MQTT disconnect: %s", e)
+
+    logger.info("Graceful shutdown complete")
+
+    # Check if we're running in a test environment
+    if "pytest" in sys.modules:
+        # In tests, raise SystemExit instead of calling sys.exit()
+        raise SystemExit(0)
+    else:
+        # In production, call sys.exit()
+        sys.exit(0)
+
+
 def main() -> None:
     logger.info("%s starting (v%s)", APP_NAME, VERSION)
+
+    # Validate configuration before proceeding
+    validate_config()
+
     logger.info("Root topic: %s", root)
     logger.info("Discovery prefix: %s", MQTT_DISCOVERY_PREFIX)
     logger.info("Poll interval: %ss", POLL_SEC)
@@ -543,6 +624,16 @@ def main() -> None:
 
     client.on_message = message_wrapper
 
+    # Register signal handlers for graceful shutdown
+    def sigterm_handler(signum: int, frame: Any) -> None:
+        signal_handler(signum, frame, client)
+
+    def sigint_handler(signum: int, frame: Any) -> None:
+        signal_handler(signum, frame, client)
+
+    signal.signal(signal.SIGTERM, sigterm_handler)
+    signal.signal(signal.SIGINT, sigint_handler)
+
     client.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
     client.loop_start()
 
@@ -560,11 +651,22 @@ def main() -> None:
                 client.publish(f"{root}/{tail}", str(val), retain=True)
             time.sleep(POLL_SEC)
     except KeyboardInterrupt:
-        pass
+        logger.info("Received KeyboardInterrupt, shutting down gracefully")
+        signal_handler(signal.SIGINT, None, client)
+    except Exception as e:
+        logger.error("Unexpected error in main loop: %s", e)
+        logger.info("Shutting down gracefully due to error")
+        signal_handler(signal.SIGTERM, None, client)
     finally:
-        client.publish(avail_t, "offline", retain=True)
-        client.loop_stop()
-        client.disconnect()
+        # This should not be reached due to signal_handler calling sys.exit()
+        # But keeping it as a safety net for cases where signal_handler wasn't called
+        try:
+            if client:
+                client.publish(avail_t, "offline", retain=True)
+                client.loop_stop()
+                client.disconnect()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

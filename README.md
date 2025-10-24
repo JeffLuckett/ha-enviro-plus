@@ -1,7 +1,6 @@
 # ha-enviro-plus
 
 [![Tests](https://github.com/JeffLuckett/ha-enviro-plus/workflows/Tests/badge.svg)](https://github.com/JeffLuckett/ha-enviro-plus/actions)
-[![codecov](https://codecov.io/gh/JeffLuckett/ha-enviro-plus/branch/main/graph/badge.svg)](https://codecov.io/gh/JeffLuckett/ha-enviro-plus)
 [![Python Version](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Latest Release](https://img.shields.io/github/v/release/JeffLuckett/ha-enviro-plus)](https://github.com/JeffLuckett/ha-enviro-plus/releases/latest)
@@ -19,7 +18,6 @@ It reads data from:
 - **BME280** (temperature, humidity, pressure)
 - **LTR559** (ambient light)
 - **Gas sensor** (oxidising, reducing, NH₃)
-- Optional **sound** and **PMS5003 particulate** sensors
 and publishes them to Home Assistant over MQTT using native **HA Discovery**.
 
 Additional system telemetry is included:
@@ -45,8 +43,11 @@ Additional system telemetry is included:
     - Apply calibration offsets
     - Adjust CPU temperature compensation factor
 - Structured logging (rotation-friendly)
+- Graceful shutdown handling (SIGTERM/SIGINT)
+- Startup configuration validation
 - Safe installer/uninstaller with config preservation
-- Designed for Pi Zero 2 W + Enviro+ HAT, but works anywhere the libraries do
+- Versioned installation support (`--release`, `--branch` flags)
+- Designed and tested with a Raspberry Pi Zero 2 W + Enviro+ HAT. Also supports the original Enviro HAT (fewer sensors) and runs on any hardware that supports these devices and the necessary libraries. (Testers welcome!)
 
 ---
 
@@ -55,6 +56,12 @@ Additional system telemetry is included:
 Run this command **on your Raspberry Pi**:
 
     bash <(wget -qO- https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/main/scripts/install.sh)
+
+**Installation Options:**
+- Install latest stable: `./install.sh`
+- Install specific version: `./install.sh --release v0.1.0`
+- Install from branch: `./install.sh --branch feature-branch`
+- Show installer version: `./install.sh --version`
 
 The installer will:
 - Create `/opt/ha-enviro-plus` and a virtualenv
@@ -139,7 +146,7 @@ pytest tests/ --cov=ha_enviro_plus --cov-report=html
 
 ### Test Coverage
 
-The project aims for >90% test coverage. Coverage reports are generated in HTML format and available in the `htmlcov/` directory after running tests with coverage.
+The project aims for >=75% test coverage. Coverage reports are generated in HTML format and available in the `htmlcov/` directory after running tests with coverage.
 
 ### Continuous Integration
 
@@ -171,23 +178,29 @@ pytest tests/ -m "not hardware"
 - **Temperature Compensation**: The temperature sensor runs warm due to CPU proximity. The agent now includes automatic CPU temperature compensation using a configurable factor (default 1.8). You can adjust this factor via Home Assistant or the config file for optimal accuracy.
 - **Calibration**: Use the `TEMP_OFFSET` for fine-tuning individual installations, and `CPU_TEMP_FACTOR` to adjust the CPU compensation algorithm.
 - Humidity readings depend on temperature calibration — adjust both together.
-- Sound and particulate sensors are optional; the agent functions fully without them.
+- Sound and particulate sensors are planned for v0.2.0; the agent functions fully without them.
 
 ---
 
 ## 🧪 Version
 
-**v0.1.0 — Experimental pre-release**
+**v0.1.0 — Stable Release**
 
-This version:
-- Establishes the base framework
-- Implements all major sensors and MQTT features
-- Adds host telemetry and Home Assistant control entities
+This version includes:
+- Complete Enviro+ sensor support (BME280, LTR559, Gas sensors)
+- MQTT integration with Home Assistant discovery
+- System telemetry (CPU temperature, load, memory, disk)
+- Home Assistant control entities (reboot, restart, shutdown)
+- Configurable polling intervals and calibration offsets
+- CPU temperature compensation for accurate readings
+- Graceful shutdown handling and configuration validation
+- Versioned installation support
+- Comprehensive test suite with >=75% coverage
 
-Next milestone:
-- Versioned installer (`--version` flag)
-- Web-based calibration adjustment
-- Optional local REST API
+**Next milestone (v0.2.0):**
+- Noise sensor (microphone to dB conversion)
+- PMS5003 particulate sensor support
+- 0.96" LCD display system with plugin architecture
 
 ---
 
