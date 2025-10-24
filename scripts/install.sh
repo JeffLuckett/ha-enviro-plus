@@ -235,6 +235,14 @@ EOF
   sudo chmod 600 "${CFG}"
 }
 
+create_settings_dir() {
+  echo "==> Creating settings directory..."
+  sudo mkdir -p "/var/lib/${APP_NAME}"
+  sudo chown root:root "/var/lib/${APP_NAME}"
+  sudo chmod 755 "/var/lib/${APP_NAME}"
+  echo "==> Settings directory created: /var/lib/${APP_NAME}"
+}
+
 install_service() {
   echo "==> Installing systemd service..."
   sudo tee "${SERVICE}" > /dev/null <<EOF
@@ -389,6 +397,7 @@ main() {
   clone_or_update "${branch}"
   make_venv
   write_config
+  create_settings_dir
   install_service
   start_service
   post_message

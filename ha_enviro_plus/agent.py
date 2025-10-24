@@ -12,6 +12,7 @@ from typing import List, Any, Dict, Optional
 
 import paho.mqtt.client as mqtt
 from .sensors import EnviroPlusSensors
+from .settings import SettingsManager
 from . import __version__
 
 APP_NAME = "ha-enviro-plus"
@@ -297,6 +298,7 @@ def publish_discovery(c: mqtt.Client) -> None:
     button("reboot", "Reboot Enviro Zero", "mdi:restart")
     button("shutdown", "Shutdown Enviro Zero", "mdi:power")
     button("restart_service", "Restart Agent", "mdi:refresh")
+    button("reset_settings", "Reset Settings to Defaults", "mdi:restore")
 
     # number entities for offsets (so HA shows exact values)
     def number(
@@ -362,16 +364,27 @@ def on_connect(
     client.publish(avail_t, "online", retain=True)
     # (Re)publish discovery on connect
     publish_discovery(client)
-    # Publish retained offsets so HA shows the current values
-    client.publish(f"{root}/set/temp_offset", str(TEMP_OFFSET), retain=True)
-    client.publish(f"{root}/set/hum_offset", str(HUM_OFFSET), retain=True)
-    client.publish(f"{root}/set/cpu_temp_factor", str(CPU_TEMP_FACTOR), retain=True)
-    client.publish(f"{root}/set/cpu_temp_smoothing", str(CPU_TEMP_SMOOTHING), retain=True)
+
+    # Get settings manager from userdata
+    settings_manager = userdata.get('settings_manager') if userdata else None
+    if settings_manager:
+        # Publish retained offsets so HA shows the current values
+        client.publish(f"{root}/set/temp_offset", str(settings_manager.get_temp_offset()), retain=True)
+        client.publish(f"{root}/set/hum_offset", str(settings_manager.get_hum_offset()), retain=True)
+        client.publish(f"{root}/set/cpu_temp_factor", str(settings_manager.get_cpu_temp_factor()), retain=True)
+        client.publish(f"{root}/set/cpu_temp_smoothing", str(settings_manager.get_cpu_temp_smoothing()), retain=True)
+    else:
+        # Fallback to environment variables if settings manager not available
+        client.publish(f"{root}/set/temp_offset", str(TEMP_OFFSET), retain=True)
+        client.publish(f"{root}/set/hum_offset", str(HUM_OFFSET), retain=True)
+        client.publish(f"{root}/set/cpu_temp_factor", str(CPU_TEMP_FACTOR), retain=True)
+        client.publish(f"{root}/set/cpu_temp_smoothing", str(CPU_TEMP_SMOOTHING), retain=True)
+
     # Subscribe to commands and setters
     client.subscribe([(cmd_t, 1), (set_t, 1)])
 
 
-def _handle_command(client: mqtt.Client, payload: str) -> None:
+def _handle_command(client: mqtt.Client, payload: str, settings_manager: Optional[SettingsManager] = None) -> None:
     """Handle system commands."""
     if payload == "reboot":
         logger.info("Command: reboot")
@@ -384,26 +397,56 @@ def _handle_command(client: mqtt.Client, payload: str) -> None:
     elif payload == "restart_service":
         logger.info("Command: restart service")
         subprocess.Popen(["sudo", "systemctl", "restart", f"{APP_NAME}.service"])
+    elif payload == "reset_settings":
+        logger.info("Command: reset settings to defaults")
+        if settings_manager:
+            try:
+                settings_manager.reset_to_defaults()
+                # Publish the reset values to MQTT
+                client.publish(f"{root}/set/temp_offset", str(settings_manager.get_temp_offset()), retain=True)
+                client.publish(f"{root}/set/hum_offset", str(settings_manager.get_hum_offset()), retain=True)
+                client.publish(f"{root}/set/cpu_temp_factor", str(settings_manager.get_cpu_temp_factor()), retain=True)
+                client.publish(f"{root}/set/cpu_temp_smoothing", str(settings_manager.get_cpu_temp_smoothing()), retain=True)
+                logger.info("Settings reset successfully")
+            except Exception as e:
+                logger.error("Failed to reset settings: %s", e)
+        else:
+            logger.error("Settings manager not available for reset")
 
 
 def _handle_calibration_setting(
-    topic: str, payload: str, enviro_sensors: EnviroPlusSensors
+    topic: str, payload: str, enviro_sensors: EnviroPlusSensors, settings_manager: Optional[SettingsManager] = None
 ) -> None:
     """Handle calibration setting updates."""
-    global TEMP_OFFSET, HUM_OFFSET, CPU_TEMP_FACTOR, CPU_TEMP_SMOOTHING
     key = topic.split("/")[-1]
-    if key == "temp_offset":
-        TEMP_OFFSET = float(payload)
-        enviro_sensors.update_calibration(temp_offset=TEMP_OFFSET)
-    elif key == "hum_offset":
-        HUM_OFFSET = float(payload)
-        enviro_sensors.update_calibration(hum_offset=HUM_OFFSET)
-    elif key == "cpu_temp_factor":
-        CPU_TEMP_FACTOR = float(payload)
-        enviro_sensors.update_calibration(cpu_temp_factor=CPU_TEMP_FACTOR)
-    elif key == "cpu_temp_smoothing":
-        CPU_TEMP_SMOOTHING = float(payload)
-        enviro_sensors.update_calibration(cpu_temp_smoothing=CPU_TEMP_SMOOTHING)
+
+    try:
+        if key == "temp_offset":
+            value = float(payload)
+            enviro_sensors.update_calibration(temp_offset=value)
+            if settings_manager:
+                settings_manager.set_temp_offset(value)
+        elif key == "hum_offset":
+            value = float(payload)
+            enviro_sensors.update_calibration(hum_offset=value)
+            if settings_manager:
+                settings_manager.set_hum_offset(value)
+        elif key == "cpu_temp_factor":
+            value = float(payload)
+            enviro_sensors.update_calibration(cpu_temp_factor=value)
+            if settings_manager:
+                settings_manager.set_cpu_temp_factor(value)
+        elif key == "cpu_temp_smoothing":
+            value = float(payload)
+            enviro_sensors.update_calibration(cpu_temp_smoothing=value)
+            if settings_manager:
+                settings_manager.set_cpu_temp_smoothing(value)
+        else:
+            logger.warning("Unknown calibration setting: %s", key)
+    except ValueError:
+        logger.error("Invalid value for %s: %s", key, payload)
+    except Exception as e:
+        logger.error("Failed to update %s: %s", key, e)
 
 
 def on_message(
@@ -413,10 +456,14 @@ def on_message(
     try:
         topic = msg.topic
         payload = msg.payload.decode().strip()
+
+        # Get settings manager from userdata
+        settings_manager = userdata.get('settings_manager') if userdata else None
+
         if topic == cmd_t:
-            _handle_command(client, payload)
+            _handle_command(client, payload, settings_manager)
         elif topic.startswith(f"{root}/set/"):
-            _handle_calibration_setting(topic, payload, enviro_sensors)
+            _handle_calibration_setting(topic, payload, enviro_sensors, settings_manager)
     except Exception as e:
         logger.exception("on_message error: %s", e)
 
@@ -426,20 +473,30 @@ def main() -> None:
     logger.info("Root topic: %s", root)
     logger.info("Discovery prefix: %s", MQTT_DISCOVERY_PREFIX)
     logger.info("Poll interval: %ss", POLL_SEC)
+
+    # Initialize settings manager
+    settings_manager = SettingsManager(logger=logger)
+
+    # Load persistent settings, falling back to environment variables
+    temp_offset = settings_manager.get_temp_offset()
+    hum_offset = settings_manager.get_hum_offset()
+    cpu_temp_factor = settings_manager.get_cpu_temp_factor()
+    cpu_temp_smoothing = settings_manager.get_cpu_temp_smoothing()
+
     logger.info(
         "Initial offsets: TEMP=%s°C HUM=%s%% CPU_FACTOR=%s CPU_SMOOTHING=%s",
-        TEMP_OFFSET,
-        HUM_OFFSET,
-        CPU_TEMP_FACTOR,
-        CPU_TEMP_SMOOTHING,
+        temp_offset,
+        hum_offset,
+        cpu_temp_factor,
+        cpu_temp_smoothing,
     )
 
     # Initialize sensor manager with current calibration values
     enviro_sensors = EnviroPlusSensors(
-        temp_offset=TEMP_OFFSET,
-        hum_offset=HUM_OFFSET,
-        cpu_temp_factor=CPU_TEMP_FACTOR,
-        cpu_temp_smoothing=CPU_TEMP_SMOOTHING,
+        temp_offset=temp_offset,
+        hum_offset=hum_offset,
+        cpu_temp_factor=cpu_temp_factor,
+        cpu_temp_smoothing=cpu_temp_smoothing,
         logger=logger,
     )
 
@@ -447,6 +504,10 @@ def main() -> None:
     if MQTT_USER:
         client.username_pw_set(MQTT_USER, MQTT_PASS)
     client.will_set(avail_t, "offline", retain=True)
+
+    # Set userdata to pass settings manager to callbacks
+    client.user_data_set({'settings_manager': settings_manager})
+
     client.on_connect = on_connect
 
     # Create a wrapper for on_message that includes the sensor instance
