@@ -184,7 +184,7 @@ pytest tests/ -m "not hardware"
 
 ## 🧪 Version
 
-**v0.1.2 — Stable Release**
+**v0.1.0 — Stable Release**
 
 This version includes:
 - Complete Enviro+ sensor support (BME280, LTR559, Gas sensors)

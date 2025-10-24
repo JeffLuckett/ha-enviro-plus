@@ -17,7 +17,7 @@
 set -euo pipefail
 
 # Script version for debugging
-SCRIPT_VERSION="v0.1.2"
+SCRIPT_VERSION="v0.1.0"
 
 APP_NAME="ha-enviro-plus"
 SERVICE="/etc/systemd/system/${APP_NAME}.service"
