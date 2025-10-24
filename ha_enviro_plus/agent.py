@@ -12,9 +12,10 @@ from typing import List, Any, Dict, Optional
 
 import paho.mqtt.client as mqtt
 from .sensors import EnviroPlusSensors
+from . import __version__
 
 APP_NAME = "ha-enviro-plus"
-VERSION = "0.1.0"
+VERSION = __version__
 
 # ---------- CONFIG via /etc/default/ha-enviro-plus ----------
 MQTT_HOST = os.getenv("MQTT_HOST", "homeassistant.local")

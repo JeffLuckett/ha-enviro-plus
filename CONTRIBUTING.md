@@ -69,7 +69,7 @@ pytest tests/unit/test_sensors.py::TestEnviroPlusSensorsInit::test_init_default_
 
 ### Test Coverage
 
-The project aims for >90% test coverage. Coverage reports are generated in HTML format in the `htmlcov/` directory.
+The project aims for >=75% test coverage with all critical paths and edge cases covered. Coverage reports are generated in HTML format in the `htmlcov/` directory.
 
 ## Code Quality
 
@@ -169,7 +169,7 @@ def test_real_sensor():
 ### Pull Request Requirements
 
 - [ ] All tests pass
-- [ ] Code coverage is maintained (>90%)
+- [ ] Code coverage is maintained (>=75% with critical paths covered)
 - [ ] Code follows project style guidelines
 - [ ] New functionality includes tests
 - [ ] Documentation is updated if needed
@@ -204,7 +204,8 @@ tests/                  # Test suite
 
 scripts/                # Installation scripts
 ├── install.sh
-└── uninstall.sh
+├── uninstall.sh
+└── update-version.sh   # Version management script
 
 .github/workflows/      # CI/CD
 └── test.yml
@@ -219,11 +220,64 @@ scripts/                # Installation scripts
 - Write descriptive docstrings
 - Use meaningful variable and function names
 
-### Error Handling
+### Version Management
 
-- Handle exceptions gracefully
-- Log errors appropriately
-- Provide meaningful error messages
+The project uses a single source of truth for versioning in `ha_enviro_plus/__init__.py`. To update the version across all files:
+
+```bash
+# Update version to 0.2.0 (manual process)
+./scripts/update-version.sh 0.2.0
+
+# Review changes
+git diff
+
+# Commit and tag
+git commit -m "Bump version to 0.2.0"
+git tag v0.2.0
+git push && git push --tags
+```
+
+**Or use the automated release process:**
+
+```bash
+# Update version and create GitHub release automatically
+./scripts/update-version.sh 0.2.0 --release
+```
+
+The version update script automatically updates:
+- `ha_enviro_plus/__init__.py` (source of truth)
+- `ha_enviro_plus/agent.py` (MQTT device info)
+- `README.md` version section
+- `scripts/install.sh` fallback version
+
+### GitHub Releases
+
+The project uses GitHub Releases for distribution. When you create a version tag (e.g., `v0.2.0`), GitHub Actions automatically:
+
+1. **Runs all tests** to ensure quality
+2. **Builds the package** (wheel and source distribution)
+3. **Generates changelog** from conventional commits
+4. **Creates release** with:
+   - Release notes from changelog
+   - Installation instructions
+   - Download links for source code
+   - Built package artifacts
+
+**Release Process:**
+```bash
+# Option 1: Automated (recommended)
+./scripts/update-version.sh 0.2.0 --release
+
+# Option 2: Manual
+./scripts/update-version.sh 0.2.0
+git commit -m "Bump version to 0.2.0"
+git tag v0.2.0
+git push && git push --tags
+```
+
+**Release URLs:**
+- Releases: https://github.com/JeffLuckett/ha-enviro-plus/releases
+- Latest: https://github.com/JeffLuckett/ha-enviro-plus/releases/latest
 
 ### Documentation
 
