@@ -17,6 +17,7 @@ class TestEnviroPlusSensorsInit:
         assert sensors.temp_offset == 0.0
         assert sensors.hum_offset == 0.0
         assert sensors.cpu_temp_factor == 1.8
+        assert sensors.cpu_temp_smoothing == 0.1
         assert sensors.logger is not None
         assert sensors.bme280 is not None
         assert sensors.ltr559 is not None
@@ -25,12 +26,13 @@ class TestEnviroPlusSensorsInit:
         """Test initialization with custom values."""
         logger = logging.getLogger("test")
         sensors = EnviroPlusSensors(
-            temp_offset=2.5, hum_offset=-5.0, cpu_temp_factor=2.0, logger=logger
+            temp_offset=2.5, hum_offset=-5.0, cpu_temp_factor=2.0, cpu_temp_smoothing=0.3, logger=logger
         )
 
         assert sensors.temp_offset == 2.5
         assert sensors.hum_offset == -5.0
         assert sensors.cpu_temp_factor == 2.0
+        assert sensors.cpu_temp_smoothing == 0.3
         assert sensors.logger == logger
 
     def test_init_sensor_failure(self, mock_logger):
@@ -80,13 +82,151 @@ class TestCpuTemperature:
             sensors._read_cpu_temp()
 
 
+class TestCpuTemperatureSmoothing:
+    """Test CPU temperature smoothing functionality."""
+
+    def test_init_with_smoothing_factor(
+        self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_logger
+    ):
+        """Test initialization with CPU temperature smoothing factor."""
+        sensors = EnviroPlusSensors(cpu_temp_smoothing=0.2)
+
+        assert sensors.cpu_temp_smoothing == 0.2
+        assert sensors._cpu_temp_smoothed == 40.6  # Initialized with Pi Zero temp
+        assert sensors._cpu_temp_last_update == 0.0
+
+    def test_get_smoothed_cpu_temp_first_reading(
+        self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess
+    ):
+        """Test smoothed CPU temperature on first reading."""
+        mock_subprocess.return_value = "temp=45.0'C\n"
+
+        sensors = EnviroPlusSensors(cpu_temp_smoothing=0.1)
+        temp = sensors._get_smoothed_cpu_temp()
+
+        assert temp == 45.0
+        assert sensors._cpu_temp_smoothed == 45.0
+        assert sensors._cpu_temp_last_update > 0.0
+
+    def test_get_smoothed_cpu_temp_subsequent_readings(
+        self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess
+    ):
+        """Test smoothed CPU temperature on subsequent readings."""
+        # First reading: 45.0°C (replaces initialization value)
+        mock_subprocess.return_value = "temp=45.0'C\n"
+        sensors = EnviroPlusSensors(cpu_temp_smoothing=0.2)
+        first_temp = sensors._get_smoothed_cpu_temp()
+
+        assert first_temp == 45.0
+        assert sensors._cpu_temp_smoothed == 45.0
+
+        # Second reading: 50.0°C
+        mock_subprocess.return_value = "temp=50.0'C\n"
+        second_temp = sensors._get_smoothed_cpu_temp()
+
+        # EMA calculation: 0.2 * 50.0 + 0.8 * 45.0 = 10.0 + 36.0 = 46.0
+        expected = 0.2 * 50.0 + 0.8 * 45.0
+        assert second_temp == pytest.approx(expected, abs=0.01)
+        assert sensors._cpu_temp_smoothed == pytest.approx(expected, abs=0.01)
+
+    def test_get_smoothed_cpu_temp_multiple_readings(
+        self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess
+    ):
+        """Test smoothed CPU temperature with multiple readings."""
+        sensors = EnviroPlusSensors(cpu_temp_smoothing=0.3)
+
+        # Simulate multiple readings
+        readings = [40.0, 45.0, 50.0, 48.0, 52.0]
+        expected_smoothed = []
+
+        for reading in readings:
+            mock_subprocess.return_value = f"temp={reading}'C\n"
+            smoothed = sensors._get_smoothed_cpu_temp()
+            expected_smoothed.append(smoothed)
+
+        # First reading should be exact (replaces initialization value)
+        assert expected_smoothed[0] == 40.0
+
+        # Subsequent readings should be smoothed
+        # Second: 0.3 * 45.0 + 0.7 * 40.0 = 13.5 + 28.0 = 41.5
+        assert expected_smoothed[1] == pytest.approx(41.5, abs=0.01)
+
+        # Third: 0.3 * 50.0 + 0.7 * 41.5 = 15.0 + 29.05 = 44.05
+        assert expected_smoothed[2] == pytest.approx(44.05, abs=0.01)
+
+    def test_get_smoothed_cpu_temp_failure_fallback(
+        self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess
+    ):
+        """Test smoothed CPU temperature fallback on failure."""
+        # First successful reading
+        mock_subprocess.return_value = "temp=45.0'C\n"
+        sensors = EnviroPlusSensors(cpu_temp_smoothing=0.1)
+        first_temp = sensors._get_smoothed_cpu_temp()
+
+        assert first_temp == 45.0
+
+        # Subsequent failure
+        mock_subprocess.side_effect = Exception("Command failed")
+        fallback_temp = sensors._get_smoothed_cpu_temp()
+
+        # Should return last known smoothed value
+        assert fallback_temp == 45.0
+
+    def test_get_smoothed_cpu_temp_failure_no_previous_value(
+        self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess
+    ):
+        """Test smoothed CPU temperature fallback when no previous value."""
+        mock_subprocess.side_effect = Exception("Command failed")
+
+        sensors = EnviroPlusSensors(cpu_temp_smoothing=0.1)
+        temp = sensors._get_smoothed_cpu_temp()
+
+        # Should return 0.0 when no previous reading (indicates no valid temperature)
+        assert temp == 0.0
+
+    def test_cpu_temp_public_method(
+        self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess
+    ):
+        """Test public cpu_temp method."""
+        mock_subprocess.return_value = "temp=42.0'C\n"
+
+        sensors = EnviroPlusSensors(cpu_temp_smoothing=0.1)
+        temp = sensors.cpu_temp()
+
+        assert temp == 42.0
+
+    def test_smoothing_factor_boundaries(
+        self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess
+    ):
+        """Test CPU temperature smoothing with different smoothing factors."""
+        mock_subprocess.return_value = "temp=50.0'C\n"
+
+        # Test with smoothing factor = 1.0 (no smoothing)
+        sensors_no_smooth = EnviroPlusSensors(cpu_temp_smoothing=1.0)
+        # First reading replaces initialization value
+        sensors_no_smooth._get_smoothed_cpu_temp()  # This sets it to 50.0
+        temp_no_smooth = sensors_no_smooth._get_smoothed_cpu_temp()
+
+        # Should be exactly the new reading
+        assert temp_no_smooth == 50.0
+
+        # Test with smoothing factor = 0.0 (maximum smoothing)
+        sensors_max_smooth = EnviroPlusSensors(cpu_temp_smoothing=0.0)
+        # First reading replaces initialization value
+        sensors_max_smooth._get_smoothed_cpu_temp()  # This sets it to 50.0
+        temp_max_smooth = sensors_max_smooth._get_smoothed_cpu_temp()
+
+        # Should remain the previous value
+        assert temp_max_smooth == 50.0
+
+
 class TestTemperatureCompensation:
     """Test temperature compensation calculations."""
 
     def test_apply_temp_compensation(
         self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess
     ):
-        """Test temperature compensation formula."""
+        """Test temperature compensation formula with smoothed CPU temp."""
         mock_subprocess.return_value = "temp=50.0'C\n"  # CPU temp
 
         sensors = EnviroPlusSensors(cpu_temp_factor=2.0)
@@ -94,7 +234,8 @@ class TestTemperatureCompensation:
 
         compensated = sensors._apply_temp_compensation(raw_temp)
 
-        # Formula: raw_temp - ((cpu_temp - raw_temp) / factor)
+        # Formula: raw_temp - ((cpu_temp_smoothed - raw_temp) / factor)
+        # First reading: smoothed = raw = 50.0
         # 25.0 - ((50.0 - 25.0) / 2.0) = 25.0 - 12.5 = 12.5
         expected = 25.0 - ((50.0 - 25.0) / 2.0)
         assert compensated == expected
@@ -110,7 +251,7 @@ class TestTemperatureCompensation:
 
         compensated = sensors._apply_temp_compensation(raw_temp)
 
-        # Should return raw temp when CPU temp fails
+        # Should return raw temp when CPU temp fails (no previous smoothed value)
         assert compensated == raw_temp
 
 
@@ -349,20 +490,34 @@ class TestCalibration:
         assert sensors.cpu_temp_factor == 2.5
         mock_logger.info.assert_called_with("Updated CPU temperature factor to %s", 2.5)
 
+    def test_update_calibration_cpu_smoothing(
+        self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_logger
+    ):
+        """Test updating CPU temperature smoothing factor."""
+        sensors = EnviroPlusSensors()
+
+        sensors.update_calibration(cpu_temp_smoothing=0.3)
+
+        assert sensors.cpu_temp_smoothing == 0.3
+        mock_logger.info.assert_called_with("Updated CPU temperature smoothing to %s", 0.3)
+
     def test_update_calibration_multiple(
         self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_logger
     ):
         """Test updating multiple calibration values."""
         sensors = EnviroPlusSensors()
 
-        sensors.update_calibration(temp_offset=1.5, hum_offset=-2.0, cpu_temp_factor=2.0)
+        sensors.update_calibration(
+            temp_offset=1.5, hum_offset=-2.0, cpu_temp_factor=2.0, cpu_temp_smoothing=0.2
+        )
 
         assert sensors.temp_offset == 1.5
         assert sensors.hum_offset == -2.0
         assert sensors.cpu_temp_factor == 2.0
+        assert sensors.cpu_temp_smoothing == 0.2
 
         # Should log initialization + each update
-        assert mock_logger.info.call_count == 4
+        assert mock_logger.info.call_count == 5
 
 
 class TestGetAllSensorData:

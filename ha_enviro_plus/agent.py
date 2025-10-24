@@ -27,6 +27,7 @@ POLL_SEC = float(os.getenv("POLL_SEC", "2"))
 TEMP_OFFSET = float(os.getenv("TEMP_OFFSET", "0.0"))
 HUM_OFFSET = float(os.getenv("HUM_OFFSET", "0.0"))
 CPU_TEMP_FACTOR = float(os.getenv("CPU_TEMP_FACTOR", "1.8"))
+CPU_TEMP_SMOOTHING = float(os.getenv("CPU_TEMP_SMOOTHING", "0.1"))
 LOG_TO_FILE = int(os.getenv("LOG_TO_FILE", "0")) == 1
 LOG_PATH = f"/var/log/{APP_NAME}.log"
 # ------------------------------------------------------------
@@ -320,6 +321,7 @@ def publish_discovery(c: mqtt.Client) -> None:
     number("Temp Offset", "temp_offset", "°C", -10, 10, 0.1)
     number("Humidity Offset", "hum_offset", "%", -20, 20, 0.5)
     number("CPU Temp Factor", "cpu_temp_factor", None, 0.5, 5.0, 0.1)
+    number("CPU Temp Smoothing", "cpu_temp_smoothing", None, 0.01, 1.0, 0.01)
 
 
 def read_all(enviro_sensors: EnviroPlusSensors) -> Dict[str, Any]:
@@ -340,7 +342,7 @@ def read_all(enviro_sensors: EnviroPlusSensors) -> Dict[str, Any]:
         "gas/reducing": sensor_data["gas_reducing"],
         "gas/nh3": sensor_data["gas_nh3"],
         # System metrics
-        "host/cpu_temp": round(enviro_sensors._read_cpu_temp(), 1),
+        "host/cpu_temp": round(enviro_sensors.cpu_temp(), 1),
         "host/cpu_usage": round(psutil.cpu_percent(interval=None), 1),
         "host/mem_usage": round(mem.percent, 1),
         "host/mem_size": round(mem.total / 1024 / 1024 / 1024, 3),
@@ -364,6 +366,7 @@ def on_connect(
     client.publish(f"{root}/set/temp_offset", str(TEMP_OFFSET), retain=True)
     client.publish(f"{root}/set/hum_offset", str(HUM_OFFSET), retain=True)
     client.publish(f"{root}/set/cpu_temp_factor", str(CPU_TEMP_FACTOR), retain=True)
+    client.publish(f"{root}/set/cpu_temp_smoothing", str(CPU_TEMP_SMOOTHING), retain=True)
     # Subscribe to commands and setters
     client.subscribe([(cmd_t, 1), (set_t, 1)])
 
@@ -387,7 +390,7 @@ def _handle_calibration_setting(
     topic: str, payload: str, enviro_sensors: EnviroPlusSensors
 ) -> None:
     """Handle calibration setting updates."""
-    global TEMP_OFFSET, HUM_OFFSET, CPU_TEMP_FACTOR
+    global TEMP_OFFSET, HUM_OFFSET, CPU_TEMP_FACTOR, CPU_TEMP_SMOOTHING
     key = topic.split("/")[-1]
     if key == "temp_offset":
         TEMP_OFFSET = float(payload)
@@ -398,6 +401,9 @@ def _handle_calibration_setting(
     elif key == "cpu_temp_factor":
         CPU_TEMP_FACTOR = float(payload)
         enviro_sensors.update_calibration(cpu_temp_factor=CPU_TEMP_FACTOR)
+    elif key == "cpu_temp_smoothing":
+        CPU_TEMP_SMOOTHING = float(payload)
+        enviro_sensors.update_calibration(cpu_temp_smoothing=CPU_TEMP_SMOOTHING)
 
 
 def on_message(
@@ -421,10 +427,11 @@ def main() -> None:
     logger.info("Discovery prefix: %s", MQTT_DISCOVERY_PREFIX)
     logger.info("Poll interval: %ss", POLL_SEC)
     logger.info(
-        "Initial offsets: TEMP=%s°C HUM=%s%% CPU_FACTOR=%s",
+        "Initial offsets: TEMP=%s°C HUM=%s%% CPU_FACTOR=%s CPU_SMOOTHING=%s",
         TEMP_OFFSET,
         HUM_OFFSET,
         CPU_TEMP_FACTOR,
+        CPU_TEMP_SMOOTHING,
     )
 
     # Initialize sensor manager with current calibration values
@@ -432,6 +439,7 @@ def main() -> None:
         temp_offset=TEMP_OFFSET,
         hum_offset=HUM_OFFSET,
         cpu_temp_factor=CPU_TEMP_FACTOR,
+        cpu_temp_smoothing=CPU_TEMP_SMOOTHING,
         logger=logger,
     )
 
