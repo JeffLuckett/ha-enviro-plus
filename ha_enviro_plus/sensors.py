@@ -8,6 +8,7 @@ Pimoroni Enviro+ sensors with proper separation of concerns.
 
 import subprocess
 import logging
+import time
 from typing import Dict, Any, Optional
 
 # Hardware imports with fallback for testing
@@ -39,6 +40,7 @@ class EnviroPlusSensors:
         temp_offset: float = 0.0,
         hum_offset: float = 0.0,
         cpu_temp_factor: float = 1.8,
+        cpu_temp_smoothing: float = 0.1,
         logger: Optional[logging.Logger] = None,
     ):
         """
@@ -48,12 +50,19 @@ class EnviroPlusSensors:
             temp_offset: Temperature calibration offset in °C
             hum_offset: Humidity calibration offset in %
             cpu_temp_factor: CPU temperature compensation factor
+            cpu_temp_smoothing: CPU temperature smoothing factor (0.0-1.0, lower = more smoothing)
             logger: Optional logger instance
         """
         self.temp_offset = temp_offset
         self.hum_offset = hum_offset
         self.cpu_temp_factor = cpu_temp_factor
+        self.cpu_temp_smoothing = cpu_temp_smoothing
         self.logger = logger or logging.getLogger(__name__)
+
+        # CPU temperature smoothing state
+        # Initialize with typical Pi Zero CPU temperature (105°F = 40.6°C)
+        self._cpu_temp_smoothed = 40.6
+        self._cpu_temp_last_update = 0.0
 
         # Initialize sensor hardware
         try:
@@ -99,6 +108,72 @@ class EnviroPlusSensors:
             self.logger.error("Unexpected error reading CPU temperature: %s", e)
             raise
 
+    def _get_smoothed_cpu_temp(self) -> float:
+        """
+        Get smoothed CPU temperature using exponential moving average.
+
+        Returns:
+            Smoothed CPU temperature in °C
+
+        Raises:
+            Never raises - always returns a fallback value
+        """
+        try:
+            current_time = time.time()
+            raw_cpu_temp = self._read_cpu_temp()
+
+            # If this is the first actual reading (last_update is 0), use it directly
+            # but log that we're transitioning from the initialization value
+            if self._cpu_temp_last_update == 0.0:
+                self._cpu_temp_smoothed = raw_cpu_temp
+                self._cpu_temp_last_update = current_time
+                self.logger.debug(
+                    "CPU temperature smoothing initialized: %.1f°C (was %.1f°C)",
+                    raw_cpu_temp,
+                    40.6,
+                )
+                return raw_cpu_temp
+
+            # Apply exponential moving average
+            # EMA = smoothing_factor * new_value + (1 - smoothing_factor) * previous_EMA
+            self._cpu_temp_smoothed = (
+                self.cpu_temp_smoothing * raw_cpu_temp +
+                (1.0 - self.cpu_temp_smoothing) * self._cpu_temp_smoothed
+            )
+            self._cpu_temp_last_update = current_time
+
+            self.logger.debug(
+                "CPU temperature smoothing: raw=%.1f°C, smoothed=%.1f°C, factor=%.2f",
+                raw_cpu_temp,
+                self._cpu_temp_smoothed,
+                self.cpu_temp_smoothing,
+            )
+
+            return self._cpu_temp_smoothed
+        except Exception as e:
+            self.logger.error("Failed to get smoothed CPU temperature: %s", e)
+            # Return the last known smoothed value or fallback
+            if self._cpu_temp_last_update > 0.0:
+                # We have a real reading, use the last known smoothed value
+                self.logger.info(
+                    "Using last known smoothed CPU temperature: %.1f°C",
+                    self._cpu_temp_smoothed,
+                )
+                return self._cpu_temp_smoothed
+            else:
+                # No real readings yet, return 0.0 to indicate no valid temperature
+                self.logger.info("CPU temperature will be reported as 0.0°C")
+                return 0.0
+
+    def cpu_temp(self) -> float:
+        """
+        Get smoothed CPU temperature for reporting.
+
+        Returns:
+            Smoothed CPU temperature in °C
+        """
+        return self._get_smoothed_cpu_temp()
+
     def _apply_temp_compensation(self, raw_temp: float) -> float:
         """
         Apply CPU temperature compensation to raw temperature reading.
@@ -113,11 +188,18 @@ class EnviroPlusSensors:
             Never raises - always returns a fallback value
         """
         try:
-            cpu_temp = self._read_cpu_temp()
+            cpu_temp = self._get_smoothed_cpu_temp()
+
+            # If CPU temperature is 0.0 and we have no previous smoothed value, skip compensation
+            if cpu_temp == 0.0 and self._cpu_temp_last_update == 0.0:
+                self.logger.warning("CPU temperature compensation skipped: no valid CPU temperature")
+                self.logger.info("Using raw temperature reading: %.1f°C", raw_temp)
+                return raw_temp
+
             # Apply Pimoroni compensation formula: raw_temp - ((cpu_temp - raw_temp) / factor)
             compensated_temp = raw_temp - ((cpu_temp - raw_temp) / self.cpu_temp_factor)
             self.logger.debug(
-                "Temperature compensation: raw=%.1f°C, cpu=%.1f°C, compensated=%.1f°C",
+                "Temperature compensation: raw=%.1f°C, cpu_smoothed=%.1f°C, compensated=%.1f°C",
                 raw_temp,
                 cpu_temp,
                 compensated_temp,
@@ -358,6 +440,7 @@ class EnviroPlusSensors:
         temp_offset: Optional[float] = None,
         hum_offset: Optional[float] = None,
         cpu_temp_factor: Optional[float] = None,
+        cpu_temp_smoothing: Optional[float] = None,
     ) -> None:
         """
         Update calibration parameters.
@@ -366,6 +449,7 @@ class EnviroPlusSensors:
             temp_offset: New temperature offset in °C
             hum_offset: New humidity offset in %
             cpu_temp_factor: New CPU temperature compensation factor
+            cpu_temp_smoothing: New CPU temperature smoothing factor (0.0-1.0)
         """
         if temp_offset is not None:
             self.temp_offset = temp_offset
@@ -378,6 +462,10 @@ class EnviroPlusSensors:
         if cpu_temp_factor is not None:
             self.cpu_temp_factor = cpu_temp_factor
             self.logger.info("Updated CPU temperature factor to %s", cpu_temp_factor)
+
+        if cpu_temp_smoothing is not None:
+            self.cpu_temp_smoothing = cpu_temp_smoothing
+            self.logger.info("Updated CPU temperature smoothing to %s", cpu_temp_smoothing)
 
     def get_all_sensor_data(self) -> Dict[str, Any]:
         """
