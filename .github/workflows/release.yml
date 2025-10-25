@@ -69,6 +69,14 @@ jobs:
             echo "changelog=Release $VERSION" >> $GITHUB_OUTPUT
           fi
 
+      - name: Upload to PyPI
+        run: |
+          pip install twine
+          twine upload dist/*
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
@@ -81,7 +89,12 @@ jobs:
 
             ## Installation
 
-            Install the latest version:
+            **Recommended (PyPI):**
+            ```bash
+            pip install ha-enviro-plus
+            ```
+
+            **Or use the install script:**
             ```bash
             bash <(wget -qO- https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/main/scripts/install.sh)
             ```

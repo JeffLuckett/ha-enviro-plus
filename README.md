@@ -53,22 +53,34 @@ Additional system telemetry is included:
 
 ## ⚙️ Quick Install
 
+### Recommended: Install Script (PyPI-first)
+
 Run this command **on your Raspberry Pi**:
 
     bash <(wget -qO- https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/main/scripts/install.sh)
 
-**Installation Options:**
-- Install latest stable: `./install.sh`
-- Install specific version: `./install.sh --release v0.1.0`
-- Install from branch: `./install.sh --branch feature-branch`
-- Show installer version: `./install.sh --version`
+**Installation Methods:**
+- **Latest stable (PyPI)**: `./install.sh` *(default)*
+- **Specific version (PyPI)**: `./install.sh --release v0.1.1`
+- **Development branch**: `./install.sh --branch feature-branch`
+- **Test mode**: `./install.sh --test` *(validate without changes)*
+- **Show installer info**: `./install.sh --version`
 
-The installer will:
-- Create `/opt/ha-enviro-plus` and a virtualenv
-- Prompt for MQTT host, username, and password
-- Prompt for poll interval and temperature / humidity offsets
-- Install dependencies and a systemd service
-- Start the agent immediately
+The installer automatically:
+- **Prioritizes PyPI** for stable releases (faster, more reliable)
+- **Falls back to GitHub** for development branches or specific versions
+- Creates `/opt/ha-enviro-plus` and installs dependencies
+- Prompts for MQTT host, username, and password
+- Prompts for poll interval and temperature / humidity offsets
+- Installs and starts the systemd service
+
+### Alternative: Direct PyPI Install
+
+For advanced users who prefer manual installation:
+
+    pip install ha-enviro-plus
+
+Then manually configure and start the service (see [Manual Setup](#manual-setup)).
 
 Home Assistant should auto-discover the sensors within a few seconds.
 
@@ -95,6 +107,60 @@ Edit values safely, then restart the service:
     TEMP_OFFSET=0.0
     HUM_OFFSET=0.0
     CPU_TEMP_FACTOR=1.8
+
+---
+
+## 🔧 Manual Setup
+
+If you installed via `pip install ha-enviro-plus`, you'll need to manually configure the service:
+
+### 1. Create Configuration File
+
+    sudo mkdir -p /etc/default
+    sudo tee /etc/default/ha-enviro-plus > /dev/null <<EOF
+    MQTT_HOST=homeassistant.local
+    MQTT_PORT=1883
+    MQTT_USER=enviro
+    MQTT_PASS=<use_your_own>
+    MQTT_DISCOVERY_PREFIX=homeassistant
+    POLL_SEC=2
+    TEMP_OFFSET=0.0
+    HUM_OFFSET=0.0
+    CPU_TEMP_FACTOR=1.8
+    EOF
+
+### 2. Create Settings Directory
+
+    sudo mkdir -p /var/lib/ha-enviro-plus
+    sudo chown pi:pi /var/lib/ha-enviro-plus
+
+### 3. Install Systemd Service
+
+    sudo tee /etc/systemd/system/ha-enviro-plus.service > /dev/null <<EOF
+    [Unit]
+    Description=Enviro+ → Home Assistant MQTT Agent
+    After=network-online.target
+    Wants=network-online.target
+
+    [Service]
+    Type=simple
+    EnvironmentFile=/etc/default/ha-enviro-plus
+    WorkingDirectory=/opt/ha-enviro-plus
+    ExecStart=python3 -m ha_enviro_plus.agent
+    Restart=on-failure
+    RestartSec=5
+    StandardOutput=journal
+    StandardError=journal
+
+    [Install]
+    WantedBy=multi-user.target
+    EOF
+
+### 4. Start Service
+
+    sudo systemctl daemon-reload
+    sudo systemctl enable ha-enviro-plus.service
+    sudo systemctl start ha-enviro-plus.service
 
 ---
 
@@ -159,12 +225,16 @@ Tests run automatically on every push and pull request via GitHub Actions, testi
 git clone https://github.com/JeffLuckett/ha-enviro-plus.git
 cd ha-enviro-plus
 
-# Create virtual environment
+# Option 1: Install in development mode (recommended)
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install in development mode
 pip install -e .
+
+# Option 2: Install from PyPI for testing
+pip install ha-enviro-plus
+
+# Option 3: Use the install script for development
+./scripts/install.sh --branch main
 
 # Install development dependencies
 pip install -r requirements-dev.txt
@@ -184,7 +254,7 @@ pytest tests/ -m "not hardware"
 
 ## 🧪 Version
 
-**v0.1.0 — Stable Release**
+**v0.1.1 — Stable Release**
 
 This version includes:
 - Complete Enviro+ sensor support (BME280, LTR559, Gas sensors)
@@ -194,7 +264,9 @@ This version includes:
 - Configurable polling intervals and calibration offsets
 - CPU temperature compensation for accurate readings
 - Graceful shutdown handling and configuration validation
-- Versioned installation support
+- **PyPI installation support** (pip install ha-enviro-plus)
+- **Enhanced install script** with PyPI-first approach
+- **Test mode** for safe installation validation
 - Comprehensive test suite with >=75% coverage
 
 **Next milestone (v0.2.0):**
