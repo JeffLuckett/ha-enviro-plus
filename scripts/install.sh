@@ -3,16 +3,19 @@
 # ha-enviro-plus Installation Script
 #
 # This script can be executed in multiple ways:
-# 1. Interactive installation: ./install.sh
-# 2. Install from specific branch: ./install.sh --branch your-branch-name
-# 3. Install specific version: ./install.sh --release v0.1.0
+# 1. Install from PyPI latest stable release (default): ./install.sh
+# 2. Install specific version from PyPI: ./install.sh --release v0.1.1
+# 3. Install from GitHub branch: ./install.sh --branch your-branch-name
 # 4. Show installer version: ./install.sh --version
 # 5. Remote installation: bash <(wget -qO- https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/main/scripts/install.sh)
 # 6. Remote installation: bash <(curl -sL https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/main/scripts/install.sh)
 # 7. Remote from branch: bash <(wget -qO- https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/refs/heads/your-branch/scripts/install.sh) --branch your-branch
-# 8. Remote specific version: bash <(wget -qO- https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/main/scripts/install.sh) --release v0.1.0
+# 8. Remote specific version: bash <(wget -qO- https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/main/scripts/install.sh) --release v0.1.1
 #
 # Features:
+# - Default installation from PyPI (fastest, most reliable)
+# - Fallback to GitHub releases for specific versions
+# - GitHub branch installation for development/testing
 # - Preserves existing configuration on updates
 # - Prompts for new configuration options when detected
 # - Works in both interactive and non-interactive modes
@@ -39,6 +42,49 @@ ensure_git() {
 ensure_python() {
   sudo apt-get update -y
   sudo apt-get install -y python3 python3-venv python3-pip
+}
+
+install_from_pypi() {
+  local version="${1:-}"
+
+  echo "==> Installing from PyPI..."
+
+  if [[ -n "$version" ]]; then
+    echo "==> Installing specific version: $version"
+    pip3 install "ha-enviro-plus==${version#v}"
+  else
+    echo "==> Installing latest version from PyPI"
+    pip3 install ha-enviro-plus
+  fi
+
+  # Create symlink for easy access
+  sudo ln -sf "$(which ha-enviro-plus)" /usr/local/bin/ha-enviro-plus || true
+}
+
+install_from_release() {
+  local version="$1"
+
+  echo "==> Installing from GitHub release: $version"
+
+  # Download wheel from GitHub release
+  local wheel_url="https://github.com/JeffLuckett/ha-enviro-plus/releases/download/${version}/ha_enviro_plus-${version#v}-py3-none-any.whl"
+
+  echo "==> Downloading wheel from: $wheel_url"
+  pip3 install "$wheel_url"
+
+  # Create symlink for easy access
+  sudo ln -sf "$(which ha-enviro-plus)" /usr/local/bin/ha-enviro-plus || true
+}
+
+install_from_git() {
+  local branch="$1"
+
+  echo "==> Installing from GitHub branch: $branch"
+
+  ensure_git
+  ensure_python
+  clone_or_update "${branch}"
+  make_venv
 }
 
 clone_or_update() {
@@ -199,6 +245,17 @@ create_settings_dir() {
 
 install_service() {
   echo "==> Installing systemd service..."
+
+  # Determine the correct working directory and python path
+  local working_dir="/opt/${APP_NAME}"
+  local python_cmd="python3 -m ha_enviro_plus.agent"
+
+  # If we're using git installation, use the venv
+  if [[ -d "${APP_DIR}/.git" ]]; then
+    working_dir="${APP_DIR}"
+    python_cmd="${VENV}/bin/python -m ha_enviro_plus.agent"
+  fi
+
   sudo tee "${SERVICE}" > /dev/null <<EOF
 [Unit]
 Description=Enviro+ → Home Assistant MQTT Agent
@@ -208,8 +265,8 @@ Wants=network-online.target
 [Service]
 Type=simple
 EnvironmentFile=${CFG}
-WorkingDirectory=${APP_DIR}
-ExecStart=${VENV}/bin/python -m ha_enviro_plus.agent
+WorkingDirectory=${working_dir}
+ExecStart=${python_cmd}
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
@@ -293,46 +350,59 @@ main() {
   echo
 
   # Parse command line arguments
-  local branch="main"
+  local branch=""
   local install_version=""
+  local install_method="pypi"  # Default to PyPI
+  local test_mode=false
 
   while [[ $# -gt 0 ]]; do
     case $1 in
       --branch|-b)
         branch="$2"
+        install_method="git"
         shift 2
         ;;
       --release|-r)
         install_version="$2"
+        install_method="release"
         shift 2
+        ;;
+      --test|--dry-run)
+        test_mode=true
+        shift
         ;;
       --version|-v)
         echo "${APP_NAME} Installer ${SCRIPT_VERSION}"
-        echo "Installing from branch: $branch"
+        echo "Default installation method: PyPI (latest)"
         if [[ -n "$install_version" ]]; then
-          echo "Installing version: $install_version"
+          echo "Installing version: $install_version (from GitHub release)"
+        elif [[ -n "$branch" ]]; then
+          echo "Installing from branch: $branch (from GitHub)"
         fi
         exit 0
         ;;
       --help|-h)
         echo "Usage: $0 [OPTIONS]"
         echo "Options:"
-        echo "  --branch BRANCH, -b BRANCH    Install from specific branch (default: main)"
-        echo "  --release VERSION, -r VERSION Install specific version (e.g., v0.1.0)"
+        echo "  --branch BRANCH, -b BRANCH    Install from GitHub branch (development/testing)"
+        echo "  --release VERSION, -r VERSION Install specific version from GitHub release"
+        echo "  --test, --dry-run             Test mode - validate logic without making changes"
         echo "  --version, -v                 Show installer version and exit"
         echo "  --help, -h                    Show this help message"
         echo
         echo "Examples:"
-        echo "  $0                           # Install from main branch"
-        echo "  $0 --branch feature-branch   # Install from specific branch"
-        echo "  $0 --release v0.1.0          # Install specific version"
+        echo "  $0                           # Install latest from PyPI (default)"
+        echo "  $0 --branch feature-branch   # Install from GitHub branch"
+        echo "  $0 --release v0.1.1          # Install specific version from GitHub release"
         echo "  $0 --version                 # Show installer version"
         echo
         echo "Remote Installation:"
-        echo "  # Install from specific branch (recommended)"
-        echo "  bash <(curl -sL https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/refs/heads/BRANCH/scripts/install.sh) --branch BRANCH"
-        echo "  # Install specific version"
-        echo "  bash <(curl -sL https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/main/scripts/install.sh) --release v0.1.0"
+        echo "  # Install latest from PyPI (recommended)"
+        echo "  bash <(curl -sL https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/main/scripts/install.sh)"
+        echo "  # Install from GitHub branch"
+        echo "  bash <(curl -sL https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/main/scripts/install.sh) --branch BRANCH"
+        echo "  # Install specific version from GitHub release"
+        echo "  bash <(curl -sL https://raw.githubusercontent.com/JeffLuckett/ha-enviro-plus/main/scripts/install.sh) --release v0.1.1"
         exit 0
         ;;
       *)
@@ -343,18 +413,47 @@ main() {
     esac
   done
 
-  # Determine what to install
-  if [[ -n "$install_version" ]]; then
-    echo "==> Installing version: $install_version"
-    branch="tags/$install_version"
-  else
-    echo "==> Installing from branch: $branch"
+  # Test mode - validate logic without making changes
+  if [[ "$test_mode" == true ]]; then
+    echo "🧪 TEST MODE - No actual changes will be made"
+    echo
+    echo "Installation method: $install_method"
+    case "$install_method" in
+      "pypi")
+        if [[ -n "$install_version" ]]; then
+          echo "Would install: ha-enviro-plus==${install_version#v} from PyPI"
+        else
+          echo "Would install: ha-enviro-plus (latest) from PyPI"
+        fi
+        ;;
+      "release")
+        echo "Would install: ha_enviro_plus-${install_version#v}-py3-none-any.whl from GitHub release $install_version"
+        ;;
+      "git")
+        echo "Would install from GitHub branch: $branch"
+        ;;
+    esac
+    echo
+    echo "✅ Test mode validation complete - logic appears correct"
+    exit 0
   fi
 
-  ensure_git
-  ensure_python
-  clone_or_update "${branch}"
-  make_venv
+  # Install the package based on method
+  case "$install_method" in
+    "pypi")
+      ensure_python
+      install_from_pypi "$install_version"
+      ;;
+    "release")
+      ensure_python
+      install_from_release "$install_version"
+      ;;
+    "git")
+      install_from_git "$branch"
+      ;;
+  esac
+
+  # Common post-installation steps
   write_config
   create_settings_dir
   install_service
