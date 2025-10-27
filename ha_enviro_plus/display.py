@@ -203,9 +203,7 @@ class DisplayManager:
                             display_start_time = time.time()
                             # Render the new display
                             if self.display:
-                                self._render_display_immediate(
-                                    self._current_display
-                                )
+                                self._render_display_immediate(self._current_display)
                         else:
                             # No queued items, just sleep
                             time.sleep(0.1)
