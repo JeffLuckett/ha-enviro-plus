@@ -18,6 +18,7 @@ class TestDisplayManager:
         """Test DisplayManager initialization when ST7735 is not available"""
         with patch("ha_enviro_plus.display.ST7735_AVAILABLE", False):
             from ha_enviro_plus.display import DisplayManager
+
             display = DisplayManager(enabled=True)
 
             assert display.enabled is True
@@ -28,6 +29,7 @@ class TestDisplayManager:
         """Test DisplayManager initialization when PIL is not available"""
         with patch("ha_enviro_plus.display.PIL_AVAILABLE", False):
             from ha_enviro_plus.display import DisplayManager
+
             display = DisplayManager(enabled=True)
 
             assert display.enabled is True
@@ -37,6 +39,7 @@ class TestDisplayManager:
     def test_display_init_disabled(self):
         """Test DisplayManager initialization when display is disabled"""
         from ha_enviro_plus.display import DisplayManager
+
         display = DisplayManager(enabled=False)
 
         assert display.enabled is False
@@ -46,6 +49,7 @@ class TestDisplayManager:
     def test_show_splash_disabled(self):
         """Test splash screen when display is disabled"""
         from ha_enviro_plus.display import DisplayManager
+
         display = DisplayManager(enabled=False)
         display.show_splash()
         # Should handle gracefully without crashing
