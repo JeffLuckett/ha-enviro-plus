@@ -21,20 +21,26 @@ from . import __version__
 APP_NAME = "ha-enviro-plus"
 VERSION = __version__
 
+
 # ---------- CONFIG via /etc/default/ha-enviro-plus ----------
-MQTT_HOST = os.getenv("MQTT_HOST", "homeassistant.local")
-MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
-MQTT_USER = os.getenv("MQTT_USER", "")
-MQTT_PASS = os.getenv("MQTT_PASS", "")
-MQTT_DISCOVERY_PREFIX = os.getenv("MQTT_DISCOVERY_PREFIX", "homeassistant")
-POLL_SEC = float(os.getenv("POLL_SEC", "2"))
-TEMP_OFFSET = float(os.getenv("TEMP_OFFSET", "0.0"))
-HUM_OFFSET = float(os.getenv("HUM_OFFSET", "0.0"))
-CPU_TEMP_FACTOR = float(os.getenv("CPU_TEMP_FACTOR", "1.8"))
-CPU_TEMP_SMOOTHING = float(os.getenv("CPU_TEMP_SMOOTHING", "0.1"))
-DISPLAY_ENABLED = int(os.getenv("DISPLAY_ENABLED", "1")) == 1
-SENSOR_WARMUP_SEC = float(os.getenv("SENSOR_WARMUP_SEC", "5"))
-LOG_TO_FILE = int(os.getenv("LOG_TO_FILE", "0")) == 1
+def _get_config(key: str, default: str) -> str:
+    """Get configuration value from environment."""
+    return os.getenv(key, default)
+
+
+MQTT_HOST = _get_config("MQTT_HOST", "homeassistant.local")
+MQTT_PORT = int(_get_config("MQTT_PORT", "1883"))
+MQTT_USER = _get_config("MQTT_USER", "")
+MQTT_PASS = _get_config("MQTT_PASS", "")
+MQTT_DISCOVERY_PREFIX = _get_config("MQTT_DISCOVERY_PREFIX", "homeassistant")
+POLL_SEC = float(_get_config("POLL_SEC", "2"))
+TEMP_OFFSET = float(_get_config("TEMP_OFFSET", "0.0"))
+HUM_OFFSET = float(_get_config("HUM_OFFSET", "0.0"))
+CPU_TEMP_FACTOR = float(_get_config("CPU_TEMP_FACTOR", "1.8"))
+CPU_TEMP_SMOOTHING = float(_get_config("CPU_TEMP_SMOOTHING", "0.1"))
+DISPLAY_ENABLED = int(_get_config("DISPLAY_ENABLED", "1")) == 1
+SENSOR_WARMUP_SEC = float(_get_config("SENSOR_WARMUP_SEC", "5"))
+LOG_TO_FILE = int(_get_config("LOG_TO_FILE", "0")) == 1
 LOG_PATH = f"/var/log/{APP_NAME}.log"
 # ------------------------------------------------------------
 
