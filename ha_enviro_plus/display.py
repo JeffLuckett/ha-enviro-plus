@@ -234,8 +234,16 @@ class DisplayManager:
                         # We're in fade out phase
                         fade_elapsed = time.time() - fade_out_start_time
                         if fade_elapsed >= fade_time:
-                            # Fade complete, move to next
+                            # Fade complete, turn off display and move to next
                             self.logger.info("Display: Fade complete, clearing display")
+                            if self.display:
+                                try:
+                                    self.display.set_backlight(0)
+                                    self.logger.debug("Display: Backlight turned off")
+                                except (AttributeError, Exception) as e:
+                                    self.logger.debug(
+                                        "Display: Could not turn off backlight: %s", e
+                                    )
                             self._current_display = None
                             display_start_time = None
                             fade_out_start_time = None
