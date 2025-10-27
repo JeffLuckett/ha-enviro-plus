@@ -191,18 +191,47 @@ class DisplayManager:
 
     def _display_loop(self) -> None:
         """Background thread loop for displaying queued items."""
+        display_start_time: Optional[float] = None
+
         while not self._stop_event.is_set():
             try:
-                # Get next display item
-                with self._lock:
-                    if self._display_queue:
-                        self._current_display = self._display_queue.pop(0)
-                    else:
-                        self._current_display = None
+                # Get next display item if we don't have one
+                if self._current_display is None:
+                    with self._lock:
+                        if self._display_queue:
+                            self._current_display = self._display_queue.pop(0)
+                            display_start_time = time.time()
+                            # Render the new display
+                            if self.display:
+                                self._render_display_immediate(
+                                    self._current_display
+                                )
+                        else:
+                            # No queued items, just sleep
+                            time.sleep(0.1)
 
-                # Display the current item
-                if self._current_display and self.display:
-                    self._render_display(self._current_display)
+                # If we have a current display, check if it should end
+                if self._current_display is not None:
+                    assert display_start_time is not None
+                    elapsed = time.time() - display_start_time
+                    fade_time = 2.0 if self._current_display.fade_out else 0
+
+                    # Check if we should fade out now
+                    if elapsed >= (self._current_display.duration - fade_time):
+                        if self._current_display.fade_out:
+                            if self.display:
+                                self._fade_out()
+                        else:
+                            # Just turn off
+                            if self.display:
+                                try:
+                                    self.display.set_backlight(0)
+                                except (AttributeError, Exception):
+                                    pass
+
+                        # Move to next display
+                        self._current_display = None
+                        display_start_time = None
 
                 # Small delay to prevent busy waiting
                 time.sleep(0.1)
@@ -211,18 +240,18 @@ class DisplayManager:
                 self.logger.error("Error in display loop: %s", e)
                 time.sleep(1)  # Wait before retrying
 
-    def _render_display(self, display_item: DisplayItem) -> None:
+    def _render_display_immediate(self, display_item: DisplayItem) -> None:
         """
-        Render a display item with timing and optional fade effects.
+        Render a display item immediately without timing.
 
         Args:
             display_item: The display item to render
         """
         try:
-            # Render the image (cast to any for type checking)
+            # Render the image
             image = display_item.render_func()
 
-            # Fade in if requested
+            # Display with fade in if requested
             if display_item.fade_in:
                 self._fade_in(image)
             else:
@@ -230,27 +259,6 @@ class DisplayManager:
                     self.display.display(image)
                     try:
                         self.display.set_backlight(100)  # Full brightness
-                    except (AttributeError, Exception):
-                        pass
-
-            # Wait for duration minus fade out time
-            fade_time = 2.0 if display_item.fade_out else 0
-            sleep_time = max(0, display_item.duration - fade_time)
-            start_time = time.time()
-
-            while time.time() - start_time < sleep_time:
-                if self._stop_event.is_set():
-                    return
-                time.sleep(0.1)
-
-            # Fade out if requested
-            if display_item.fade_out:
-                self._fade_out()
-            else:
-                # Just turn off
-                if self.display:
-                    try:
-                        self.display.set_backlight(0)
                     except (AttributeError, Exception):
                         pass
 
