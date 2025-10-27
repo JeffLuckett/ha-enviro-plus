@@ -51,10 +51,10 @@ install_from_pypi() {
 
   if [[ -n "$version" ]]; then
     echo "==> Installing specific version: $version"
-    pip3 install "ha-enviro-plus==${version#v}"
+    pip3 install --break-system-packages "ha-enviro-plus==${version#v}"
   else
     echo "==> Installing latest version from PyPI"
-    pip3 install ha-enviro-plus
+    pip3 install --break-system-packages ha-enviro-plus
   fi
 
   # Create symlink for easy access
@@ -70,7 +70,7 @@ install_from_release() {
   local wheel_url="https://github.com/JeffLuckett/ha-enviro-plus/releases/download/${version}/ha_enviro_plus-${version#v}-py3-none-any.whl"
 
   echo "==> Downloading wheel from: $wheel_url"
-  pip3 install "$wheel_url"
+  pip3 install --break-system-packages "$wheel_url"
 
   # Create symlink for easy access
   sudo ln -sf "$(which ha-enviro-plus)" /usr/local/bin/ha-enviro-plus || true
