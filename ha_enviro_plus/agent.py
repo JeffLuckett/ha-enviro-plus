@@ -622,9 +622,9 @@ def main() -> None:
     while time.time() - warmup_start < warmup_duration:
         # Read sensors but don't publish
         try:
-            _ = enviro_sensors.temperature
-            _ = enviro_sensors.humidity
-            _ = enviro_sensors.pressure
+            _ = enviro_sensors.temp()
+            _ = enviro_sensors.humidity()
+            _ = enviro_sensors.pressure()
         except Exception:
             pass  # Ignore errors during warm-up
         time.sleep(0.1)  # Small delay between reads
