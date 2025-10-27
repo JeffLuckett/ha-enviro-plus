@@ -83,11 +83,20 @@ class TestEndToEndWorkflows:
                     }
                     mock_sensors._read_cpu_temp.return_value = 42.0
                     mock_sensors.cpu_temp.return_value = 42.0
+                    mock_sensors.temp.return_value = 25.5
+                    mock_sensors.humidity.return_value = 45.0
+                    mock_sensors.pressure.return_value = 1013.25
 
-                    # Mock the main loop to run once
-                    with patch("ha_enviro_plus.agent.time.sleep") as mock_sleep:
-                        # Let the first sleep pass, then interrupt on the second
-                        mock_sleep.side_effect = [None, KeyboardInterrupt()]
+                    # Patch to completely skip display and warm-up
+                    with patch("ha_enviro_plus.agent.DISPLAY_ENABLED", False), \
+                         patch("ha_enviro_plus.agent.SENSOR_WARMUP_SEC", 0.0), \
+                         patch("ha_enviro_plus.agent.time.sleep") as mock_agent_sleep, \
+                         patch("ha_enviro_plus.display.time.sleep"):
+
+                        # Make sleep a no-op to speed up test
+                        def no_sleep(*args, **kwargs):
+                            pass
+                        mock_agent_sleep.side_effect = no_sleep
 
                         # Run main function - expect SystemExit from graceful shutdown
                         with pytest.raises(SystemExit) as exc_info:

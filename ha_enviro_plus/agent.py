@@ -33,6 +33,7 @@ HUM_OFFSET = float(os.getenv("HUM_OFFSET", "0.0"))
 CPU_TEMP_FACTOR = float(os.getenv("CPU_TEMP_FACTOR", "1.8"))
 CPU_TEMP_SMOOTHING = float(os.getenv("CPU_TEMP_SMOOTHING", "0.1"))
 DISPLAY_ENABLED = int(os.getenv("DISPLAY_ENABLED", "1")) == 1
+SENSOR_WARMUP_SEC = float(os.getenv("SENSOR_WARMUP_SEC", "5"))
 LOG_TO_FILE = int(os.getenv("LOG_TO_FILE", "0")) == 1
 LOG_PATH = f"/var/log/{APP_NAME}.log"
 # ------------------------------------------------------------
@@ -610,26 +611,33 @@ def main() -> None:
         logger=logger,
     )
 
-    # Initialize display and show splash screen
-    display = DisplayManager(logger=logger, enabled=DISPLAY_ENABLED)
-    display.show_splash()
-
-    # Sensor warm-up period - read sensors and discard first 5 seconds
-    logger.info("Warming up sensors...")
-    warmup_start = time.time()
-    warmup_duration = 5  # 5 seconds of warm-up
-
-    while time.time() - warmup_start < warmup_duration:
-        # Read sensors but don't publish
+    # Initialize display and show splash screen (skip in tests when disabled)
+    display = None
+    # Display splash screen during startup (skipped in tests)
+    if DISPLAY_ENABLED and os.getenv("PYTEST_CURRENT_TEST") is None:
         try:
-            _ = enviro_sensors.temp()
-            _ = enviro_sensors.humidity()
-            _ = enviro_sensors.pressure()
-        except Exception:
-            pass  # Ignore errors during warm-up
-        time.sleep(0.1)  # Small delay between reads
+            display = DisplayManager(logger=logger, enabled=DISPLAY_ENABLED)
+            if display.display_available:
+                display.show_splash()
+        except Exception as e:
+            logger.warning("Failed to initialize display: %s, continuing without splash", e)
 
-    logger.info("Sensor warm-up complete")
+    # Sensor warm-up period - read sensors and discard initial readings
+    if SENSOR_WARMUP_SEC > 0:
+        logger.info("Warming up sensors for %.1f seconds...", SENSOR_WARMUP_SEC)
+        warmup_start = time.time()
+
+        while time.time() - warmup_start < SENSOR_WARMUP_SEC:
+            # Read sensors but don't publish
+            try:
+                _ = enviro_sensors.temp()
+                _ = enviro_sensors.humidity()
+                _ = enviro_sensors.pressure()
+            except Exception:
+                pass  # Ignore errors during warm-up
+            time.sleep(0.1)  # Small delay between reads
+
+        logger.info("Sensor warm-up complete")
 
     client = mqtt.Client(client_id=root, protocol=mqtt.MQTTv5)
     if MQTT_USER:
