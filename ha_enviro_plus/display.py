@@ -74,10 +74,10 @@ class DisplayManager:
         self.display_available = False
 
         # Threading control
-        self._display_queue = []
-        self._current_display = None
+        self._display_queue: list[DisplayItem] = []
+        self._current_display: Optional[DisplayItem] = None
         self._stop_event = threading.Event()
-        self._thread = None
+        self._thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
 
         if not enabled:
@@ -226,11 +226,12 @@ class DisplayManager:
             if display_item.fade_in:
                 self._fade_in(image)
             else:
-                self.display.display(image)
-                try:
-                    self.display.set_backlight(100)  # Full brightness
-                except (AttributeError, Exception):
-                    pass
+                if self.display:
+                    self.display.display(image)
+                    try:
+                        self.display.set_backlight(100)  # Full brightness
+                    except (AttributeError, Exception):
+                        pass
 
             # Wait for duration minus fade out time
             fade_time = 2.0 if display_item.fade_out else 0
@@ -247,10 +248,11 @@ class DisplayManager:
                 self._fade_out()
             else:
                 # Just turn off
-                try:
-                    self.display.set_backlight(0)
-                except (AttributeError, Exception):
-                    pass
+                if self.display:
+                    try:
+                        self.display.set_backlight(0)
+                    except (AttributeError, Exception):
+                        pass
 
         except Exception as e:
             self.logger.error("Error rendering display: %s", e)
