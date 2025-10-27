@@ -174,6 +174,7 @@ write_config() {
   DEFAULT_TEMP_OFFSET="0"
   DEFAULT_HUM_OFFSET="0"
   DEFAULT_CPU_TEMP_FACTOR="1.8"
+  DEFAULT_DISPLAY_ENABLED="1"
 
   # Try to load existing config
   if load_existing_config; then
@@ -219,6 +220,7 @@ write_config() {
   : "${TEMP_OFFSET:=${DEFAULT_TEMP_OFFSET}}"
   : "${HUM_OFFSET:=${DEFAULT_HUM_OFFSET}}"
   : "${CPU_TEMP_FACTOR:=${DEFAULT_CPU_TEMP_FACTOR}}"
+  : "${DISPLAY_ENABLED:=${DEFAULT_DISPLAY_ENABLED}}"
 
   # Write the complete configuration
   sudo tee "${CFG}" > /dev/null <<EOF
@@ -231,6 +233,7 @@ POLL_SEC="${POLL}"
 TEMP_OFFSET="${TEMP_OFFSET}"
 HUM_OFFSET="${HUM_OFFSET}"
 CPU_TEMP_FACTOR="${CPU_TEMP_FACTOR}"
+DISPLAY_ENABLED="${DISPLAY_ENABLED}"
 EOF
   sudo chmod 600 "${CFG}"
 }

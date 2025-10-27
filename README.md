@@ -1,10 +1,13 @@
 # ha-enviro-plus
 
+<div align="center">
+  <img src="assets/ha-enviro-plus-banner_800x400.png" width="600">
+
 [![Tests](https://github.com/JeffLuckett/ha-enviro-plus/workflows/Tests/badge.svg)](https://github.com/JeffLuckett/ha-enviro-plus/actions)
 [![Python Version](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Latest Release](https://img.shields.io/github/v/release/JeffLuckett/ha-enviro-plus)](https://github.com/JeffLuckett/ha-enviro-plus/releases/latest)
-
+</div>
 **Enviro+ → Home Assistant MQTT Agent**
 A lightweight Python agent for publishing Pimoroni Enviro+ sensor data (temperature, humidity, pressure, light, gas, and system metrics) to Home Assistant via MQTT with automatic discovery.
 
@@ -47,6 +50,8 @@ Additional system telemetry is included:
 - Startup configuration validation
 - Safe installer/uninstaller with config preservation
 - Versioned installation support (`--release`, `--branch` flags)
+- **Boot splash screen** with sensor warm-up period
+- **LCD display support** (160x80 IPS color, configurable on/off)
 - Designed and tested with a Raspberry Pi Zero 2 W + Enviro+ HAT. Also supports the original Enviro HAT (fewer sensors) and runs on any hardware that supports these devices and the necessary libraries. (Testers welcome!)
 
 ---
@@ -107,6 +112,7 @@ Edit values safely, then restart the service:
     TEMP_OFFSET=0.0
     HUM_OFFSET=0.0
     CPU_TEMP_FACTOR=1.8
+    DISPLAY_ENABLED=1  # 1=ON, 0=OFF
 
 ---
 
