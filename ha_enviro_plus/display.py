@@ -192,6 +192,7 @@ class DisplayManager:
     def _display_loop(self) -> None:
         """Background thread loop for displaying queued items."""
         display_start_time: Optional[float] = None
+        fade_out_start_time: Optional[float] = None
 
         while not self._stop_event.is_set():
             try:
@@ -201,6 +202,7 @@ class DisplayManager:
                         if self._display_queue:
                             self._current_display = self._display_queue.pop(0)
                             display_start_time = time.time()
+                            fade_out_start_time = None
                             # Render the new display
                             if self.display:
                                 self._render_display_immediate(self._current_display)
@@ -214,25 +216,34 @@ class DisplayManager:
                     elapsed = time.time() - display_start_time
                     fade_time = 2.0 if self._current_display.fade_out else 0
 
-                    # Check if we should fade out now
-                    if elapsed >= (self._current_display.duration - fade_time):
-                        if self._current_display.fade_out:
-                            if self.display:
-                                self._fade_out()
+                    # Handle fade out state
+                    if fade_out_start_time is not None:
+                        # We're in fade out phase
+                        fade_elapsed = time.time() - fade_out_start_time
+                        if fade_elapsed >= fade_time:
+                            # Fade complete, move to next
+                            self._current_display = None
+                            display_start_time = None
+                            fade_out_start_time = None
                         else:
-                            # Just turn off
+                            # Continue fading
+                            self._fade_out_step(fade_elapsed / fade_time)
+                    # Check if we should start fade out
+                    elif elapsed >= (self._current_display.duration - fade_time):
+                        if self._current_display.fade_out:
+                            fade_out_start_time = time.time()
+                        else:
+                            # Just turn off immediately
                             if self.display:
                                 try:
                                     self.display.set_backlight(0)
                                 except (AttributeError, Exception):
                                     pass
-
-                        # Move to next display
-                        self._current_display = None
-                        display_start_time = None
+                            self._current_display = None
+                            display_start_time = None
 
                 # Small delay to prevent busy waiting
-                time.sleep(0.1)
+                time.sleep(0.05)
 
             except Exception as e:
                 self.logger.error("Error in display loop: %s", e)
@@ -290,33 +301,24 @@ class DisplayManager:
 
             time.sleep(0.05)  # 50ms update intervals
 
-    def _fade_out(self) -> None:
-        """Fade out the current display over ~2 seconds."""
+    def _fade_out_step(self, progress: float) -> None:
+        """
+        Update fade out brightness based on progress (0.0 to 1.0).
+
+        Non-blocking fade out that's called incrementally from the loop.
+
+        Args:
+            progress: Progress from 0.0 (start) to 1.0 (complete)
+        """
         if not self.display:
             return
 
-        fade_duration = 2.0
-        start_time = time.time()
         initial_brightness = 100
+        brightness = int(initial_brightness * (1 - progress))
+        brightness = max(0, min(100, brightness))
 
-        while time.time() - start_time < fade_duration:
-            if self._stop_event.is_set():
-                break
-
-            elapsed = time.time() - start_time
-            brightness = int(initial_brightness * (1 - elapsed / fade_duration))
-            brightness = max(0, min(100, brightness))
-
-            try:
-                self.display.set_backlight(brightness)
-            except (AttributeError, Exception):
-                pass
-
-            time.sleep(0.05)  # 50ms update intervals
-
-        # Turn off display
         try:
-            self.display.set_backlight(0)
+            self.display.set_backlight(brightness)
         except (AttributeError, Exception):
             pass
 
