@@ -130,14 +130,14 @@ class DisplayManager:
             self.logger.debug("Splash screen skipped (display unavailable or disabled)")
             return
 
-            def render_splash():  # type: ignore
-                """Render the splash screen image."""
-                image_path = Path(splash_path)
-                if not image_path.exists():
-                    self.logger.warning("Splash image not found: %s", splash_path)
-                    # Return a blank image
-                    return Image.new("RGB", (160, 80), color=(0, 0, 0))
-                return Image.open(image_path)
+        def render_splash():  # type: ignore
+            """Render the splash screen image."""
+            image_path = Path(splash_path)
+            if not image_path.exists():
+                self.logger.warning("Splash image not found: %s", splash_path)
+                # Return a blank image
+                return Image.new("RGB", (160, 80), color=(0, 0, 0))
+            return Image.open(image_path)
 
         # Create a display item for the splash
         display_item = SplashDisplayItem(
@@ -214,6 +214,7 @@ class DisplayManager:
                 if self._current_display is not None:
                     assert display_start_time is not None
                     elapsed = time.time() - display_start_time
+                    # Use default 2.0s fade time (can be customized per item later)
                     fade_time = 2.0 if self._current_display.fade_out else 0
 
                     # Handle fade out state
