@@ -49,16 +49,22 @@ install_from_pypi() {
 
   echo "==> Installing from PyPI..."
 
+  # Create virtual environment for the application
+  echo "==> Creating virtual environment..."
+  sudo mkdir -p "${APP_DIR}"
+  sudo python3 -m venv "${VENV}"
+  sudo "${VENV}/bin/pip" install --upgrade pip
+
   if [[ -n "$version" ]]; then
     echo "==> Installing specific version: $version"
-    pip3 install --break-system-packages "ha-enviro-plus==${version#v}"
+    sudo "${VENV}/bin/pip" install "ha-enviro-plus==${version#v}"
   else
     echo "==> Installing latest version from PyPI"
-    pip3 install --break-system-packages ha-enviro-plus
+    sudo "${VENV}/bin/pip" install ha-enviro-plus
   fi
 
-  # Create symlink for easy access
-  sudo ln -sf "$(which ha-enviro-plus)" /usr/local/bin/ha-enviro-plus || true
+  # Create symlink to the venv executable
+  sudo ln -sf "${VENV}/bin/ha-enviro-plus" /usr/local/bin/ha-enviro-plus || true
 }
 
 install_from_release() {
@@ -66,14 +72,20 @@ install_from_release() {
 
   echo "==> Installing from GitHub release: $version"
 
+  # Create virtual environment for the application
+  echo "==> Creating virtual environment..."
+  sudo mkdir -p "${APP_DIR}"
+  sudo python3 -m venv "${VENV}"
+  sudo "${VENV}/bin/pip" install --upgrade pip
+
   # Download wheel from GitHub release
   local wheel_url="https://github.com/JeffLuckett/ha-enviro-plus/releases/download/${version}/ha_enviro_plus-${version#v}-py3-none-any.whl"
 
   echo "==> Downloading wheel from: $wheel_url"
-  pip3 install --break-system-packages "$wheel_url"
+  sudo "${VENV}/bin/pip" install "$wheel_url"
 
-  # Create symlink for easy access
-  sudo ln -sf "$(which ha-enviro-plus)" /usr/local/bin/ha-enviro-plus || true
+  # Create symlink to the venv executable
+  sudo ln -sf "${VENV}/bin/ha-enviro-plus" /usr/local/bin/ha-enviro-plus || true
 }
 
 install_from_git() {
@@ -250,13 +262,12 @@ install_service() {
   echo "==> Installing systemd service..."
 
   # Determine the correct working directory and python path
-  local working_dir="/opt/${APP_NAME}"
-  local python_cmd="python3 -m ha_enviro_plus.agent"
+  local working_dir="${APP_DIR}"
+  local python_cmd="${VENV}/bin/python -m ha_enviro_plus.agent"
 
-  # If we're using git installation, use the venv
+  # If we're using git installation, use the git working directory
   if [[ -d "${APP_DIR}/.git" ]]; then
     working_dir="${APP_DIR}"
-    python_cmd="${VENV}/bin/python -m ha_enviro_plus.agent"
   fi
 
   sudo tee "${SERVICE}" > /dev/null <<EOF
