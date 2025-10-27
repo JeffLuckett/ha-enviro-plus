@@ -39,7 +39,7 @@ HUM_OFFSET = float(_get_config("HUM_OFFSET", "0.0"))
 CPU_TEMP_FACTOR = float(_get_config("CPU_TEMP_FACTOR", "1.8"))
 CPU_TEMP_SMOOTHING = float(_get_config("CPU_TEMP_SMOOTHING", "0.1"))
 DISPLAY_ENABLED = int(_get_config("DISPLAY_ENABLED", "1")) == 1
-SENSOR_WARMUP_SEC = float(_get_config("SENSOR_WARMUP_SEC", "5"))
+SENSOR_WARMUP_SEC = float(_get_config("SENSOR_WARMUP_SEC", "2"))
 LOG_TO_FILE = int(_get_config("LOG_TO_FILE", "0")) == 1
 LOG_PATH = f"/var/log/{APP_NAME}.log"
 # ------------------------------------------------------------
@@ -549,7 +549,12 @@ def validate_config() -> None:
     logger.info("Configuration validation passed")
 
 
-def signal_handler(signum: int, frame: Any, client: Optional[mqtt.Client] = None) -> None:
+def signal_handler(
+    signum: int,
+    frame: Any,
+    client: Optional[mqtt.Client] = None,
+    display: Optional[Any] = None,
+) -> None:
     """
     Handle shutdown signals gracefully.
 
@@ -557,9 +562,18 @@ def signal_handler(signum: int, frame: Any, client: Optional[mqtt.Client] = None
         signum: Signal number
         frame: Current stack frame
         client: MQTT client to disconnect gracefully
+        display: Display manager to clean up
     """
     signal_name = signal.Signals(signum).name
     logger.info("Received signal %s (%d), shutting down gracefully", signal_name, signum)
+
+    # Clean up display if provided
+    if display:
+        try:
+            display.cleanup()
+            logger.info("Display cleaned up gracefully")
+        except Exception as e:
+            logger.error("Error during display cleanup: %s", e)
 
     if client:
         try:
@@ -624,7 +638,9 @@ def main() -> None:
         try:
             display = DisplayManager(logger=logger, enabled=DISPLAY_ENABLED)
             if display.display_available:
-                display.show_splash()
+                # Queue splash screen - this is non-blocking now!
+                display.show_splash(duration=8, fade_duration=2)
+                logger.info("Splash screen queued for display")
         except Exception as e:
             logger.warning("Failed to initialize display: %s, continuing without splash", e)
 
@@ -663,10 +679,10 @@ def main() -> None:
 
     # Register signal handlers for graceful shutdown
     def sigterm_handler(signum: int, frame: Any) -> None:
-        signal_handler(signum, frame, client)
+        signal_handler(signum, frame, client, display)
 
     def sigint_handler(signum: int, frame: Any) -> None:
-        signal_handler(signum, frame, client)
+        signal_handler(signum, frame, client, display)
 
     signal.signal(signal.SIGTERM, sigterm_handler)
     signal.signal(signal.SIGINT, sigint_handler)
@@ -689,11 +705,11 @@ def main() -> None:
             time.sleep(POLL_SEC)
     except KeyboardInterrupt:
         logger.info("Received KeyboardInterrupt, shutting down gracefully")
-        signal_handler(signal.SIGINT, None, client)
+        signal_handler(signal.SIGINT, None, client, display)
     except Exception as e:
         logger.error("Unexpected error in main loop: %s", e)
         logger.info("Shutting down gracefully due to error")
-        signal_handler(signal.SIGTERM, None, client)
+        signal_handler(signal.SIGTERM, None, client, display)
     finally:
         # This should not be reached due to signal_handler calling sys.exit()
         # But keeping it as a safety net for cases where signal_handler wasn't called
