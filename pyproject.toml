@@ -16,6 +16,8 @@ dependencies = [
     "enviroplus",
     "paho-mqtt>=2.0",
     "psutil",
+    "st7735",
+    "pillow>=10.0.0",
 ]
 
 [project.optional-dependencies]

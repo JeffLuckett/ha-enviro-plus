@@ -15,6 +15,7 @@ from typing import List, Any, Dict, Optional
 import paho.mqtt.client as mqtt
 from .sensors import EnviroPlusSensors
 from .settings import SettingsManager
+from .display import DisplayManager
 from . import __version__
 
 APP_NAME = "ha-enviro-plus"
@@ -31,6 +32,7 @@ TEMP_OFFSET = float(os.getenv("TEMP_OFFSET", "0.0"))
 HUM_OFFSET = float(os.getenv("HUM_OFFSET", "0.0"))
 CPU_TEMP_FACTOR = float(os.getenv("CPU_TEMP_FACTOR", "1.8"))
 CPU_TEMP_SMOOTHING = float(os.getenv("CPU_TEMP_SMOOTHING", "0.1"))
+DISPLAY_ENABLED = int(os.getenv("DISPLAY_ENABLED", "1")) == 1
 LOG_TO_FILE = int(os.getenv("LOG_TO_FILE", "0")) == 1
 LOG_PATH = f"/var/log/{APP_NAME}.log"
 # ------------------------------------------------------------
@@ -607,6 +609,27 @@ def main() -> None:
         cpu_temp_smoothing=cpu_temp_smoothing,
         logger=logger,
     )
+
+    # Initialize display and show splash screen
+    display = DisplayManager(logger=logger, enabled=DISPLAY_ENABLED)
+    display.show_splash()
+
+    # Sensor warm-up period - read sensors and discard first 5 seconds
+    logger.info("Warming up sensors...")
+    warmup_start = time.time()
+    warmup_duration = 5  # 5 seconds of warm-up
+
+    while time.time() - warmup_start < warmup_duration:
+        # Read sensors but don't publish
+        try:
+            _ = enviro_sensors.temperature
+            _ = enviro_sensors.humidity
+            _ = enviro_sensors.pressure
+        except Exception:
+            pass  # Ignore errors during warm-up
+        time.sleep(0.1)  # Small delay between reads
+
+    logger.info("Sensor warm-up complete")
 
     client = mqtt.Client(client_id=root, protocol=mqtt.MQTTv5)
     if MQTT_USER:

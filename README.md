@@ -50,6 +50,8 @@ Additional system telemetry is included:
 - Startup configuration validation
 - Safe installer/uninstaller with config preservation
 - Versioned installation support (`--release`, `--branch` flags)
+- **Boot splash screen** with sensor warm-up period
+- **LCD display support** (160x80 IPS color, configurable on/off)
 - Designed and tested with a Raspberry Pi Zero 2 W + Enviro+ HAT. Also supports the original Enviro HAT (fewer sensors) and runs on any hardware that supports these devices and the necessary libraries. (Testers welcome!)
 
 ---
@@ -110,6 +112,7 @@ Edit values safely, then restart the service:
     TEMP_OFFSET=0.0
     HUM_OFFSET=0.0
     CPU_TEMP_FACTOR=1.8
+    DISPLAY_ENABLED=1  # 1=ON, 0=OFF
 
 ---
 
