@@ -219,6 +219,8 @@ write_config() {
       read -rp "Temperature offset °C [${DEFAULT_TEMP_OFFSET}]: " TEMP_OFFSET
       read -rp "Humidity offset % [${DEFAULT_HUM_OFFSET}]: " HUM_OFFSET
       read -rp "CPU temperature compensation factor (higher number lowers temp output) [${DEFAULT_CPU_TEMP_FACTOR}]: " CPU_TEMP_FACTOR
+    else
+      echo "==> Using default values (non-interactive mode)"
     fi
   fi
 

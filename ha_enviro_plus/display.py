@@ -130,6 +130,12 @@ class DisplayManager:
             self.logger.debug("Splash screen skipped (display unavailable or disabled)")
             return
 
+        self.logger.info(
+            "Splash: Queuing splash screen (duration=%.1fs, fade_duration=%.1fs)",
+            duration,
+            fade_duration,
+        )
+
         def render_splash():  # type: ignore
             """Render the splash screen image."""
             image_path = Path(splash_path)
@@ -146,6 +152,7 @@ class DisplayManager:
 
         # Queue the splash screen
         self._queue_display(display_item, render_splash, fade_out=True)
+        self.logger.debug("Splash: Added to display queue")
 
     def _queue_display(
         self,
@@ -205,6 +212,11 @@ class DisplayManager:
                             fade_out_start_time = None
                             # Render the new display
                             if self.display:
+                                self.logger.info(
+                                    "Display: Starting display (duration=%.1fs, fade_out=%s)",
+                                    self._current_display.duration,
+                                    self._current_display.fade_out,
+                                )
                                 self._render_display_immediate(self._current_display)
                         else:
                             # No queued items, just sleep
@@ -223,18 +235,32 @@ class DisplayManager:
                         fade_elapsed = time.time() - fade_out_start_time
                         if fade_elapsed >= fade_time:
                             # Fade complete, move to next
+                            self.logger.info("Display: Fade complete, clearing display")
                             self._current_display = None
                             display_start_time = None
                             fade_out_start_time = None
                         else:
                             # Continue fading
-                            self._fade_out_step(fade_elapsed / fade_time)
+                            progress = fade_elapsed / fade_time
+                            self._fade_out_step(progress)
+                            if int(fade_elapsed * 10) % 10 == 0:  # Log every 0.1s
+                                self.logger.debug(
+                                    "Display: Fading (progress=%.1f%%, brightness=%d%%)",
+                                    progress * 100,
+                                    int(100 * (1 - progress)),
+                                )
                     # Check if we should start fade out
                     elif elapsed >= (self._current_display.duration - fade_time):
                         if self._current_display.fade_out:
+                            self.logger.info(
+                                "Display: Starting fade-out (elapsed=%.1fs of %.1fs)",
+                                elapsed,
+                                self._current_display.duration,
+                            )
                             fade_out_start_time = time.time()
                         else:
                             # Just turn off immediately
+                            self.logger.info("Display: Turning off (no fade)")
                             if self.display:
                                 try:
                                     self.display.set_backlight(0)
@@ -258,19 +284,22 @@ class DisplayManager:
             display_item: The display item to render
         """
         try:
+            self.logger.debug("Display: Rendering image immediately")
             # Render the image
             image = display_item.render_func()
 
             # Display with fade in if requested
             if display_item.fade_in:
+                self.logger.debug("Display: Using fade-in")
                 self._fade_in(image)
             else:
                 if self.display:
                     self.display.display(image)
                     try:
+                        self.logger.debug("Display: Setting backlight to 100%")
                         self.display.set_backlight(100)  # Full brightness
-                    except (AttributeError, Exception):
-                        pass
+                    except (AttributeError, Exception) as e:
+                        self.logger.warning("Display: Could not set backlight: %s", e)
 
         except Exception as e:
             self.logger.error("Error rendering display: %s", e)
