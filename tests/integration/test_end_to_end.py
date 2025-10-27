@@ -88,15 +88,12 @@ class TestEndToEndWorkflows:
                     mock_sensors.pressure.return_value = 1013.25
 
                     # Patch to completely skip display and warm-up
-                    with patch("ha_enviro_plus.agent.DISPLAY_ENABLED", False), \
-                         patch("ha_enviro_plus.agent.SENSOR_WARMUP_SEC", 0.0), \
-                         patch("ha_enviro_plus.agent.time.sleep") as mock_agent_sleep, \
-                         patch("ha_enviro_plus.display.time.sleep"):
-
-                        # Make sleep a no-op to speed up test
-                        def no_sleep(*args, **kwargs):
-                            pass
-                        mock_agent_sleep.side_effect = no_sleep
+                    with (
+                        patch("ha_enviro_plus.agent.DISPLAY_ENABLED", False),
+                        patch("ha_enviro_plus.agent.SENSOR_WARMUP_SEC", 0.0),
+                        patch("ha_enviro_plus.agent.time.sleep", side_effect=lambda x: None),
+                        patch("ha_enviro_plus.display.time.sleep", side_effect=lambda x: None),
+                    ):
 
                         # Run main function - expect SystemExit from graceful shutdown
                         with pytest.raises(SystemExit) as exc_info:
