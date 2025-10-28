@@ -15,23 +15,32 @@ from typing import List, Any, Dict, Optional
 import paho.mqtt.client as mqtt
 from .sensors import EnviroPlusSensors
 from .settings import SettingsManager
+from .display import DisplayManager
 from . import __version__
 
 APP_NAME = "ha-enviro-plus"
 VERSION = __version__
 
+
 # ---------- CONFIG via /etc/default/ha-enviro-plus ----------
-MQTT_HOST = os.getenv("MQTT_HOST", "homeassistant.local")
-MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
-MQTT_USER = os.getenv("MQTT_USER", "")
-MQTT_PASS = os.getenv("MQTT_PASS", "")
-MQTT_DISCOVERY_PREFIX = os.getenv("MQTT_DISCOVERY_PREFIX", "homeassistant")
-POLL_SEC = float(os.getenv("POLL_SEC", "2"))
-TEMP_OFFSET = float(os.getenv("TEMP_OFFSET", "0.0"))
-HUM_OFFSET = float(os.getenv("HUM_OFFSET", "0.0"))
-CPU_TEMP_FACTOR = float(os.getenv("CPU_TEMP_FACTOR", "1.8"))
-CPU_TEMP_SMOOTHING = float(os.getenv("CPU_TEMP_SMOOTHING", "0.1"))
-LOG_TO_FILE = int(os.getenv("LOG_TO_FILE", "0")) == 1
+def _get_config(key: str, default: str) -> str:
+    """Get configuration value from environment."""
+    return os.getenv(key, default)
+
+
+MQTT_HOST = _get_config("MQTT_HOST", "homeassistant.local")
+MQTT_PORT = int(_get_config("MQTT_PORT", "1883"))
+MQTT_USER = _get_config("MQTT_USER", "")
+MQTT_PASS = _get_config("MQTT_PASS", "")
+MQTT_DISCOVERY_PREFIX = _get_config("MQTT_DISCOVERY_PREFIX", "homeassistant")
+POLL_SEC = float(_get_config("POLL_SEC", "2"))
+TEMP_OFFSET = float(_get_config("TEMP_OFFSET", "0.0"))
+HUM_OFFSET = float(_get_config("HUM_OFFSET", "0.0"))
+CPU_TEMP_FACTOR = float(_get_config("CPU_TEMP_FACTOR", "1.8"))
+CPU_TEMP_SMOOTHING = float(_get_config("CPU_TEMP_SMOOTHING", "0.1"))
+DISPLAY_ENABLED = int(_get_config("DISPLAY_ENABLED", "1")) == 1
+SENSOR_WARMUP_SEC = float(_get_config("SENSOR_WARMUP_SEC", "2"))
+LOG_TO_FILE = int(_get_config("LOG_TO_FILE", "0")) == 1
 LOG_PATH = f"/var/log/{APP_NAME}.log"
 # ------------------------------------------------------------
 
@@ -540,7 +549,12 @@ def validate_config() -> None:
     logger.info("Configuration validation passed")
 
 
-def signal_handler(signum: int, frame: Any, client: Optional[mqtt.Client] = None) -> None:
+def signal_handler(
+    signum: int,
+    frame: Any,
+    client: Optional[mqtt.Client] = None,
+    display: Optional[Any] = None,
+) -> None:
     """
     Handle shutdown signals gracefully.
 
@@ -548,9 +562,18 @@ def signal_handler(signum: int, frame: Any, client: Optional[mqtt.Client] = None
         signum: Signal number
         frame: Current stack frame
         client: MQTT client to disconnect gracefully
+        display: Display manager to clean up
     """
     signal_name = signal.Signals(signum).name
     logger.info("Received signal %s (%d), shutting down gracefully", signal_name, signum)
+
+    # Clean up display if provided
+    if display:
+        try:
+            display.cleanup()
+            logger.info("Display cleaned up gracefully")
+        except Exception as e:
+            logger.error("Error during display cleanup: %s", e)
 
     if client:
         try:
@@ -608,6 +631,36 @@ def main() -> None:
         logger=logger,
     )
 
+    # Initialize display and show splash screen (skip in tests when disabled)
+    display = None
+    # Display splash screen during startup (skipped in tests)
+    if DISPLAY_ENABLED and os.getenv("PYTEST_CURRENT_TEST") is None:
+        try:
+            display = DisplayManager(logger=logger, enabled=DISPLAY_ENABLED)
+            if display.display_available:
+                # Queue splash screen - this is non-blocking now!
+                display.show_splash(duration=8, fade_duration=2)
+                logger.info("Splash screen queued for display")
+        except Exception as e:
+            logger.warning("Failed to initialize display: %s, continuing without splash", e)
+
+    # Sensor warm-up period - read sensors and discard initial readings
+    if SENSOR_WARMUP_SEC > 0:
+        logger.info("Warming up sensors for %.1f seconds...", SENSOR_WARMUP_SEC)
+        warmup_start = time.time()
+
+        while time.time() - warmup_start < SENSOR_WARMUP_SEC:
+            # Read sensors but don't publish
+            try:
+                _ = enviro_sensors.temp()
+                _ = enviro_sensors.humidity()
+                _ = enviro_sensors.pressure()
+            except Exception:
+                pass  # Ignore errors during warm-up
+            time.sleep(0.1)  # Small delay between reads
+
+        logger.info("Sensor warm-up complete")
+
     client = mqtt.Client(client_id=root, protocol=mqtt.MQTTv5)
     if MQTT_USER:
         client.username_pw_set(MQTT_USER, MQTT_PASS)
@@ -626,10 +679,10 @@ def main() -> None:
 
     # Register signal handlers for graceful shutdown
     def sigterm_handler(signum: int, frame: Any) -> None:
-        signal_handler(signum, frame, client)
+        signal_handler(signum, frame, client, display)
 
     def sigint_handler(signum: int, frame: Any) -> None:
-        signal_handler(signum, frame, client)
+        signal_handler(signum, frame, client, display)
 
     signal.signal(signal.SIGTERM, sigterm_handler)
     signal.signal(signal.SIGINT, sigint_handler)
@@ -652,11 +705,11 @@ def main() -> None:
             time.sleep(POLL_SEC)
     except KeyboardInterrupt:
         logger.info("Received KeyboardInterrupt, shutting down gracefully")
-        signal_handler(signal.SIGINT, None, client)
+        signal_handler(signal.SIGINT, None, client, display)
     except Exception as e:
         logger.error("Unexpected error in main loop: %s", e)
         logger.info("Shutting down gracefully due to error")
-        signal_handler(signal.SIGTERM, None, client)
+        signal_handler(signal.SIGTERM, None, client, display)
     finally:
         # This should not be reached due to signal_handler calling sys.exit()
         # But keeping it as a safety net for cases where signal_handler wasn't called

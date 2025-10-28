@@ -83,16 +83,31 @@ class TestEndToEndWorkflows:
                     }
                     mock_sensors._read_cpu_temp.return_value = 42.0
                     mock_sensors.cpu_temp.return_value = 42.0
+                    mock_sensors.temp.return_value = 25.5
+                    mock_sensors.humidity.return_value = 45.0
+                    mock_sensors.pressure.return_value = 1013.25
 
-                    # Mock the main loop to run once
-                    with patch("ha_enviro_plus.agent.time.sleep") as mock_sleep:
-                        # Let the first sleep pass, then interrupt on the second
-                        mock_sleep.side_effect = [None, KeyboardInterrupt()]
+                    # Mock display and warm-up to be instant
+                    call_count = [0]
+
+                    def no_sleep(*args, **kwargs):
+                        """Make all sleeps instant"""
+                        call_count[0] += 1
+                        if call_count[0] > 10:  # After 10 sleeps, interrupt
+                            raise KeyboardInterrupt()
+
+                    with (
+                        patch("ha_enviro_plus.agent.DISPLAY_ENABLED", False),
+                        patch("ha_enviro_plus.agent.SENSOR_WARMUP_SEC", 0.0),
+                        patch("ha_enviro_plus.agent.POLL_SEC", 0.0001),
+                        patch("ha_enviro_plus.agent.time.sleep", side_effect=no_sleep),
+                        patch("ha_enviro_plus.display.time.sleep", side_effect=no_sleep),
+                    ):
 
                         # Run main function - expect SystemExit from graceful shutdown
                         with pytest.raises(SystemExit) as exc_info:
                             main()
-                        assert exc_info.value.code == 0  # Successful shutdown
+                        assert exc_info.value.code == 0
 
                         # Manually trigger on_connect to simulate connection
                         from ha_enviro_plus.agent import on_connect
@@ -332,7 +347,8 @@ class TestEndToEndWorkflows:
         # Verify sensor data values
         # Temperature: 25.5 raw, compensated to ~16.33, + 1.0 offset = ~17.33
         assert vals["bme280/temperature"] == pytest.approx(17.33, abs=0.1)
-        assert vals["bme280/humidity"] == pytest.approx(47.0, abs=0.1)  # 45.0 + 2.0 offset
+        # Humidity: 45.0 raw, compensated +18.33, + 2.0 offset = ~65.33
+        assert vals["bme280/humidity"] == pytest.approx(65.33, abs=0.1)
         assert vals["bme280/pressure"] == pytest.approx(1013.25, abs=0.1)
         assert vals["ltr559/lux"] == pytest.approx(150.0, abs=0.1)
         assert vals["gas/oxidising"] == pytest.approx(50.0, abs=0.1)
