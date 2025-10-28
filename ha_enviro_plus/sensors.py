@@ -257,9 +257,7 @@ class EnviroPlusSensors:
             self.logger.info("Raw temperature will be reported as 0.0°C")
             return 0.0
 
-    def _apply_humidity_compensation(
-        self, raw_humidity: float, raw_temp: float
-    ) -> float:
+    def _apply_humidity_compensation(self, raw_humidity: float, raw_temp: float) -> float:
         """
         Apply CPU temperature compensation to humidity reading.
 
@@ -295,8 +293,7 @@ class EnviroPlusSensors:
             compensated_humidity = raw_humidity + (temp_error * 2.0)
 
             self.logger.debug(
-                "Humidity compensation: raw=%.1f%%, temp_error=%.1f°C, "
-                "compensated=%.1f%%",
+                "Humidity compensation: raw=%.1f%%, temp_error=%.1f°C, " "compensated=%.1f%%",
                 raw_humidity,
                 temp_error,
                 compensated_humidity,
@@ -319,16 +316,13 @@ class EnviroPlusSensors:
             raw_humidity = float(self.bme280.get_humidity())
 
             # Apply CPU temperature compensation
-            compensated_humidity = self._apply_humidity_compensation(
-                raw_humidity, raw_temp
-            )
+            compensated_humidity = self._apply_humidity_compensation(raw_humidity, raw_temp)
 
             # Apply user offset
             calibrated_humidity = compensated_humidity + self.hum_offset
 
             self.logger.debug(
-                "Final humidity: %.2f%% (raw=%.2f%%, compensated=%.2f%%, "
-                "offset=%.2f%%)",
+                "Final humidity: %.2f%% (raw=%.2f%%, compensated=%.2f%%, " "offset=%.2f%%)",
                 calibrated_humidity,
                 raw_humidity,
                 compensated_humidity,

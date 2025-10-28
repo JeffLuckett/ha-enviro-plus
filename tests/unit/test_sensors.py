@@ -332,7 +332,9 @@ class TestHumidityReadings:
 
         assert humidity == 45.12  # Rounded to 2 decimal places
 
-    def test_humidity_clamping_upper(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess):
+    def test_humidity_clamping_upper(
+        self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess
+    ):
         """Test humidity clamping at upper bound."""
         mock_bme280.get_temperature.return_value = 25.0
         mock_bme280.get_humidity.return_value = 95.0
@@ -342,7 +344,9 @@ class TestHumidityReadings:
 
         assert humidity == 100.0
 
-    def test_humidity_clamping_lower(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess):
+    def test_humidity_clamping_lower(
+        self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess
+    ):
         """Test humidity clamping at lower bound."""
         mock_bme280.get_temperature.return_value = 25.0
         mock_bme280.get_humidity.return_value = 5.0
@@ -363,8 +367,15 @@ class TestHumidityReadings:
         ],
     )
     def test_humidity_various_values(
-        self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess,
-        raw_humidity, offset, temp_offset, expected_range
+        self,
+        mock_bme280,
+        mock_ltr559,
+        mock_gas_sensor,
+        mock_subprocess,
+        raw_humidity,
+        offset,
+        temp_offset,
+        expected_range,
     ):
         """Test humidity with various raw values and offsets."""
         mock_bme280.get_temperature.return_value = 25.0
