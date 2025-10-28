@@ -32,6 +32,44 @@ SERVICE="/etc/systemd/system/${APP_NAME}.service"
 CFG="/etc/default/${APP_NAME}"
 VENV="${APP_DIR}/.venv"
 
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+DEFAULTS_FILE="${REPO_ROOT}/config/install-defaults.conf"
+
+# Load default values from configuration file
+load_defaults() {
+  # Default values (fallback if file doesn't exist)
+  DEFAULT_MQTT_HOST="homeassistant.local"
+  DEFAULT_MQTT_PORT="1883"
+  DEFAULT_MQTT_USER="enviro"
+  DEFAULT_MQTT_PASS=""
+  DEFAULT_DISCOVERY="homeassistant"
+  DEFAULT_POLL="2"
+  DEFAULT_TEMP_OFFSET="0"
+  DEFAULT_HUM_OFFSET="0"
+  DEFAULT_CPU_TEMP_FACTOR="1.8"
+  DEFAULT_CPU_TEMP_SMOOTHING="0.1"
+  DEFAULT_DISPLAY_ENABLED="1"
+
+  # Try to source from configuration file if it exists
+  if [ -f "${DEFAULTS_FILE}" ]; then
+    # shellcheck source=config/install-defaults.conf
+    source "${DEFAULTS_FILE}"
+    echo "==> Loaded defaults from ${DEFAULTS_FILE}"
+  else
+    # If file doesn't exist (e.g., during remote installation or PyPI install),
+    # try to download it from the repo
+    if [ -d "${APP_DIR}/.git" ] || [ -f "${APP_DIR}/config/install-defaults.conf" ]; then
+      local repo_defaults="${APP_DIR}/config/install-defaults.conf"
+      if [ -f "${repo_defaults}" ]; then
+        source "${repo_defaults}"
+        echo "==> Loaded defaults from ${repo_defaults}"
+      fi
+    fi
+  fi
+}
+
 ensure_git() {
   if ! command -v git >/dev/null 2>&1; then
     sudo apt-get update -y
@@ -164,6 +202,10 @@ check_new_config_options() {
     new_options+=("CPU_TEMP_FACTOR")
   fi
 
+  if [ -z "${CPU_TEMP_SMOOTHING:-}" ]; then
+    new_options+=("CPU_TEMP_SMOOTHING")
+  fi
+
   if [ ${#new_options[@]} -gt 0 ]; then
     echo "==> New configuration options detected: ${new_options[*]}"
     echo "These options were added in newer versions and need to be configured."
@@ -176,17 +218,8 @@ write_config() {
   echo "==> Configuring ${APP_NAME}..."
   sudo mkdir -p "$(dirname "${CFG}")"
 
-  # Default values
-  DEFAULT_MQTT_HOST="homeassistant.local"
-  DEFAULT_MQTT_PORT="1883"
-  DEFAULT_MQTT_USER="enviro"
-  DEFAULT_MQTT_PASS=""
-  DEFAULT_DISCOVERY="homeassistant"
-  DEFAULT_POLL="2"
-  DEFAULT_TEMP_OFFSET="0"
-  DEFAULT_HUM_OFFSET="0"
-  DEFAULT_CPU_TEMP_FACTOR="1.8"
-  DEFAULT_DISPLAY_ENABLED="1"
+  # Load default values from configuration file
+  load_defaults
 
   # Try to load existing config
   if load_existing_config; then
@@ -198,12 +231,18 @@ write_config() {
       echo "Please configure the new options:"
 
       if [ -z "${CPU_TEMP_FACTOR:-}" ]; then
-        read -rp "CPU temperature compensation factor (higher number lowers temp output) [${DEFAULT_CPU_TEMP_FACTOR}]: " CPU_TEMP_FACTOR_INPUT
+        read -rp "CPU temperature compensation factor (higher=less compensation, lower=more compensation) [${DEFAULT_CPU_TEMP_FACTOR}]: " CPU_TEMP_FACTOR_INPUT
         CPU_TEMP_FACTOR="${CPU_TEMP_FACTOR_INPUT:-${DEFAULT_CPU_TEMP_FACTOR}}"
+      fi
+
+      if [ -z "${CPU_TEMP_SMOOTHING:-}" ]; then
+        read -rp "CPU temperature smoothing factor [${DEFAULT_CPU_TEMP_SMOOTHING}]: " CPU_TEMP_SMOOTHING_INPUT
+        CPU_TEMP_SMOOTHING="${CPU_TEMP_SMOOTHING_INPUT:-${DEFAULT_CPU_TEMP_SMOOTHING}}"
       fi
     else
       # Use defaults for new options if not interactive
       : "${CPU_TEMP_FACTOR:=${DEFAULT_CPU_TEMP_FACTOR}}"
+      : "${CPU_TEMP_SMOOTHING:=${DEFAULT_CPU_TEMP_SMOOTHING}}"
     fi
   else
     echo "==> Creating new configuration..."
@@ -218,7 +257,8 @@ write_config() {
       read -rp "Poll interval seconds [${DEFAULT_POLL}]: " POLL
       read -rp "Temperature offset °C [${DEFAULT_TEMP_OFFSET}]: " TEMP_OFFSET
       read -rp "Humidity offset % [${DEFAULT_HUM_OFFSET}]: " HUM_OFFSET
-      read -rp "CPU temperature compensation factor (higher number lowers temp output) [${DEFAULT_CPU_TEMP_FACTOR}]: " CPU_TEMP_FACTOR
+      read -rp "CPU temperature compensation factor (higher=less compensation, lower=more compensation) [${DEFAULT_CPU_TEMP_FACTOR}]: " CPU_TEMP_FACTOR
+      read -rp "CPU temperature smoothing factor [${DEFAULT_CPU_TEMP_SMOOTHING}]: " CPU_TEMP_SMOOTHING
     else
       echo "==> Using default values (non-interactive mode)"
     fi
@@ -234,6 +274,7 @@ write_config() {
   : "${TEMP_OFFSET:=${DEFAULT_TEMP_OFFSET}}"
   : "${HUM_OFFSET:=${DEFAULT_HUM_OFFSET}}"
   : "${CPU_TEMP_FACTOR:=${DEFAULT_CPU_TEMP_FACTOR}}"
+  : "${CPU_TEMP_SMOOTHING:=${DEFAULT_CPU_TEMP_SMOOTHING}}"
   : "${DISPLAY_ENABLED:=${DEFAULT_DISPLAY_ENABLED}}"
 
   # Write the complete configuration
@@ -247,6 +288,7 @@ POLL_SEC="${POLL}"
 TEMP_OFFSET="${TEMP_OFFSET}"
 HUM_OFFSET="${HUM_OFFSET}"
 CPU_TEMP_FACTOR="${CPU_TEMP_FACTOR}"
+CPU_TEMP_SMOOTHING="${CPU_TEMP_SMOOTHING}"
 DISPLAY_ENABLED="${DISPLAY_ENABLED}"
 EOF
   sudo chmod 600 "${CFG}"
