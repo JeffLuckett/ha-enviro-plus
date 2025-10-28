@@ -49,8 +49,8 @@ class EnviroPlusSensors:
         Args:
             temp_offset: Temperature calibration offset in °C
             hum_offset: Humidity calibration offset in %
-            cpu_temp_factor: CPU temperature compensation factor
-            cpu_temp_smoothing: CPU temperature smoothing factor (0.0-1.0, lower = more smoothing)
+            cpu_temp_factor: CPU temperature compensation factor (higher=less compensation, lower=more compensation)
+            cpu_temp_smoothing: CPU temperature smoothing factor (0.0-1.0, lower=more smoothing)
             logger: Optional logger instance
         """
         self.temp_offset = temp_offset
@@ -257,17 +257,84 @@ class EnviroPlusSensors:
             self.logger.info("Raw temperature will be reported as 0.0°C")
             return 0.0
 
+    def _apply_humidity_compensation(
+        self, raw_humidity: float, raw_temp: float
+    ) -> float:
+        """
+        Apply CPU temperature compensation to humidity reading.
+
+        Humidity sensors report relative humidity, which is temperature-
+        dependent. If the BME280's internal temperature is elevated by CPU
+        heating, it will report a lower RH% than actual. We compensate by
+        adding back the error.
+
+        Args:
+            raw_humidity: Raw humidity reading from BME280
+            raw_temp: Raw temperature reading from BME280 (used for compensation calculation)
+
+        Returns:
+            CPU-compensated humidity in %
+        """
+        try:
+            cpu_temp = self._get_smoothed_cpu_temp()
+
+            # If CPU temperature is 0.0 and we have no previous smoothed value, skip compensation
+            if cpu_temp == 0.0 and self._cpu_temp_last_update == 0.0:
+                self.logger.debug("Humidity compensation skipped: no valid CPU temperature")
+                return raw_humidity
+
+            # Calculate temperature error due to CPU heating
+            # This is the amount we compensated in temperature
+            temp_error = (cpu_temp - raw_temp) / self.cpu_temp_factor
+
+            # Compensate humidity: warmer sensor = lower RH%, so we add
+            # The compensation factor is based on the temperature error
+            # Empirical: large temp errors (10°C+) can cause 20+ percentage
+            # point errors
+            # 2% per °C error (empirical observation)
+            compensated_humidity = raw_humidity + (temp_error * 2.0)
+
+            self.logger.debug(
+                "Humidity compensation: raw=%.1f%%, temp_error=%.1f°C, "
+                "compensated=%.1f%%",
+                raw_humidity,
+                temp_error,
+                compensated_humidity,
+            )
+            return compensated_humidity
+        except Exception as e:
+            self.logger.warning("Humidity compensation failed: %s", e)
+            return raw_humidity
+
     # Humidity accessors
     def humidity(self) -> float:
         """
-        Get calibrated humidity reading.
+        Get calibrated humidity reading with CPU compensation.
 
         Returns:
             Humidity in % (clamped to 0-100% range)
         """
         try:
+            raw_temp = self.bme280.get_temperature()
             raw_humidity = float(self.bme280.get_humidity())
-            calibrated_humidity = raw_humidity + self.hum_offset
+
+            # Apply CPU temperature compensation
+            compensated_humidity = self._apply_humidity_compensation(
+                raw_humidity, raw_temp
+            )
+
+            # Apply user offset
+            calibrated_humidity = compensated_humidity + self.hum_offset
+
+            self.logger.debug(
+                "Final humidity: %.2f%% (raw=%.2f%%, compensated=%.2f%%, "
+                "offset=%.2f%%)",
+                calibrated_humidity,
+                raw_humidity,
+                compensated_humidity,
+                self.hum_offset,
+            )
+
             return round(max(0.0, min(100.0, calibrated_humidity)), 2)
         except Exception as e:
             self.logger.error("Failed to read humidity: %s", e)
@@ -450,8 +517,8 @@ class EnviroPlusSensors:
         Args:
             temp_offset: New temperature offset in °C
             hum_offset: New humidity offset in %
-            cpu_temp_factor: New CPU temperature compensation factor
-            cpu_temp_smoothing: New CPU temperature smoothing factor (0.0-1.0)
+            cpu_temp_factor: New CPU temperature compensation factor (higher=less compensation, lower=more compensation)
+            cpu_temp_smoothing: New CPU temperature smoothing factor (0.0-1.0, lower=more smoothing)
         """
         if temp_offset is not None:
             self.temp_offset = temp_offset

@@ -347,7 +347,8 @@ class TestEndToEndWorkflows:
         # Verify sensor data values
         # Temperature: 25.5 raw, compensated to ~16.33, + 1.0 offset = ~17.33
         assert vals["bme280/temperature"] == pytest.approx(17.33, abs=0.1)
-        assert vals["bme280/humidity"] == pytest.approx(47.0, abs=0.1)  # 45.0 + 2.0 offset
+        # Humidity: 45.0 raw, compensated +18.33, + 2.0 offset = ~65.33
+        assert vals["bme280/humidity"] == pytest.approx(65.33, abs=0.1)
         assert vals["bme280/pressure"] == pytest.approx(1013.25, abs=0.1)
         assert vals["ltr559/lux"] == pytest.approx(150.0, abs=0.1)
         assert vals["gas/oxidising"] == pytest.approx(50.0, abs=0.1)

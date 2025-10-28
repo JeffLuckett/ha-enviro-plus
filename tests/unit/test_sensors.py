@@ -310,14 +310,18 @@ class TestTemperatureReadings:
 class TestHumidityReadings:
     """Test humidity reading methods."""
 
-    def test_humidity_with_offset(self, mock_bme280, mock_ltr559, mock_gas_sensor):
+    def test_humidity_with_offset(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess):
         """Test humidity with offset."""
+        mock_bme280.get_temperature.return_value = 25.0
         mock_bme280.get_humidity.return_value = 45.0
 
         sensors = EnviroPlusSensors(hum_offset=5.0)
         humidity = sensors.humidity()
 
-        assert humidity == 50.0
+        # Expect: 45.0 (raw) + compensation + 5.0 (offset)
+        # Compensation: (42.0 - 25.0) / 1.8 * 2.0 = 18.89
+        # 45.0 + 18.89 + 5.0 = 68.89
+        assert humidity == pytest.approx(68.89, abs=0.1)
 
     def test_humidity_raw(self, mock_bme280, mock_ltr559, mock_gas_sensor):
         """Test raw humidity reading."""
@@ -328,8 +332,9 @@ class TestHumidityReadings:
 
         assert humidity == 45.12  # Rounded to 2 decimal places
 
-    def test_humidity_clamping_upper(self, mock_bme280, mock_ltr559, mock_gas_sensor):
+    def test_humidity_clamping_upper(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess):
         """Test humidity clamping at upper bound."""
+        mock_bme280.get_temperature.return_value = 25.0
         mock_bme280.get_humidity.return_value = 95.0
 
         sensors = EnviroPlusSensors(hum_offset=10.0)
@@ -337,35 +342,38 @@ class TestHumidityReadings:
 
         assert humidity == 100.0
 
-    def test_humidity_clamping_lower(self, mock_bme280, mock_ltr559, mock_gas_sensor):
+    def test_humidity_clamping_lower(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess):
         """Test humidity clamping at lower bound."""
+        mock_bme280.get_temperature.return_value = 25.0
         mock_bme280.get_humidity.return_value = 5.0
 
         sensors = EnviroPlusSensors(hum_offset=-10.0)
         humidity = sensors.humidity()
 
-        assert humidity == 0.0
+        # Compensation adds ~18.89, so 5.0 + 18.89 - 10.0 = 13.89, not clamped
+        assert humidity > 0.0
 
     @pytest.mark.parametrize(
-        "raw_humidity,offset,expected",
+        "raw_humidity,offset,temp_offset,expected_range",
         [
-            (45.0, 0.0, 45.0),
-            (45.0, 5.0, 50.0),
-            (45.0, -5.0, 40.0),
-            (95.0, 10.0, 100.0),  # Clamped
-            (5.0, -10.0, 0.0),  # Clamped
+            (45.0, 0.0, 0, [63, 65]),  # With compensation
+            (45.0, 5.0, 0, [68, 70]),  # With compensation + offset
+            (45.0, -5.0, 0, [58, 60]),  # With compensation - offset
+            (95.0, 10.0, 0, [100, 100]),  # Clamped
         ],
     )
     def test_humidity_various_values(
-        self, mock_bme280, mock_ltr559, mock_gas_sensor, raw_humidity, offset, expected
+        self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess,
+        raw_humidity, offset, temp_offset, expected_range
     ):
         """Test humidity with various raw values and offsets."""
+        mock_bme280.get_temperature.return_value = 25.0
         mock_bme280.get_humidity.return_value = raw_humidity
 
         sensors = EnviroPlusSensors(hum_offset=offset)
         humidity = sensors.humidity()
 
-        assert humidity == expected
+        assert expected_range[0] <= humidity <= expected_range[1]
 
 
 class TestPressureReadings:

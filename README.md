@@ -36,7 +36,7 @@ Additional system telemetry is included:
 - Plug-and-play Home Assistant discovery (no YAML setup)
 - Fast, configurable polling (default 2 s)
 - On-device temperature / humidity calibration offsets
-- CPU temperature compensation for accurate readings (higher number lowers temp. output)
+- CPU temperature compensation for accurate readings (adjustable factor: higher=less compensation, lower=more compensation)
 - Host metrics: uptime, CPU temp, load, RAM, disk
 - MQTT availability and discovery payloads
 - Home Assistant controls:
@@ -53,6 +53,10 @@ Additional system telemetry is included:
 - **Boot splash screen** with sensor warm-up period
 - **LCD display support** (160x80 IPS color, configurable on/off)
 - Designed and tested with a Raspberry Pi Zero 2 W + Enviro+ HAT. Also supports the original Enviro HAT (fewer sensors) and runs on any hardware that supports these devices and the necessary libraries. (Testers welcome!)
+
+### ⚠️ Important: Temperature Sensor Placement
+
+The Enviro+ temperature sensor is **extremely sensitive to air currents and local thermal effects**. For accurate environmental monitoring, place the device in still air or inside a ventilated enclosure. Readings will be heavily influenced by drafts, movement, sunlight, and nearby heat sources without proper placement. See the [Temperature Calibration Guide](docs/TEMPERATURE_CALIBRATION.md) for details.
 
 ---
 
@@ -251,9 +255,8 @@ pytest tests/ -m "not hardware"
 
 ---
 
-- **Temperature Compensation**: The temperature sensor runs warm due to CPU proximity. The agent now includes automatic CPU temperature compensation using a configurable factor (default 1.8). You can adjust this factor via Home Assistant or the config file for optimal accuracy.
-- **Calibration**: Use the `TEMP_OFFSET` for fine-tuning individual installations, and `CPU_TEMP_FACTOR` to adjust the CPU compensation algorithm.
-- Humidity readings depend on temperature calibration — adjust both together.
+- **Temperature Compensation**: The temperature sensor runs warm due to CPU proximity. The agent includes automatic CPU temperature compensation using a configurable factor (default 1.8, range 0.5-5.0). Higher factor values reduce the compensation effect (output closer to raw sensor reading), while lower values increase compensation. Adjust via Home Assistant or config file for optimal accuracy.
+- **Calibration**: Use `TEMP_OFFSET` for fine-tuning individual installations. Adjust `CPU_TEMP_FACTOR` to control how much CPU heating is compensated for (higher=less compensation, lower=more compensation). Humidity calibration should be performed after temperature calibration, as humidity readings are affected by CPU heating and the sensor's internal temperature compensation. **See [Temperature Calibration Guide](docs/TEMPERATURE_CALIBRATION.md) for detailed calibration instructions.**
 - Sound and particulate sensors are planned for v0.2.0; the agent functions fully without them.
 
 ---
