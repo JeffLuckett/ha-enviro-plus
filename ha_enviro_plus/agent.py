@@ -705,10 +705,10 @@ def main() -> None:
                     len(available_plugins),
                     ", ".join([p.name() for p in available_plugins]),
                 )
+                # Initialize plugin data first, before starting cycle
+                display.update_plugin_data(enviro_sensors, settings_manager)
                 # Start plugin cycle (will begin after splash completes)
                 display.start_plugin_cycle(available_plugins)
-                # Initialize plugin data
-                display.update_plugin_data(enviro_sensors, settings_manager)
             else:
                 logger.warning("No display plugins available")
         except Exception as e:

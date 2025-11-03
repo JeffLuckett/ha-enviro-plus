@@ -439,15 +439,20 @@ class DisplayManager:
 
     def _queue_next_plugin(self) -> None:
         """Queue the next plugin in the cycle."""
-        if not self._plugin_cycle_active or not self._plugin_cycle_plugins:
+        if not self._plugin_cycle_active:
+            self.logger.debug("_queue_next_plugin: plugin cycle not active")
+            return
+        if not self._plugin_cycle_plugins:
+            self.logger.debug("_queue_next_plugin: no plugins available")
             return
 
         with self._lock:
             if not self._plugin_cycle_plugins:
+                self.logger.debug("_queue_next_plugin: no plugins in lock")
                 return
 
             plugin = self._plugin_cycle_plugins[self._plugin_cycle_index]
-            self.logger.debug("Queueing plugin: %s", plugin.name())
+            self.logger.info("Queueing plugin: %s (index %d)", plugin.name(), self._plugin_cycle_index)
 
             # Capture plugin at closure creation time
             def render_plugin() -> "Image.Image":
@@ -561,6 +566,7 @@ class DisplayManager:
             self._plugin_cycle_index = (self._plugin_cycle_index + 1) % len(
                 self._plugin_cycle_plugins
             )
-            self.logger.debug("Advancing plugin cycle to index %d", self._plugin_cycle_index)
-            # Queue next plugin
-            self._queue_next_plugin()
+            self.logger.info("Advancing plugin cycle to index %d", self._plugin_cycle_index)
+
+        # Queue next plugin (outside lock to avoid reentrant lock issue)
+        self._queue_next_plugin()
