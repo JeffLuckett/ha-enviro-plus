@@ -98,24 +98,60 @@ enable_hardware_interfaces() {
     sudo apt-get install -y raspi-config
   fi
 
-  # Enable I2C (required for BME280, LTR559 sensors)
-  echo "==> Enabling I2C interface..."
-  if sudo raspi-config nonint do_i2c 0; then
-    echo "==> I2C enabled successfully"
-  else
-    echo "==> Warning: Failed to enable I2C (may already be enabled)"
+  local reboot_needed=false
+  local i2c_enabled=false
+  local spi_enabled=false
+
+  # Check if I2C is already enabled (returns 0 if enabled, 1 if disabled)
+  if sudo raspi-config nonint get_i2c >/dev/null 2>&1; then
+    local i2c_status
+    i2c_status=$(sudo raspi-config nonint get_i2c)
+    if [ "$i2c_status" = "0" ]; then
+      echo "==> I2C is already enabled"
+      i2c_enabled=true
+    fi
   fi
 
-  # Enable SPI (required for ST7735 display)
-  echo "==> Enabling SPI interface..."
-  if sudo raspi-config nonint do_spi 0; then
-    echo "==> SPI enabled successfully"
-  else
-    echo "==> Warning: Failed to enable SPI (may already be enabled)"
+  # Check if SPI is already enabled (returns 0 if enabled, 1 if disabled)
+  if sudo raspi-config nonint get_spi >/dev/null 2>&1; then
+    local spi_status
+    spi_status=$(sudo raspi-config nonint get_spi)
+    if [ "$spi_status" = "0" ]; then
+      echo "==> SPI is already enabled"
+      spi_enabled=true
+    fi
   fi
 
-  echo "==> Hardware interfaces enabled. Reboot required for changes to take effect."
-  echo "==> Note: You may need to reboot after installation for I2C/SPI to be available."
+  # Enable I2C if not already enabled
+  if [ "$i2c_enabled" = "false" ]; then
+    echo "==> Enabling I2C interface..."
+    if sudo raspi-config nonint do_i2c 0; then
+      echo "==> I2C enabled successfully"
+      reboot_needed=true
+    else
+      echo "==> Warning: Failed to enable I2C"
+    fi
+  fi
+
+  # Enable SPI if not already enabled
+  if [ "$spi_enabled" = "false" ]; then
+    echo "==> Enabling SPI interface..."
+    if sudo raspi-config nonint do_spi 0; then
+      echo "==> SPI enabled successfully"
+      reboot_needed=true
+    else
+      echo "==> Warning: Failed to enable SPI"
+    fi
+  fi
+
+  # Export reboot_needed flag for use in main function
+  if [ "$reboot_needed" = "true" ]; then
+    export REBOOT_NEEDED=true
+    echo "==> Hardware interfaces enabled. Reboot required for changes to take effect."
+  else
+    export REBOOT_NEEDED=false
+    echo "==> Hardware interfaces are already enabled."
+  fi
 }
 
 install_from_pypi() {
@@ -455,6 +491,7 @@ main() {
   local install_version=""
   local install_method="pypi"  # Default to PyPI
   local test_mode=false
+  local no_reboot=false
 
   while [[ $# -gt 0 ]]; do
     case $1 in
@@ -470,6 +507,10 @@ main() {
         ;;
       --test|--dry-run)
         test_mode=true
+        shift
+        ;;
+      --no-reboot)
+        no_reboot=true
         shift
         ;;
       --version|-v)
@@ -488,6 +529,7 @@ main() {
         echo "  --branch BRANCH, -b BRANCH    Install from GitHub branch (development/testing)"
         echo "  --release VERSION, -r VERSION Install specific version from GitHub release"
         echo "  --test, --dry-run             Test mode - validate logic without making changes"
+        echo "  --no-reboot                   Skip automatic reboot (even if I2C/SPI enabled)"
         echo "  --version, -v                 Show installer version and exit"
         echo "  --help, -h                    Show this help message"
         echo
@@ -561,6 +603,36 @@ main() {
   install_service
   start_service
   post_message
+
+  # Handle reboot if needed and not suppressed
+  if [ "${REBOOT_NEEDED:-false}" = "true" ] && [ "$no_reboot" = "false" ]; then
+    echo
+    echo "=========================================="
+    echo "⚠️  Reboot Required"
+    echo "=========================================="
+    echo
+    echo "I2C and/or SPI interfaces have been enabled and require a reboot"
+    echo "to take effect. The service will not work properly until after reboot."
+    echo
+
+    if [ -t 0 ]; then
+      echo "Reboot now? (y/n) [y]: "
+      read -r reboot_answer
+      if [[ "${reboot_answer:-y}" =~ ^[Yy]$ ]]; then
+        echo "==> Rebooting in 5 seconds... (Press Ctrl+C to cancel)"
+        sleep 5
+        sudo reboot
+      else
+        echo "==> Skipping reboot. Please reboot manually when ready: sudo reboot"
+        echo "==> The service will not work properly until after reboot."
+      fi
+    else
+      echo "==> Non-interactive mode: Skipping automatic reboot."
+      echo "==> Please reboot manually: sudo reboot"
+      echo "==> The service will not work properly until after reboot."
+    fi
+  fi
+
   exit 0
 }
 
