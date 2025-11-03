@@ -261,13 +261,16 @@ class TestEndToEndWorkflows:
         mock_device_id,
     ):
         """Test error recovery workflow."""
-        # Test sensor initialization failure recovery
+        # Test sensor initialization failure recovery - now graceful
         with patch("ha_enviro_plus.sensors.BME280") as mock_bme280_class:
             mock_bme280_class.side_effect = Exception("Sensor not found")
 
-            # Should raise exception during initialization
-            with pytest.raises(Exception, match="Sensor not found"):
-                EnviroPlusSensors()
+            # Should not raise - graceful failure handling
+            sensors = EnviroPlusSensors()
+            assert sensors.bme280 is None
+            assert not sensors.has_sensor("bme280")
+            # Should still be able to read other sensors
+            assert sensors.ltr559 is not None
 
         # Test CPU temperature reading failure
         mock_subprocess.side_effect = Exception("Command failed")
