@@ -9,7 +9,7 @@ on the Pimoroni Enviro+ and Enviro HAT.
 import time
 import logging
 import threading
-from typing import Optional, Callable, TYPE_CHECKING
+from typing import Optional, Callable, TYPE_CHECKING, Any
 from pathlib import Path
 from dataclasses import dataclass
 
@@ -25,11 +25,14 @@ except ImportError:
     ST7735_AVAILABLE = False
 
 try:
-    from PIL import Image
+    from PIL import Image, ImageDraw, ImageFont
 
     PIL_AVAILABLE = True
 except ImportError:
     PIL_AVAILABLE = False
+    Image = None  # type: ignore
+    ImageDraw = None  # type: ignore
+    ImageFont = None  # type: ignore
 
 
 @dataclass
@@ -79,6 +82,13 @@ class DisplayManager:
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
+
+        # Plugin cycling control
+        self._plugin_cycle_active = False
+        self._plugin_cycle_plugins: list[Any] = []
+        self._plugin_cycle_index = 0
+        self._plugin_cycle_sensors: Optional[Any] = None
+        self._plugin_cycle_settings: Optional[Any] = None
 
         if not enabled:
             self.logger.debug("Display disabled by configuration")
@@ -247,6 +257,9 @@ class DisplayManager:
                             self._current_display = None
                             display_start_time = None
                             fade_out_start_time = None
+                            # Advance plugin cycle if active
+                            if self._plugin_cycle_active:
+                                self._advance_plugin_cycle()
                         else:
                             # Continue fading
                             progress = fade_elapsed / fade_time
@@ -276,6 +289,9 @@ class DisplayManager:
                                     pass
                             self._current_display = None
                             display_start_time = None
+                            # Advance plugin cycle if active
+                            if self._plugin_cycle_active:
+                                self._advance_plugin_cycle()
 
                 # Small delay to prevent busy waiting
                 time.sleep(0.05)
@@ -395,3 +411,153 @@ class DisplayManager:
             duration: Duration to show this display in seconds
         """
         self.update_sensor_display(render_func, duration)
+
+    def start_plugin_cycle(self, plugins: list[Any]) -> None:
+        """
+        Start cycling through display plugins.
+
+        Args:
+            plugins: List of DisplayPlugin instances to cycle through
+        """
+        if not self.display_available:
+            self.logger.debug("Plugin cycle skipped (display unavailable)")
+            return
+
+        if not plugins:
+            self.logger.warning("No plugins available for cycling")
+            return
+
+        with self._lock:
+            self._plugin_cycle_active = True
+            self._plugin_cycle_plugins = plugins
+            self._plugin_cycle_index = 0
+            plugin_count = len(self._plugin_cycle_plugins)
+            self.logger.info("Starting plugin cycle with %d plugin(s)", plugin_count)
+
+        # Queue the first plugin
+        self._queue_next_plugin()
+
+    def _queue_next_plugin(self) -> None:
+        """Queue the next plugin in the cycle."""
+        if not self._plugin_cycle_active or not self._plugin_cycle_plugins:
+            return
+
+        with self._lock:
+            if not self._plugin_cycle_plugins:
+                return
+
+            plugin = self._plugin_cycle_plugins[self._plugin_cycle_index]
+            self.logger.debug("Queueing plugin: %s", plugin.name())
+
+            # Capture plugin at closure creation time
+            def render_plugin():
+                """Render the current plugin with error handling."""
+                try:
+                    # Use current sensors and settings from display manager
+                    current_sensors = self._plugin_cycle_sensors
+                    current_settings = self._plugin_cycle_settings
+                    if current_sensors is None or current_settings is None:
+                        err_msg = f"{plugin.name()}: No sensor/settings data"
+                        return self._create_error_image(err_msg)
+                    return plugin.render(current_sensors, current_settings)
+                except Exception as e:
+                    self.logger.error("Plugin %s render error: %s", plugin.name(), e)
+                    return self._create_error_image(plugin.error_message(e))
+
+            item = DisplayItem(
+                duration=plugin.duration(), render_func=render_plugin, fade_out=False
+            )
+            self._display_queue.append(item)
+
+    def _create_error_image(self, message: str) -> "Image.Image":
+        """
+        Create an error message image.
+
+        Args:
+            message: Error message text
+
+        Returns:
+            PIL Image with error message
+        """
+        if not PIL_AVAILABLE:
+            return Image.new("RGB", (160, 80), color=(255, 0, 0))
+
+        image = Image.new("RGB", (160, 80), color=(255, 0, 0))
+        draw = ImageDraw.Draw(image)
+
+        try:
+            font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+            font = ImageFont.truetype(font_path, 10)
+        except (OSError, IOError):
+            try:
+                font = ImageFont.load_default()
+            except Exception:
+                font = None
+
+        # Split message into lines if too long
+        words = message.split()
+        lines = []
+        current_line = ""
+        for word in words:
+            if len(current_line + " " + word) <= 20:  # Approx 20 chars per line
+                current_line = current_line + " " + word if current_line else word
+            else:
+                if current_line:
+                    lines.append(current_line)
+                current_line = word
+        if current_line:
+            lines.append(current_line)
+
+        # Draw error message
+        y_pos = 10
+        for line in lines[:5]:  # Max 5 lines
+            draw.text((5, y_pos), line, font=font, fill=(255, 255, 255))
+            y_pos += 15
+
+        return image
+
+    def show_error_message(self, message: str) -> None:
+        """
+        Queue an error message for display.
+
+        Args:
+            message: Error message text
+        """
+        if not self.display_available:
+            return
+
+        def render_error():
+            return self._create_error_image(message)
+
+        with self._lock:
+            item = DisplayItem(duration=3.0, render_func=render_error, fade_out=False)
+            self._display_queue.append(item)
+
+    def update_plugin_data(self, sensors: Any, settings: Any) -> None:
+        """
+        Update sensor and settings data for plugin rendering.
+
+        This should be called periodically from the main loop to keep plugin
+        data fresh.
+
+        Args:
+            sensors: EnviroPlusSensors instance
+            settings: SettingsManager instance
+        """
+        with self._lock:
+            if self._plugin_cycle_active:
+                self._plugin_cycle_sensors = sensors
+                self._plugin_cycle_settings = settings
+
+    def _advance_plugin_cycle(self) -> None:
+        """Advance to the next plugin in the cycle."""
+        if not self._plugin_cycle_active or not self._plugin_cycle_plugins:
+            return
+
+        with self._lock:
+            self._plugin_cycle_index = (self._plugin_cycle_index + 1) % len(
+                self._plugin_cycle_plugins
+            )
+            self.logger.debug("Advancing plugin cycle to index %d", self._plugin_cycle_index)
+            # Queue next plugin
+            self._queue_next_plugin()

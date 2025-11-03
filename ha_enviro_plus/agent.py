@@ -16,6 +16,7 @@ import paho.mqtt.client as mqtt
 from .sensors import EnviroPlusSensors
 from .settings import SettingsManager
 from .display import DisplayManager
+from .display_plugins import get_available_plugins
 from . import __version__
 
 APP_NAME = "ha-enviro-plus"
@@ -40,6 +41,7 @@ CPU_TEMP_FACTOR = float(_get_config("CPU_TEMP_FACTOR", "1.8"))
 CPU_TEMP_SMOOTHING = float(_get_config("CPU_TEMP_SMOOTHING", "0.1"))
 DISPLAY_ENABLED = int(_get_config("DISPLAY_ENABLED", "1")) == 1
 SENSOR_WARMUP_SEC = float(_get_config("SENSOR_WARMUP_SEC", "2"))
+UNITS = _get_config("UNITS", "metric")
 LOG_TO_FILE = int(_get_config("LOG_TO_FILE", "0")) == 1
 LOG_PATH = f"/var/log/{APP_NAME}.log"
 # ------------------------------------------------------------
@@ -635,12 +637,20 @@ def main() -> None:
     cpu_temp_factor = settings_manager.get_cpu_temp_factor()
     cpu_temp_smoothing = settings_manager.get_cpu_temp_smoothing()
 
+    # Load units setting (from environment or settings file)
+    units = _get_config("UNITS", settings_manager.get_units())
+    if units not in ("metric", "imperial"):
+        logger.warning("Invalid units setting: %s, using 'metric'", units)
+        units = "metric"
+    settings_manager.set_units(units)
+
     logger.info(
-        "Initial offsets: TEMP=%s°C HUM=%s%% CPU_FACTOR=%s CPU_SMOOTHING=%s",
+        "Initial offsets: TEMP=%s°C HUM=%s%% CPU_FACTOR=%s CPU_SMOOTHING=%s UNITS=%s",
         temp_offset,
         hum_offset,
         cpu_temp_factor,
         cpu_temp_smoothing,
+        units,
     )
 
     # Initialize sensor manager with current calibration values
@@ -682,6 +692,29 @@ def main() -> None:
             time.sleep(0.1)  # Small delay between reads
 
         logger.info("Sensor warm-up complete")
+
+    # Discover and start display plugins after splash screen
+    if display and display.display_available:
+        try:
+            # Wait a bit for splash screen to display, then discover plugins
+            # We'll start plugin cycle after splash completes
+            available_plugins = get_available_plugins(enviro_sensors, settings_manager)
+            if available_plugins:
+                logger.info(
+                    "Found %d available display plugin(s): %s",
+                    len(available_plugins),
+                    ", ".join([p.name() for p in available_plugins]),
+                )
+                # Start plugin cycle (will begin after splash completes)
+                display.start_plugin_cycle(available_plugins)
+                # Initialize plugin data
+                display.update_plugin_data(enviro_sensors, settings_manager)
+            else:
+                logger.warning("No display plugins available")
+        except Exception as e:
+            logger.error("Failed to initialize display plugins: %s", e)
+            if display:
+                display.show_error_message(f"Plugin error: {str(e)}")
 
     client = mqtt.Client(client_id=root, protocol=mqtt.MQTTv5)
     if MQTT_USER:
@@ -729,6 +762,14 @@ def main() -> None:
             vals = read_all(enviro_sensors)
             for tail, val in vals.items():
                 client.publish(f"{root}/{tail}", str(val), retain=True)
+
+            # Update display plugin data periodically
+            if display and display.display_available:
+                try:
+                    display.update_plugin_data(enviro_sensors, settings_manager)
+                except Exception as e:
+                    logger.warning("Failed to update display plugin data: %s", e)
+
             time.sleep(POLL_SEC)
     except KeyboardInterrupt:
         logger.info("Received KeyboardInterrupt, shutting down gracefully")

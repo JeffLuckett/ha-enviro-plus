@@ -51,6 +51,7 @@ load_defaults() {
   DEFAULT_CPU_TEMP_FACTOR="1.8"
   DEFAULT_CPU_TEMP_SMOOTHING="0.1"
   DEFAULT_DISPLAY_ENABLED="1"
+  DEFAULT_UNITS="metric"
 
   # Try to source from configuration file if it exists
   if [ -f "${DEFAULTS_FILE}" ]; then
@@ -296,6 +297,10 @@ check_new_config_options() {
     new_options+=("CPU_TEMP_SMOOTHING")
   fi
 
+  if [ -z "${UNITS:-}" ]; then
+    new_options+=("UNITS")
+  fi
+
   if [ ${#new_options[@]} -gt 0 ]; then
     echo "==> New configuration options detected: ${new_options[*]}"
     echo "These options were added in newer versions and need to be configured."
@@ -329,10 +334,21 @@ write_config() {
         read -rp "CPU temperature smoothing factor [${DEFAULT_CPU_TEMP_SMOOTHING}]: " CPU_TEMP_SMOOTHING_INPUT
         CPU_TEMP_SMOOTHING="${CPU_TEMP_SMOOTHING_INPUT:-${DEFAULT_CPU_TEMP_SMOOTHING}}"
       fi
+
+      if [ -z "${UNITS:-}" ]; then
+        read -rp "Display units (metric/imperial) [${DEFAULT_UNITS}]: " UNITS_INPUT
+        UNITS="${UNITS_INPUT:-${DEFAULT_UNITS}}"
+        # Validate units
+        if [ "$UNITS" != "metric" ] && [ "$UNITS" != "imperial" ]; then
+          echo "==> Invalid units: $UNITS, using default: ${DEFAULT_UNITS}"
+          UNITS="${DEFAULT_UNITS}"
+        fi
+      fi
     else
       # Use defaults for new options if not interactive
       : "${CPU_TEMP_FACTOR:=${DEFAULT_CPU_TEMP_FACTOR}}"
       : "${CPU_TEMP_SMOOTHING:=${DEFAULT_CPU_TEMP_SMOOTHING}}"
+      : "${UNITS:=${DEFAULT_UNITS}}"
     fi
   else
     echo "==> Creating new configuration..."
@@ -349,6 +365,12 @@ write_config() {
       read -rp "Humidity offset % [${DEFAULT_HUM_OFFSET}]: " HUM_OFFSET
       read -rp "CPU temperature compensation factor (higher=less compensation, lower=more compensation) [${DEFAULT_CPU_TEMP_FACTOR}]: " CPU_TEMP_FACTOR
       read -rp "CPU temperature smoothing factor [${DEFAULT_CPU_TEMP_SMOOTHING}]: " CPU_TEMP_SMOOTHING
+      read -rp "Display units (metric/imperial) [${DEFAULT_UNITS}]: " UNITS
+      # Validate units
+      if [ "$UNITS" != "metric" ] && [ "$UNITS" != "imperial" ]; then
+        echo "==> Invalid units: $UNITS, using default: ${DEFAULT_UNITS}"
+        UNITS="${DEFAULT_UNITS}"
+      fi
     else
       echo "==> Using default values (non-interactive mode)"
     fi
@@ -366,6 +388,7 @@ write_config() {
   : "${CPU_TEMP_FACTOR:=${DEFAULT_CPU_TEMP_FACTOR}}"
   : "${CPU_TEMP_SMOOTHING:=${DEFAULT_CPU_TEMP_SMOOTHING}}"
   : "${DISPLAY_ENABLED:=${DEFAULT_DISPLAY_ENABLED}}"
+  : "${UNITS:=${DEFAULT_UNITS}}"
 
   # Write the complete configuration
   sudo tee "${CFG}" > /dev/null <<EOF
@@ -380,6 +403,7 @@ HUM_OFFSET="${HUM_OFFSET}"
 CPU_TEMP_FACTOR="${CPU_TEMP_FACTOR}"
 CPU_TEMP_SMOOTHING="${CPU_TEMP_SMOOTHING}"
 DISPLAY_ENABLED="${DISPLAY_ENABLED}"
+UNITS="${UNITS}"
 EOF
   sudo chmod 600 "${CFG}"
 }
