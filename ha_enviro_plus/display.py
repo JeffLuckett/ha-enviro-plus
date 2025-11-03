@@ -450,7 +450,7 @@ class DisplayManager:
             self.logger.debug("Queueing plugin: %s", plugin.name())
 
             # Capture plugin at closure creation time
-            def render_plugin():
+            def render_plugin() -> "Image.Image":
                 """Render the current plugin with error handling."""
                 try:
                     # Use current sensors and settings from display manager
@@ -478,9 +478,12 @@ class DisplayManager:
 
         Returns:
             PIL Image with error message
+
+        Raises:
+            RuntimeError: If PIL is not available
         """
         if not PIL_AVAILABLE:
-            return Image.new("RGB", (160, 80), color=(255, 0, 0))
+            raise RuntimeError("PIL/Pillow not available")
 
         image = Image.new("RGB", (160, 80), color=(255, 0, 0))
         draw = ImageDraw.Draw(image)
@@ -526,7 +529,7 @@ class DisplayManager:
         if not self.display_available:
             return
 
-        def render_error():
+        def render_error() -> "Image.Image":
             return self._create_error_image(message)
 
         with self._lock:

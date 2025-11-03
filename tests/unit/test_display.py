@@ -229,11 +229,10 @@ class TestDisplayManager:
     def test_create_error_image_no_pil(self):
         """Test error image creation when PIL is not available."""
         from ha_enviro_plus.display import DisplayManager
+        import pytest
 
         display = DisplayManager(enabled=False)
 
-        # Create error image
-        error_image = display._create_error_image("Test error message")
-
-        # Should return a basic image (from Image.new fallback)
-        assert error_image is not None
+        # Should raise RuntimeError when PIL is not available
+        with pytest.raises(RuntimeError, match="PIL/Pillow not available"):
+            display._create_error_image("Test error message")
