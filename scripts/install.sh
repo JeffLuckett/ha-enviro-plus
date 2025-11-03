@@ -82,6 +82,42 @@ ensure_python() {
   sudo apt-get install -y python3 python3-venv python3-pip
 }
 
+enable_hardware_interfaces() {
+  echo "==> Enabling hardware interfaces (I2C and SPI)..."
+
+  # Check if we're on a Raspberry Pi
+  if [ ! -f /proc/device-tree/model ] || ! grep -q "Raspberry Pi" /proc/device-tree/model 2>/dev/null; then
+    echo "==> Not running on a Raspberry Pi, skipping interface enablement"
+    return 0
+  fi
+
+  # Check if raspi-config is available
+  if ! command -v raspi-config >/dev/null 2>&1; then
+    echo "==> raspi-config not found, installing..."
+    sudo apt-get update -y
+    sudo apt-get install -y raspi-config
+  fi
+
+  # Enable I2C (required for BME280, LTR559 sensors)
+  echo "==> Enabling I2C interface..."
+  if sudo raspi-config nonint do_i2c 0; then
+    echo "==> I2C enabled successfully"
+  else
+    echo "==> Warning: Failed to enable I2C (may already be enabled)"
+  fi
+
+  # Enable SPI (required for ST7735 display)
+  echo "==> Enabling SPI interface..."
+  if sudo raspi-config nonint do_spi 0; then
+    echo "==> SPI enabled successfully"
+  else
+    echo "==> Warning: Failed to enable SPI (may already be enabled)"
+  fi
+
+  echo "==> Hardware interfaces enabled. Reboot required for changes to take effect."
+  echo "==> Note: You may need to reboot after installation for I2C/SPI to be available."
+}
+
 install_from_pypi() {
   local version="${1:-}"
 
@@ -396,6 +432,13 @@ post_message() {
   echo "  it's connecting to your MQTT broker and publishing sensor data."
   echo
 
+  echo "⚠️  Hardware Interfaces:"
+  echo "  I2C and SPI interfaces have been enabled for sensors and display."
+  echo "  If this is a fresh install, you may need to reboot for the interfaces"
+  echo "  to be available: sudo reboot"
+  echo "  Check interface status: ls -l /dev/i2c-* /dev/spidev*"
+  echo
+
   if [ -t 0 ]; then
     echo "Press Enter to view current service status..."
     read -r
@@ -512,6 +555,7 @@ main() {
   esac
 
   # Common post-installation steps
+  enable_hardware_interfaces
   write_config
   create_settings_dir
   install_service
