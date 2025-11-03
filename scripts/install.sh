@@ -144,6 +144,24 @@ enable_hardware_interfaces() {
     fi
   fi
 
+  # Verify configuration was written (check both possible config locations)
+  local config_found=false
+  for config_file in /boot/config.txt /boot/firmware/config.txt; do
+    if [ -f "$config_file" ]; then
+      if grep -q "dtparam=i2c_arm=on" "$config_file" 2>/dev/null && \
+         grep -q "dtparam=spi=on" "$config_file" 2>/dev/null; then
+        echo "==> Verified I2C and SPI configuration in $config_file"
+        config_found=true
+        break
+      fi
+    fi
+  done
+
+  if [ "$reboot_needed" = "true" ] && [ "$config_found" = "false" ]; then
+    echo "==> Warning: Configuration enabled but not yet written to config file"
+    echo "==> This is normal - raspi-config will write changes on next boot"
+  fi
+
   # Export reboot_needed flag for use in main function
   if [ "$reboot_needed" = "true" ]; then
     export REBOOT_NEEDED=true
