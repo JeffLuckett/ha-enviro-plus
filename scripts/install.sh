@@ -482,18 +482,24 @@ post_message() {
   echo
 
   echo "💡 Quick Start:"
-  echo "  The service should now be running. Check the logs above to verify"
-  echo "  it's connecting to your MQTT broker and publishing sensor data."
+  if [ "${REBOOT_NEEDED:-false}" = "true" ]; then
+    echo "  ⚠️  IMPORTANT: A reboot is required for I2C/SPI interfaces to work."
+    echo "  The service is running but sensors/display will not work until reboot."
+    echo "  You will be prompted to reboot after this message."
+  else
+    echo "  The service should now be running. Check the logs above to verify"
+    echo "  it's connecting to your MQTT broker and publishing sensor data."
+  fi
   echo
 
-  echo "⚠️  Hardware Interfaces:"
-  echo "  I2C and SPI interfaces have been enabled for sensors and display."
-  echo "  If this is a fresh install, you may need to reboot for the interfaces"
-  echo "  to be available: sudo reboot"
-  echo "  Check interface status: ls -l /dev/i2c-* /dev/spidev*"
-  echo
+  if [ "${REBOOT_NEEDED:-false}" != "true" ]; then
+    echo "⚠️  Hardware Interfaces:"
+    echo "  I2C and SPI interfaces are enabled for sensors and display."
+    echo "  Check interface status: ls -l /dev/i2c-* /dev/spidev*"
+    echo
+  fi
 
-  if [ -t 0 ]; then
+  if [ -t 0 ] && [ "${REBOOT_NEEDED:-false}" != "true" ]; then
     echo "Press Enter to view current service status..."
     read -r
     sudo systemctl status ${APP_NAME} --no-pager
