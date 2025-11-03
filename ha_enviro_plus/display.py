@@ -270,7 +270,7 @@ class DisplayManager:
                                     progress * 100,
                                     int(100 * (1 - progress)),
                                 )
-                    # Check if we should start fade out
+                    # Check if we should start fade out or update
                     elif elapsed >= (self._current_display.duration - fade_time):
                         if self._current_display.fade_out:
                             self.logger.info(
@@ -280,18 +280,24 @@ class DisplayManager:
                             )
                             fade_out_start_time = time.time()
                         else:
-                            # Just turn off immediately
-                            self.logger.info("Display: Turning off (no fade)")
-                            if self.display:
-                                try:
-                                    self.display.set_backlight(0)
-                                except (AttributeError, Exception):
-                                    pass
-                            self._current_display = None
-                            display_start_time = None
-                            # Advance plugin cycle if active
-                            if self._plugin_cycle_active:
-                                self._advance_plugin_cycle()
+                            # For continuous updates (very short duration), update in place
+                            if self._current_display.duration < 0.5:
+                                # Re-render the current display without clearing
+                                self._render_display_immediate(self._current_display)
+                                display_start_time = time.time()  # Reset timer
+                            else:
+                                # Just turn off immediately for longer displays
+                                self.logger.info("Display: Turning off (no fade)")
+                                if self.display:
+                                    try:
+                                        self.display.set_backlight(0)
+                                    except (AttributeError, Exception):
+                                        pass
+                                self._current_display = None
+                                display_start_time = None
+                                # Advance plugin cycle if active
+                                if self._plugin_cycle_active:
+                                    self._advance_plugin_cycle()
 
                 # Small delay to prevent busy waiting
                 time.sleep(0.05)
@@ -452,7 +458,9 @@ class DisplayManager:
                 return
 
             plugin = self._plugin_cycle_plugins[self._plugin_cycle_index]
-            self.logger.info("Queueing plugin: %s (index %d)", plugin.name(), self._plugin_cycle_index)
+            self.logger.info(
+                "Queueing plugin: %s (index %d)", plugin.name(), self._plugin_cycle_index
+            )
 
             # Capture plugin at closure creation time
             def render_plugin() -> "Image.Image":
@@ -470,7 +478,7 @@ class DisplayManager:
                     return self._create_error_image(plugin.error_message(e))
 
             item = DisplayItem(
-                duration=plugin.duration(), render_func=render_plugin, fade_out=False
+                duration=plugin.duration(), render_func=render_plugin, fade_out=False, fade_in=False
             )
             self._display_queue.append(item)
 

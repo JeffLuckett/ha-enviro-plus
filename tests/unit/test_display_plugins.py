@@ -268,7 +268,7 @@ class TestSensorDisplayPlugin:
         from ha_enviro_plus.display_plugins import SensorDisplayPlugin
 
         plugin = SensorDisplayPlugin()
-        assert plugin.duration() == 5.0
+        assert plugin.duration() == 0.1  # Continuous update mode
 
     def test_sensor_plugin_is_available_with_bme280(self, mock_sensors, mock_settings):
         """Test plugin availability with BME280 sensor."""
