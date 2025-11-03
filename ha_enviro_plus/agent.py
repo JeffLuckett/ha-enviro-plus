@@ -278,9 +278,23 @@ def disc_payload(
     return cfg
 
 
-def publish_discovery(c: mqtt.Client) -> None:
-    # sensors
+def publish_discovery(
+    c: mqtt.Client, enviro_sensors: Optional[EnviroPlusSensors] = None
+) -> None:
+    # sensors - only publish discovery for available sensors
     for tail, (name, unit, devcls) in SENSORS.items():
+        # Check if sensor is available
+        if enviro_sensors is not None:
+            # Skip gas sensors if not available
+            if tail.startswith("gas/") and not enviro_sensors.has_sensor("gas"):
+                continue
+            # Skip BME280 sensors if not available
+            if tail.startswith("bme280/") and not enviro_sensors.has_sensor("bme280"):
+                continue
+            # Skip LTR559 sensors if not available
+            if tail.startswith("ltr559/") and not enviro_sensors.has_sensor("ltr559"):
+                continue
+
         obj = tail.replace("/", "_")
         topic = f"{MQTT_DISCOVERY_PREFIX}/sensor/{device_id}/{obj}/config"
         # For text sensors (no unit), don't set state_class
@@ -346,15 +360,7 @@ def read_all(enviro_sensors: EnviroPlusSensors) -> Dict[str, Any]:
     mem = psutil.virtual_memory()
 
     vals = {
-        # Sensor data (processed)
-        "bme280/temperature": sensor_data["temperature"],
-        "bme280/humidity": sensor_data["humidity"],
-        "bme280/pressure": sensor_data["pressure"],
-        "ltr559/lux": sensor_data["lux"],
-        "gas/oxidising": sensor_data["gas_oxidising"],
-        "gas/reducing": sensor_data["gas_reducing"],
-        "gas/nh3": sensor_data["gas_nh3"],
-        # System metrics
+        # System metrics (always available)
         "host/cpu_temp": round(enviro_sensors.cpu_temp(), 1),
         "host/cpu_usage": round(psutil.cpu_percent(interval=None), 1),
         "host/mem_usage": round(mem.percent, 1),
@@ -365,6 +371,21 @@ def read_all(enviro_sensors: EnviroPlusSensors) -> Dict[str, Any]:
         "host/os_release": get_os_release(),
         "meta/last_update": datetime.now(timezone.utc).isoformat(),
     }
+
+    # Only include sensor data if sensors are available
+    if enviro_sensors.has_sensor("bme280"):
+        vals["bme280/temperature"] = sensor_data["temperature"]
+        vals["bme280/humidity"] = sensor_data["humidity"]
+        vals["bme280/pressure"] = sensor_data["pressure"]
+
+    if enviro_sensors.has_sensor("ltr559"):
+        vals["ltr559/lux"] = sensor_data["lux"]
+
+    if enviro_sensors.has_sensor("gas"):
+        vals["gas/oxidising"] = sensor_data["gas_oxidising"]
+        vals["gas/reducing"] = sensor_data["gas_reducing"]
+        vals["gas/nh3"] = sensor_data["gas_nh3"]
+
     return vals
 
 
@@ -374,7 +395,9 @@ def on_connect(
     logger.info("Connected to MQTT (%s:%s) RC=%s", MQTT_HOST, MQTT_PORT, mqtt.connack_string(rc))
     client.publish(avail_t, "online", retain=True)
     # (Re)publish discovery on connect
-    publish_discovery(client)
+    # Get enviro_sensors from userdata if available for discovery filtering
+    enviro_sensors = userdata.get("enviro_sensors") if userdata else None
+    publish_discovery(client, enviro_sensors)
 
     # Get settings manager from userdata
     settings_manager = userdata.get("settings_manager") if userdata else None
@@ -650,11 +673,12 @@ def main() -> None:
         warmup_start = time.time()
 
         while time.time() - warmup_start < SENSOR_WARMUP_SEC:
-            # Read sensors but don't publish
+            # Read sensors but don't publish (only if available)
             try:
-                _ = enviro_sensors.temp()
-                _ = enviro_sensors.humidity()
-                _ = enviro_sensors.pressure()
+                if enviro_sensors.has_sensor("bme280"):
+                    _ = enviro_sensors.temp()
+                    _ = enviro_sensors.humidity()
+                    _ = enviro_sensors.pressure()
             except Exception:
                 pass  # Ignore errors during warm-up
             time.sleep(0.1)  # Small delay between reads
@@ -666,8 +690,13 @@ def main() -> None:
         client.username_pw_set(MQTT_USER, MQTT_PASS)
     client.will_set(avail_t, "offline", retain=True)
 
-    # Set userdata to pass settings manager to callbacks
-    client.user_data_set({"settings_manager": settings_manager})
+    # Set userdata to pass settings manager and sensors to callbacks
+    client.user_data_set(
+        {
+            "settings_manager": settings_manager,
+            "enviro_sensors": enviro_sensors,
+        }
+    )
 
     client.on_connect = on_connect
 

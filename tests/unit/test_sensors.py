@@ -1,7 +1,7 @@
 """Unit tests for ha_enviro_plus.sensors module."""
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 import logging
 
 from ha_enviro_plus.sensors import EnviroPlusSensors
@@ -39,13 +39,37 @@ class TestEnviroPlusSensorsInit:
         assert sensors.cpu_temp_smoothing == 0.3
         assert sensors.logger == logger
 
-    def test_init_sensor_failure(self, mock_logger):
-        """Test initialization failure when sensors can't be initialized."""
+    def test_init_sensor_failure_graceful(self, mock_logger):
+        """Test initialization gracefully handles sensor failures."""
         with patch("ha_enviro_plus.sensors.BME280") as mock_bme280:
             mock_bme280.side_effect = Exception("Sensor not found")
+            # Mock LTR559 to succeed
+            with patch("ha_enviro_plus.sensors.LTR559") as mock_ltr559:
+                mock_ltr559_instance = Mock()
+                mock_ltr559.return_value = mock_ltr559_instance
+                # Should not raise - graceful failure
+                sensors = EnviroPlusSensors()
+                assert sensors.bme280 is None
+                assert sensors.ltr559 is not None
 
-            with pytest.raises(Exception, match="Sensor not found"):
-                EnviroPlusSensors()
+    def test_init_partial_sensor_availability(self, mock_logger):
+        """Test initialization with partial sensor availability."""
+        with patch("ha_enviro_plus.sensors.BME280") as mock_bme280:
+            mock_bme280.side_effect = Exception("BME280 not found")
+            with patch("ha_enviro_plus.sensors.LTR559") as mock_ltr559:
+                # BME280 fails, LTR559 succeeds
+                sensors = EnviroPlusSensors()
+                assert sensors.bme280 is None
+                assert sensors.ltr559 is not None
+                assert not sensors.has_sensor("bme280")
+                assert sensors.has_sensor("ltr559")
+
+    def test_has_sensor_method(self, mock_bme280, mock_ltr559, mock_gas_sensor):
+        """Test has_sensor method."""
+        sensors = EnviroPlusSensors()
+        assert sensors.has_sensor("bme280")
+        assert sensors.has_sensor("ltr559")
+        # Gas sensor availability depends on test mock
 
 
 class TestCpuTemperature:
@@ -285,6 +309,15 @@ class TestTemperatureReadings:
 
         assert temp == 25.12  # Rounded to 2 decimal places
 
+    def test_temp_without_bme280(self, mock_logger):
+        """Test temperature reading when BME280 is not available."""
+        with patch("ha_enviro_plus.sensors.BME280") as mock_bme280:
+            mock_bme280.side_effect = Exception("BME280 not found")
+            with patch("ha_enviro_plus.sensors.LTR559"):
+                sensors = EnviroPlusSensors()
+                assert sensors.temp() == 0.0
+                assert sensors.temp_raw() == 0.0
+
     @pytest.mark.parametrize(
         "offset,expected",
         [
@@ -311,7 +344,7 @@ class TestHumidityReadings:
     """Test humidity reading methods."""
 
     def test_humidity_with_offset(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess):
-        """Test humidity with offset."""
+        """Test humidity with offset and smoothing."""
         mock_bme280.get_temperature.return_value = 25.0
         mock_bme280.get_humidity.return_value = 45.0
 
@@ -319,9 +352,19 @@ class TestHumidityReadings:
         humidity = sensors.humidity()
 
         # Expect: 45.0 (raw) + compensation + 5.0 (offset)
-        # Compensation: (42.0 - 25.0) / 1.8 * 2.0 = 18.89
-        # 45.0 + 18.89 + 5.0 = 68.89
-        assert humidity == pytest.approx(68.89, abs=0.1)
+        # Compensation: with smoothing on first call, smoothed_error starts at 0.0
+        # and is updated: smoothed = 0.1 * 9.44 + 0.9 * 0.0 = 0.944
+        # First reading: 45.0 + (0.944 * 2.0) + 5.0 = 51.89
+        assert humidity == pytest.approx(51.89, abs=0.1)
+
+    def test_humidity_without_bme280(self, mock_logger):
+        """Test humidity reading when BME280 is not available."""
+        with patch("ha_enviro_plus.sensors.BME280") as mock_bme280:
+            mock_bme280.side_effect = Exception("BME280 not found")
+            with patch("ha_enviro_plus.sensors.LTR559"):
+                sensors = EnviroPlusSensors()
+                assert sensors.humidity() == 0.0
+                assert sensors.humidity_raw() == 0.0
 
     def test_humidity_raw(self, mock_bme280, mock_ltr559, mock_gas_sensor):
         """Test raw humidity reading."""
@@ -354,15 +397,15 @@ class TestHumidityReadings:
         sensors = EnviroPlusSensors(hum_offset=-10.0)
         humidity = sensors.humidity()
 
-        # Compensation adds ~18.89, so 5.0 + 18.89 - 10.0 = 13.89, not clamped
-        assert humidity > 0.0
+        # Compensation adds ~1.89 (first reading with smoothing), so 5.0 + 1.89 - 10.0 = -3.11, clamped to 0.0
+        assert humidity == 0.0
 
     @pytest.mark.parametrize(
         "raw_humidity,offset,temp_offset,expected_range",
         [
-            (45.0, 0.0, 0, [63, 65]),  # With compensation
-            (45.0, 5.0, 0, [68, 70]),  # With compensation + offset
-            (45.0, -5.0, 0, [58, 60]),  # With compensation - offset
+            (45.0, 0.0, 0, [46, 48]),  # With smoothing compensation (first reading)
+            (45.0, 5.0, 0, [51, 53]),  # With smoothing compensation + offset
+            (45.0, -5.0, 0, [41, 43]),  # With smoothing compensation - offset
             (95.0, 10.0, 0, [100, 100]),  # Clamped
         ],
     )
@@ -390,6 +433,15 @@ class TestHumidityReadings:
 class TestPressureReadings:
     """Test pressure reading methods."""
 
+    def test_pressure_without_bme280(self, mock_logger):
+        """Test pressure reading when BME280 is not available."""
+        with patch("ha_enviro_plus.sensors.BME280") as mock_bme280:
+            mock_bme280.side_effect = Exception("BME280 not found")
+            with patch("ha_enviro_plus.sensors.LTR559"):
+                sensors = EnviroPlusSensors()
+                assert sensors.pressure() == 0.0
+                assert sensors.pressure_raw() == 0.0
+
     def test_pressure(self, mock_bme280, mock_ltr559, mock_gas_sensor):
         """Test pressure reading."""
         mock_bme280.get_pressure.return_value = 1013.123456
@@ -412,6 +464,15 @@ class TestPressureReadings:
 class TestLightReadings:
     """Test light reading methods."""
 
+    def test_lux_without_ltr559(self, mock_logger):
+        """Test lux reading when LTR559 is not available."""
+        with patch("ha_enviro_plus.sensors.LTR559") as mock_ltr559:
+            mock_ltr559.side_effect = Exception("LTR559 not found")
+            with patch("ha_enviro_plus.sensors.BME280"):
+                sensors = EnviroPlusSensors()
+                assert sensors.lux() == 0.0
+                assert sensors.lux_raw() == 0.0
+
     def test_lux(self, mock_bme280, mock_ltr559, mock_gas_sensor):
         """Test lux reading."""
         mock_ltr559.get_lux.return_value = 150.123456
@@ -433,6 +494,20 @@ class TestLightReadings:
 
 class TestGasReadings:
     """Test gas sensor reading methods."""
+
+    def test_gas_without_availability(self, mock_bme280, mock_ltr559):
+        """Test gas readings when gas sensor is not available (regular Enviro)."""
+        with patch("ha_enviro_plus.sensors.gas.read_all") as mock_gas:
+            mock_gas.side_effect = Exception("Gas sensor not available")
+            sensors = EnviroPlusSensors()
+            # Gas sensor should not be available
+            assert not sensors.has_sensor("gas")
+            assert sensors.gas_oxidising() == 0.0
+            assert sensors.gas_oxidising_raw() == 0.0
+            assert sensors.gas_reducing() == 0.0
+            assert sensors.gas_reducing_raw() == 0.0
+            assert sensors.gas_nh3() == 0.0
+            assert sensors.gas_nh3_raw() == 0.0
 
     def test_gas_oxidising(self, mock_bme280, mock_ltr559, mock_gas_sensor):
         """Test oxidising gas reading in kΩ."""
@@ -539,8 +614,9 @@ class TestCalibration:
         assert sensors.cpu_temp_factor == 2.0
         assert sensors.cpu_temp_smoothing == 0.2
 
-        # Should log initialization + each update
-        assert mock_logger.info.call_count == 5
+        # Should log initialization (sensor availability) + each update
+        # Now includes sensor initialization logs (BME280, LTR559, gas, summary)
+        assert mock_logger.info.call_count >= 5
 
 
 class TestGetAllSensorData:

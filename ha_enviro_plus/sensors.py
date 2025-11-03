@@ -64,20 +64,57 @@ class EnviroPlusSensors:
         self._cpu_temp_smoothed = 40.6
         self._cpu_temp_last_update = 0.0
 
-        # Initialize sensor hardware
-        try:
-            if HARDWARE_AVAILABLE:
+        # Humidity compensation temperature error smoothing state
+        # Initialize to 0 (no error expected initially)
+        self._hum_compensation_temp_error_smoothed = 0.0
+
+        # Initialize sensor hardware individually to allow partial failures
+        self.bme280 = None
+        self.ltr559 = None
+        self._gas_available = False
+
+        if HARDWARE_AVAILABLE:
+            # Initialize BME280 (temperature, humidity, pressure)
+            try:
                 self.bme280 = BME280(i2c_addr=0x76)
+                self.logger.info("BME280 sensor initialized successfully")
+            except Exception as e:
+                self.logger.warning("Failed to initialize BME280 sensor: %s", e)
+                self.logger.info("Temperature, humidity, and pressure sensors unavailable")
+
+            # Initialize LTR559 (light/proximity)
+            try:
                 self.ltr559 = LTR559()
-                self.logger.info("Enviro+ sensors initialized successfully")
+                self.logger.info("LTR559 sensor initialized successfully")
+            except Exception as e:
+                self.logger.warning("Failed to initialize LTR559 sensor: %s", e)
+                self.logger.info("Light/proximity sensor unavailable")
+
+            # Check if gas sensor is available (Enviro+ only)
+            try:
+                # Try to read gas sensor to verify availability
+                gas.read_all()
+                self._gas_available = True
+                self.logger.info("Gas sensor available (Enviro+)")
+            except Exception as e:
+                self.logger.debug("Gas sensor not available (regular Enviro board): %s", e)
+                self._gas_available = False
+
+            # Log summary of available sensors
+            available = []
+            if self.bme280:
+                available.append("BME280")
+            if self.ltr559:
+                available.append("LTR559")
+            if self._gas_available:
+                available.append("gas")
+            if available:
+                self.logger.info("Sensors initialized: %s", ", ".join(available))
             else:
-                # Create mock sensors for testing environments
-                self.bme280 = None
-                self.ltr559 = None
-                self.logger.info("Enviro+ sensors initialized in test mode (no hardware)")
-        except Exception as e:
-            self.logger.error("Failed to initialize Enviro+ sensors: %s", e)
-            raise
+                self.logger.warning("No sensors initialized - service will continue with system metrics only")
+        else:
+            # Create mock sensors for testing environments
+            self.logger.info("Enviro+ sensors initialized in test mode (no hardware)")
 
     def _read_cpu_temp(self) -> float:
         """
@@ -223,6 +260,9 @@ class EnviroPlusSensors:
         Raises:
             Never raises - always returns a fallback value
         """
+        if self.bme280 is None:
+            self.logger.debug("Temperature unavailable: BME280 not initialized")
+            return 0.0
         try:
             raw_temp = self.bme280.get_temperature()
             compensated_temp = self._apply_temp_compensation(raw_temp)
@@ -249,6 +289,9 @@ class EnviroPlusSensors:
         Raises:
             Never raises - always returns a fallback value
         """
+        if self.bme280 is None:
+            self.logger.debug("Raw temperature unavailable: BME280 not initialized")
+            return 0.0
         try:
             raw_temp = self.bme280.get_temperature()
             return round(float(raw_temp), 2)
@@ -265,6 +308,8 @@ class EnviroPlusSensors:
         dependent. If the BME280's internal temperature is elevated by CPU
         heating, it will report a lower RH% than actual. We compensate by
         adding back the error.
+
+        The temperature error is smoothed to reduce jitter in the compensation.
 
         Args:
             raw_humidity: Raw humidity reading from BME280
@@ -285,17 +330,26 @@ class EnviroPlusSensors:
             # This is the amount we compensated in temperature
             temp_error = (cpu_temp - raw_temp) / self.cpu_temp_factor
 
+            # Apply smoothing to the temperature error to reduce jitter
+            # Use the same smoothing factor as CPU temperature smoothing
+            self._hum_compensation_temp_error_smoothed = (
+                self.cpu_temp_smoothing * temp_error
+                + (1 - self.cpu_temp_smoothing) * self._hum_compensation_temp_error_smoothed
+            )
+
             # Compensate humidity: warmer sensor = lower RH%, so we add
-            # The compensation factor is based on the temperature error
+            # The compensation factor is based on the smoothed temperature error
             # Empirical: large temp errors (10°C+) can cause 20+ percentage
             # point errors
             # 2% per °C error (empirical observation)
-            compensated_humidity = raw_humidity + (temp_error * 2.0)
+            compensated_humidity = raw_humidity + (self._hum_compensation_temp_error_smoothed * 2.0)
 
             self.logger.debug(
-                "Humidity compensation: raw=%.1f%%, temp_error=%.1f°C, " "compensated=%.1f%%",
+                "Humidity compensation: raw=%.1f%%, temp_error=%.1f°C, "
+                "smoothed_error=%.1f°C, compensated=%.1f%%",
                 raw_humidity,
                 temp_error,
+                self._hum_compensation_temp_error_smoothed,
                 compensated_humidity,
             )
             return compensated_humidity
@@ -311,6 +365,9 @@ class EnviroPlusSensors:
         Returns:
             Humidity in % (clamped to 0-100% range)
         """
+        if self.bme280 is None:
+            self.logger.debug("Humidity unavailable: BME280 not initialized")
+            return 0.0
         try:
             raw_temp = self.bme280.get_temperature()
             raw_humidity = float(self.bme280.get_humidity())
@@ -342,6 +399,9 @@ class EnviroPlusSensors:
         Returns:
             Raw humidity in %
         """
+        if self.bme280 is None:
+            self.logger.debug("Raw humidity unavailable: BME280 not initialized")
+            return 0.0
         try:
             return round(float(self.bme280.get_humidity()), 2)
         except Exception as e:
@@ -357,6 +417,9 @@ class EnviroPlusSensors:
         Returns:
             Pressure in hPa
         """
+        if self.bme280 is None:
+            self.logger.debug("Pressure unavailable: BME280 not initialized")
+            return 0.0
         try:
             return round(float(self.bme280.get_pressure()), 2)
         except Exception as e:
@@ -371,6 +434,9 @@ class EnviroPlusSensors:
         Returns:
             Raw pressure in hPa
         """
+        if self.bme280 is None:
+            self.logger.debug("Raw pressure unavailable: BME280 not initialized")
+            return 0.0
         try:
             return round(float(self.bme280.get_pressure()), 2)
         except Exception as e:
@@ -386,6 +452,9 @@ class EnviroPlusSensors:
         Returns:
             Illuminance in lux
         """
+        if self.ltr559 is None:
+            self.logger.debug("Lux unavailable: LTR559 not initialized")
+            return 0.0
         try:
             return round(float(self.ltr559.get_lux()), 2)
         except Exception as e:
@@ -400,6 +469,9 @@ class EnviroPlusSensors:
         Returns:
             Raw illuminance in lux
         """
+        if self.ltr559 is None:
+            self.logger.debug("Raw lux unavailable: LTR559 not initialized")
+            return 0.0
         try:
             return round(float(self.ltr559.get_lux()), 2)
         except Exception as e:
@@ -415,6 +487,9 @@ class EnviroPlusSensors:
         Returns:
             Oxidising gas resistance in kΩ
         """
+        if not self._gas_available:
+            self.logger.debug("Oxidising gas unavailable: gas sensor not available (Enviro+ only)")
+            return 0.0
         try:
             gas_data = gas.read_all()
             return round(float(gas_data.oxidising) / 1000.0, 2)
@@ -430,6 +505,9 @@ class EnviroPlusSensors:
         Returns:
             Raw oxidising gas resistance in Ω
         """
+        if not self._gas_available:
+            self.logger.debug("Raw oxidising gas unavailable: gas sensor not available (Enviro+ only)")
+            return 0.0
         try:
             gas_data = gas.read_all()
             return round(float(gas_data.oxidising), 2)
@@ -445,6 +523,9 @@ class EnviroPlusSensors:
         Returns:
             Reducing gas resistance in kΩ
         """
+        if not self._gas_available:
+            self.logger.debug("Reducing gas unavailable: gas sensor not available (Enviro+ only)")
+            return 0.0
         try:
             gas_data = gas.read_all()
             return round(float(gas_data.reducing) / 1000.0, 2)
@@ -460,6 +541,9 @@ class EnviroPlusSensors:
         Returns:
             Raw reducing gas resistance in Ω
         """
+        if not self._gas_available:
+            self.logger.debug("Raw reducing gas unavailable: gas sensor not available (Enviro+ only)")
+            return 0.0
         try:
             gas_data = gas.read_all()
             return round(float(gas_data.reducing), 2)
@@ -475,6 +559,9 @@ class EnviroPlusSensors:
         Returns:
             NH3 gas resistance in kΩ
         """
+        if not self._gas_available:
+            self.logger.debug("NH3 gas unavailable: gas sensor not available (Enviro+ only)")
+            return 0.0
         try:
             gas_data = gas.read_all()
             return round(float(gas_data.nh3) / 1000.0, 2)
@@ -490,6 +577,9 @@ class EnviroPlusSensors:
         Returns:
             Raw NH3 gas resistance in Ω
         """
+        if not self._gas_available:
+            self.logger.debug("Raw NH3 gas unavailable: gas sensor not available (Enviro+ only)")
+            return 0.0
         try:
             gas_data = gas.read_all()
             return round(float(gas_data.nh3), 2)
@@ -529,6 +619,24 @@ class EnviroPlusSensors:
         if cpu_temp_smoothing is not None:
             self.cpu_temp_smoothing = cpu_temp_smoothing
             self.logger.info("Updated CPU temperature smoothing to %s", cpu_temp_smoothing)
+
+    def has_sensor(self, sensor_type: str) -> bool:
+        """
+        Check if a specific sensor type is available.
+
+        Args:
+            sensor_type: Sensor type to check ('bme280', 'ltr559', 'gas')
+
+        Returns:
+            True if sensor is available, False otherwise
+        """
+        if sensor_type == "bme280":
+            return self.bme280 is not None
+        elif sensor_type == "ltr559":
+            return self.ltr559 is not None
+        elif sensor_type == "gas":
+            return self._gas_available
+        return False
 
     def get_all_sensor_data(self) -> Dict[str, Any]:
         """
