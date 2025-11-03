@@ -111,7 +111,9 @@ class EnviroPlusSensors:
             if available:
                 self.logger.info("Sensors initialized: %s", ", ".join(available))
             else:
-                self.logger.warning("No sensors initialized - service will continue with system metrics only")
+                self.logger.warning(
+                    "No sensors initialized - service will continue with system metrics only"
+                )
         else:
             # Create mock sensors for testing environments
             self.logger.info("Enviro+ sensors initialized in test mode (no hardware)")
@@ -506,7 +508,9 @@ class EnviroPlusSensors:
             Raw oxidising gas resistance in Ω
         """
         if not self._gas_available:
-            self.logger.debug("Raw oxidising gas unavailable: gas sensor not available (Enviro+ only)")
+            self.logger.debug(
+                "Raw oxidising gas unavailable: gas sensor not available (Enviro+ only)"
+            )
             return 0.0
         try:
             gas_data = gas.read_all()
@@ -542,7 +546,9 @@ class EnviroPlusSensors:
             Raw reducing gas resistance in Ω
         """
         if not self._gas_available:
-            self.logger.debug("Raw reducing gas unavailable: gas sensor not available (Enviro+ only)")
+            self.logger.debug(
+                "Raw reducing gas unavailable: gas sensor not available (Enviro+ only)"
+            )
             return 0.0
         try:
             gas_data = gas.read_all()

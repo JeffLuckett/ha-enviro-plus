@@ -278,9 +278,7 @@ def disc_payload(
     return cfg
 
 
-def publish_discovery(
-    c: mqtt.Client, enviro_sensors: Optional[EnviroPlusSensors] = None
-) -> None:
+def publish_discovery(c: mqtt.Client, enviro_sensors: Optional[EnviroPlusSensors] = None) -> None:
     # sensors - only publish discovery for available sensors
     for tail, (name, unit, devcls) in SENSORS.items():
         # Check if sensor is available
