@@ -258,28 +258,28 @@ class TestSensorDisplayPlugin:
 
     def test_sensor_plugin_name(self):
         """Test plugin name."""
-        from ha_enviro_plus.display_plugins import SensorDisplayPlugin
+        from ha_enviro_plus.plugins.sensor_display import SensorDisplayPlugin
 
         plugin = SensorDisplayPlugin()
         assert plugin.name() == "Sensor Display"
 
     def test_sensor_plugin_duration(self):
         """Test plugin duration."""
-        from ha_enviro_plus.display_plugins import SensorDisplayPlugin
+        from ha_enviro_plus.plugins.sensor_display import SensorDisplayPlugin
 
         plugin = SensorDisplayPlugin()
         assert plugin.duration() == 0.1  # Continuous update mode
 
     def test_sensor_plugin_is_available_with_bme280(self, mock_sensors, mock_settings):
         """Test plugin availability with BME280 sensor."""
-        from ha_enviro_plus.display_plugins import SensorDisplayPlugin
+        from ha_enviro_plus.plugins.sensor_display import SensorDisplayPlugin
 
         plugin = SensorDisplayPlugin()
         assert plugin.is_available(mock_sensors, mock_settings) is True
 
     def test_sensor_plugin_is_available_without_bme280(self, mock_settings):
         """Test plugin availability without BME280 sensor."""
-        from ha_enviro_plus.display_plugins import SensorDisplayPlugin
+        from ha_enviro_plus.plugins.sensor_display import SensorDisplayPlugin
 
         mock_sensors = Mock()
         mock_sensors.has_sensor.return_value = False
@@ -289,7 +289,7 @@ class TestSensorDisplayPlugin:
 
     def test_sensor_plugin_is_available_handles_errors(self, mock_settings):
         """Test plugin availability error handling."""
-        from ha_enviro_plus.display_plugins import SensorDisplayPlugin
+        from ha_enviro_plus.plugins.sensor_display import SensorDisplayPlugin
 
         mock_sensors = Mock()
         mock_sensors.has_sensor.side_effect = Exception("Sensor error")
@@ -297,10 +297,10 @@ class TestSensorDisplayPlugin:
         plugin = SensorDisplayPlugin()
         assert plugin.is_available(mock_sensors, mock_settings) is False
 
-    @patch("ha_enviro_plus.display_plugins.PIL_AVAILABLE", True)
+    @patch("ha_enviro_plus.plugins.sensor_display.PIL_AVAILABLE", True)
     def test_sensor_plugin_render_metric(self, mock_sensors, mock_settings):
         """Test plugin rendering with metric units."""
-        import ha_enviro_plus.display_plugins
+        import ha_enviro_plus.plugins.sensor_display as sensor_display_module
         from unittest.mock import MagicMock
 
         # Set up PIL mocks in the module
@@ -317,11 +317,11 @@ class TestSensorDisplayPlugin:
         mock_font.load_default = Mock(return_value=mock_font_instance)
 
         # Set the module attributes
-        ha_enviro_plus.display_plugins.Image = mock_image
-        ha_enviro_plus.display_plugins.ImageDraw = mock_draw
-        ha_enviro_plus.display_plugins.ImageFont = mock_font
+        sensor_display_module.Image = mock_image
+        sensor_display_module.ImageDraw = mock_draw
+        sensor_display_module.ImageFont = mock_font
 
-        from ha_enviro_plus.display_plugins import SensorDisplayPlugin
+        from ha_enviro_plus.plugins.sensor_display import SensorDisplayPlugin
 
         plugin = SensorDisplayPlugin()
         result = plugin.render(mock_sensors, mock_settings)
@@ -333,10 +333,10 @@ class TestSensorDisplayPlugin:
         # Verify settings were checked for units
         mock_settings.get_units.assert_called_once()
 
-    @patch("ha_enviro_plus.display_plugins.PIL_AVAILABLE", True)
+    @patch("ha_enviro_plus.plugins.sensor_display.PIL_AVAILABLE", True)
     def test_sensor_plugin_render_imperial(self, mock_sensors, mock_settings):
         """Test plugin rendering with imperial units."""
-        import ha_enviro_plus.display_plugins
+        import ha_enviro_plus.plugins.sensor_display as sensor_display_module
         from unittest.mock import MagicMock
 
         # Setup mocks
@@ -356,11 +356,11 @@ class TestSensorDisplayPlugin:
         mock_font.load_default = Mock(return_value=mock_font_instance)
 
         # Set the module attributes
-        ha_enviro_plus.display_plugins.Image = mock_image
-        ha_enviro_plus.display_plugins.ImageDraw = mock_draw
-        ha_enviro_plus.display_plugins.ImageFont = mock_font
+        sensor_display_module.Image = mock_image
+        sensor_display_module.ImageDraw = mock_draw
+        sensor_display_module.ImageFont = mock_font
 
-        from ha_enviro_plus.display_plugins import SensorDisplayPlugin
+        from ha_enviro_plus.plugins.sensor_display import SensorDisplayPlugin
 
         plugin = SensorDisplayPlugin()
         result = plugin.render(mock_sensors, mock_settings)
@@ -369,19 +369,19 @@ class TestSensorDisplayPlugin:
         mock_image.new.assert_called_once()
         assert result == mock_img_instance
 
-    @patch("ha_enviro_plus.display_plugins.PIL_AVAILABLE", False)
+    @patch("ha_enviro_plus.plugins.sensor_display.PIL_AVAILABLE", False)
     def test_sensor_plugin_render_no_pil(self, mock_sensors, mock_settings):
         """Test plugin rendering when PIL is not available."""
-        from ha_enviro_plus.display_plugins import SensorDisplayPlugin
+        from ha_enviro_plus.plugins.sensor_display import SensorDisplayPlugin
 
         plugin = SensorDisplayPlugin()
         with pytest.raises(RuntimeError, match="PIL/Pillow not available"):
             plugin.render(mock_sensors, mock_settings)
 
-    @patch("ha_enviro_plus.display_plugins.PIL_AVAILABLE", True)
+    @patch("ha_enviro_plus.plugins.sensor_display.PIL_AVAILABLE", True)
     def test_sensor_plugin_render_handles_sensor_errors(self, mock_settings):
         """Test plugin rendering handles sensor errors gracefully."""
-        import ha_enviro_plus.display_plugins
+        import ha_enviro_plus.plugins.sensor_display as sensor_display_module
         from unittest.mock import MagicMock
 
         # Setup mocks
@@ -403,21 +403,21 @@ class TestSensorDisplayPlugin:
         mock_font.load_default = Mock(return_value=mock_font_instance)
 
         # Set the module attributes
-        ha_enviro_plus.display_plugins.Image = mock_image
-        ha_enviro_plus.display_plugins.ImageDraw = mock_draw
-        ha_enviro_plus.display_plugins.ImageFont = mock_font
+        sensor_display_module.Image = mock_image
+        sensor_display_module.ImageDraw = mock_draw
+        sensor_display_module.ImageFont = mock_font
 
-        from ha_enviro_plus.display_plugins import SensorDisplayPlugin
+        from ha_enviro_plus.plugins.sensor_display import SensorDisplayPlugin
 
         plugin = SensorDisplayPlugin()
         # Should not raise exception, should handle gracefully
         result = plugin.render(mock_sensors, mock_settings)
         assert result == mock_img_instance
 
-    @patch("ha_enviro_plus.display_plugins.PIL_AVAILABLE", True)
+    @patch("ha_enviro_plus.plugins.sensor_display.PIL_AVAILABLE", True)
     def test_sensor_plugin_render_temperature_conversion(self, mock_sensors, mock_settings):
         """Test temperature conversion in rendering."""
-        import ha_enviro_plus.display_plugins
+        import ha_enviro_plus.plugins.sensor_display as sensor_display_module
         from unittest.mock import MagicMock
 
         # Setup mocks
@@ -438,11 +438,11 @@ class TestSensorDisplayPlugin:
         mock_font.load_default = Mock(return_value=mock_font_instance)
 
         # Set the module attributes
-        ha_enviro_plus.display_plugins.Image = mock_image
-        ha_enviro_plus.display_plugins.ImageDraw = mock_draw
-        ha_enviro_plus.display_plugins.ImageFont = mock_font
+        sensor_display_module.Image = mock_image
+        sensor_display_module.ImageDraw = mock_draw
+        sensor_display_module.ImageFont = mock_font
 
-        from ha_enviro_plus.display_plugins import SensorDisplayPlugin
+        from ha_enviro_plus.plugins.sensor_display import SensorDisplayPlugin
 
         plugin = SensorDisplayPlugin()
         plugin.render(mock_sensors, mock_settings)
@@ -453,10 +453,10 @@ class TestSensorDisplayPlugin:
         # Verify text was drawn (should include converted temperature)
         assert mock_draw_instance.text.called
 
-    @patch("ha_enviro_plus.display_plugins.PIL_AVAILABLE", True)
+    @patch("ha_enviro_plus.plugins.sensor_display.PIL_AVAILABLE", True)
     def test_sensor_plugin_render_pressure_conversion(self, mock_sensors, mock_settings):
         """Test pressure conversion in rendering."""
-        import ha_enviro_plus.display_plugins
+        import ha_enviro_plus.plugins.sensor_display as sensor_display_module
         from unittest.mock import MagicMock
 
         # Setup mocks
@@ -477,11 +477,11 @@ class TestSensorDisplayPlugin:
         mock_font.load_default = Mock(return_value=mock_font_instance)
 
         # Set the module attributes
-        ha_enviro_plus.display_plugins.Image = mock_image
-        ha_enviro_plus.display_plugins.ImageDraw = mock_draw
-        ha_enviro_plus.display_plugins.ImageFont = mock_font
+        sensor_display_module.Image = mock_image
+        sensor_display_module.ImageDraw = mock_draw
+        sensor_display_module.ImageFont = mock_font
 
-        from ha_enviro_plus.display_plugins import SensorDisplayPlugin
+        from ha_enviro_plus.plugins.sensor_display import SensorDisplayPlugin
 
         plugin = SensorDisplayPlugin()
         plugin.render(mock_sensors, mock_settings)

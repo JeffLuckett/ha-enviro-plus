@@ -45,10 +45,8 @@ class TestDisplayPluginIntegration:
 
     def test_plugin_discovery_and_availability(self, mock_sensors, mock_settings):
         """Test plugin discovery and availability checking."""
-        from ha_enviro_plus.display_plugins import (
-            get_available_plugins,
-            SensorDisplayPlugin,
-        )
+        from ha_enviro_plus.display_plugins import get_available_plugins
+        from ha_enviro_plus.plugins.sensor_display import SensorDisplayPlugin
 
         # Test discovery
         plugins = get_available_plugins(mock_sensors, mock_settings)
@@ -243,20 +241,17 @@ class TestDisplayPluginIntegration:
 
     def test_units_conversion_in_plugin_rendering(self, mock_sensors, mock_settings):
         """Test that units conversion is applied correctly in plugin rendering."""
-        from ha_enviro_plus.display_plugins import (
-            SensorDisplayPlugin,
-            celsius_to_fahrenheit,
-            hpa_to_inhg,
-        )
+        from ha_enviro_plus.plugins.sensor_display import SensorDisplayPlugin
+        from ha_enviro_plus.display_plugins import celsius_to_fahrenheit, hpa_to_inhg
 
         # Test metric rendering
         mock_settings.get_units.return_value = "metric"
         plugin = SensorDisplayPlugin()
 
-        with patch("ha_enviro_plus.display_plugins.PIL_AVAILABLE", True):
-            with patch("ha_enviro_plus.display_plugins.Image") as mock_image:
-                with patch("ha_enviro_plus.display_plugins.ImageDraw") as mock_draw:
-                    with patch("ha_enviro_plus.display_plugins.ImageFont") as mock_font:
+        with patch("ha_enviro_plus.plugins.sensor_display.PIL_AVAILABLE", True):
+            with patch("ha_enviro_plus.plugins.sensor_display.Image") as mock_image:
+                with patch("ha_enviro_plus.plugins.sensor_display.ImageDraw") as mock_draw:
+                    with patch("ha_enviro_plus.plugins.sensor_display.ImageFont") as mock_font:
                         mock_img_instance = Mock()
                         mock_image.new.return_value = mock_img_instance
                         mock_draw_instance = Mock()
@@ -273,10 +268,10 @@ class TestDisplayPluginIntegration:
         mock_settings.get_units.return_value = "imperial"
         mock_sensors.temp.return_value = 25.0  # Reset
 
-        with patch("ha_enviro_plus.display_plugins.PIL_AVAILABLE", True):
-            with patch("ha_enviro_plus.display_plugins.Image") as mock_image:
-                with patch("ha_enviro_plus.display_plugins.ImageDraw") as mock_draw:
-                    with patch("ha_enviro_plus.display_plugins.ImageFont") as mock_font:
+        with patch("ha_enviro_plus.plugins.sensor_display.PIL_AVAILABLE", True):
+            with patch("ha_enviro_plus.plugins.sensor_display.Image") as mock_image:
+                with patch("ha_enviro_plus.plugins.sensor_display.ImageDraw") as mock_draw:
+                    with patch("ha_enviro_plus.plugins.sensor_display.ImageFont") as mock_font:
                         mock_img_instance = Mock()
                         mock_image.new.return_value = mock_img_instance
                         mock_draw_instance = Mock()
