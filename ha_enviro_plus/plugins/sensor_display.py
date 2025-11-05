@@ -41,8 +41,8 @@ class SensorDisplayPlugin(DisplayPlugin):
     """
 
     # Display configuration constants
-    FONT_SIZE_BANNER = 32  # Date/time font size
-    FONT_SIZE_LARGE = 64  # Sensor value font size
+    FONT_SIZE_BANNER = 16  # Date/time font size
+    FONT_SIZE_LARGE = 32  # Sensor value font size
     BANNER_HEIGHT = 20  # Height of black banner at top
     BANNER_Y_OFFSET = 3  # Vertical offset for text in banner
     CONTENT_Y_OFFSET = 5  # Vertical spacing from banner to content
@@ -181,17 +181,48 @@ class SensorDisplayPlugin(DisplayPlugin):
         draw.rectangle([(0, 0), (160, self.BANNER_HEIGHT)], fill=(0, 0, 0))
 
         # Try to load fonts - much larger fonts to match icon size and be easily readable
-        try:
-            font_path_banner = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-            font_path_large = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-            font_banner = ImageFont.truetype(font_path_banner, self.FONT_SIZE_BANNER)
-            font_large = ImageFont.truetype(font_path_large, self.FONT_SIZE_LARGE)
-        except (OSError, IOError):
-            # Fallback to default font
+        font_banner = None
+        font_large = None
+
+        # Try multiple font paths (common locations on Raspberry Pi)
+        font_paths = [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+            "/usr/share/fonts/truetype/ttf-dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",  # Fallback to regular if bold not available
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        ]
+
+        loaded_font_path = None
+        for font_path in font_paths:
             try:
-                font_banner = ImageFont.load_default()
-                font_large = ImageFont.load_default()
-            except Exception:
+                if os.path.exists(font_path):
+                    # Test if we can actually load the font
+                    test_font = ImageFont.truetype(font_path, 12)
+                    # If successful, load the actual sizes we need
+                    font_banner = ImageFont.truetype(font_path, self.FONT_SIZE_BANNER)
+                    font_large = ImageFont.truetype(font_path, self.FONT_SIZE_LARGE)
+                    loaded_font_path = font_path
+                    self.logger.info("Successfully loaded font from %s (banner: %dpt, large: %dpt)",
+                                    font_path, self.FONT_SIZE_BANNER, self.FONT_SIZE_LARGE)
+                    break
+            except (OSError, IOError) as e:
+                self.logger.debug("Failed to load font from %s: %s", font_path, e)
+                continue
+
+        # If truetype fonts failed, log a warning - default font will be too small
+        if font_banner is None or font_large is None:
+            self.logger.warning("Failed to load any truetype fonts! Tried paths: %s", font_paths)
+            self.logger.warning("Falling back to default bitmap font (will be very small)")
+            self.logger.warning("To fix: Install fonts with: sudo apt-get install fonts-dejavu-core")
+            try:
+                # Default font is bitmap and doesn't scale - it will be tiny
+                default_font = ImageFont.load_default()
+                font_banner = default_font
+                font_large = default_font
+            except Exception as e:
+                self.logger.error("Failed to load any font: %s", e)
                 font_banner = None
                 font_large = None
 

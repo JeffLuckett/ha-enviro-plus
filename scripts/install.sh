@@ -83,6 +83,43 @@ ensure_python() {
   sudo apt-get install -y python3 python3-venv python3-pip
 }
 
+ensure_fonts() {
+  echo "==> Ensuring display fonts are installed..."
+
+  # Check if DejaVu fonts are already installed
+  if [ -f "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" ] || \
+     [ -f "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf" ] || \
+     [ -f "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf" ]; then
+    echo "==> DejaVu fonts already installed"
+    return 0
+  fi
+
+  # Install fonts for display rendering
+  echo "==> Installing DejaVu fonts for display..."
+  sudo apt-get update -y
+  sudo apt-get install -y fonts-dejavu-core fonts-dejavu-extra || {
+    echo "==> Warning: Failed to install fonts-dejavu packages, trying alternative..."
+    # Try alternative package names
+    sudo apt-get install -y ttf-dejavu-core ttf-dejavu-extra 2>/dev/null || {
+      echo "==> Warning: Could not install DejaVu fonts automatically"
+      echo "==> Display will use default bitmap font (may be small)"
+      echo "==> To install fonts manually: sudo apt-get install fonts-dejavu-core"
+      return 1
+    }
+  }
+
+  # Verify font installation
+  if [ -f "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" ] || \
+     [ -f "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf" ] || \
+     [ -f "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf" ]; then
+    echo "==> Fonts installed successfully"
+    return 0
+  else
+    echo "==> Warning: Font installation may have failed, but continuing..."
+    return 1
+  fi
+}
+
 enable_hardware_interfaces() {
   echo "==> Enabling hardware interfaces (I2C and SPI)..."
 
@@ -316,6 +353,19 @@ write_config() {
   # Load default values from configuration file
   load_defaults
 
+  # Check if UNITS exists in config file with a valid value before loading
+  local units_in_config=false
+  if [ -f "${CFG}" ]; then
+    # Check if UNITS line exists and has a valid non-empty value
+    local units_line=$(sudo grep "^UNITS=" "${CFG}" 2>/dev/null || echo "")
+    if [ -n "$units_line" ]; then
+      local units_value=$(echo "$units_line" | cut -d'=' -f2 | tr -d '"' | tr -d ' ')
+      if [ -n "$units_value" ] && ([ "$units_value" = "metric" ] || [ "$units_value" = "imperial" ]); then
+        units_in_config=true
+      fi
+    fi
+  fi
+
   # Try to load existing config
   if load_existing_config; then
     echo "==> Found existing configuration, preserving current settings..."
@@ -335,7 +385,7 @@ write_config() {
         CPU_TEMP_SMOOTHING="${CPU_TEMP_SMOOTHING_INPUT:-${DEFAULT_CPU_TEMP_SMOOTHING}}"
       fi
 
-      if [ -z "${UNITS:-}" ]; then
+      if [ -z "${UNITS:-}" ] || [ "${UNITS:-}" != "metric" ] && [ "${UNITS:-}" != "imperial" ]; then
         read -rp "Display units (metric/imperial) [${DEFAULT_UNITS}]: " UNITS_INPUT
         UNITS="${UNITS_INPUT:-${DEFAULT_UNITS}}"
         # Validate units
@@ -348,12 +398,16 @@ write_config() {
       # Use defaults for new options if not interactive
       : "${CPU_TEMP_FACTOR:=${DEFAULT_CPU_TEMP_FACTOR}}"
       : "${CPU_TEMP_SMOOTHING:=${DEFAULT_CPU_TEMP_SMOOTHING}}"
-      : "${UNITS:=${DEFAULT_UNITS}}"
+      # Only set UNITS default if it wasn't in the config file with a valid value
+      if [ "$units_in_config" = "false" ]; then
+        : "${UNITS:=${DEFAULT_UNITS}}"
+      fi
     fi
 
-    # Always check UNITS separately on interactive installs, even if config exists
-    # This ensures users are prompted if UNITS is missing or empty
-    if [ -t 0 ] && [ -z "${UNITS:-}" ]; then
+    # Always prompt for UNITS on interactive installs if it wasn't properly set in config
+    if [ -t 0 ] && ([ "$units_in_config" = "false" ] || [ -z "${UNITS:-}" ] || ([ "${UNITS:-}" != "metric" ] && [ "${UNITS:-}" != "imperial" ])); then
+      echo
+      echo "==> Display units configuration:"
       read -rp "Display units (metric/imperial) [${DEFAULT_UNITS}]: " UNITS_INPUT
       UNITS="${UNITS_INPUT:-${DEFAULT_UNITS}}"
       # Validate units
@@ -387,34 +441,12 @@ write_config() {
       echo "==> Using default values (non-interactive mode)"
     fi
 
-    # Check for new options on fresh installs too (in case defaults changed)
-    if [ -t 0 ] && check_new_config_options; then
-      echo
-      echo "Please configure the new options:"
-
-      if [ -z "${CPU_TEMP_FACTOR:-}" ]; then
-        read -rp "CPU temperature compensation factor (higher=less compensation, lower=more compensation) [${DEFAULT_CPU_TEMP_FACTOR}]: " CPU_TEMP_FACTOR_INPUT
-        CPU_TEMP_FACTOR="${CPU_TEMP_FACTOR_INPUT:-${DEFAULT_CPU_TEMP_FACTOR}}"
-      fi
-
-      if [ -z "${CPU_TEMP_SMOOTHING:-}" ]; then
-        read -rp "CPU temperature smoothing factor [${DEFAULT_CPU_TEMP_SMOOTHING}]: " CPU_TEMP_SMOOTHING_INPUT
-        CPU_TEMP_SMOOTHING="${CPU_TEMP_SMOOTHING_INPUT:-${DEFAULT_CPU_TEMP_SMOOTHING}}"
-      fi
-
-      if [ -z "${UNITS:-}" ]; then
-        read -rp "Display units (metric/imperial) [${DEFAULT_UNITS}]: " UNITS_INPUT
-        UNITS="${UNITS_INPUT:-${DEFAULT_UNITS}}"
-        # Validate units
-        if [ "$UNITS" != "metric" ] && [ "$UNITS" != "imperial" ]; then
-          echo "==> Invalid units: $UNITS, using default: ${DEFAULT_UNITS}"
-          UNITS="${DEFAULT_UNITS}"
-        fi
-      fi
-    fi
+    # Ensure UNITS is set even if not prompted (for non-interactive or defaults)
+    : "${UNITS:=${DEFAULT_UNITS}}"
   fi
 
   # Set defaults for any unset variables (this handles both new and existing configs)
+  # Note: UNITS is handled separately above to ensure prompting on interactive installs
   : "${MQTT_HOST:=${DEFAULT_MQTT_HOST}}"
   : "${MQTT_PORT:=${DEFAULT_MQTT_PORT}}"
   : "${MQTT_USER:=${DEFAULT_MQTT_USER}}"
@@ -426,7 +458,10 @@ write_config() {
   : "${CPU_TEMP_FACTOR:=${DEFAULT_CPU_TEMP_FACTOR}}"
   : "${CPU_TEMP_SMOOTHING:=${DEFAULT_CPU_TEMP_SMOOTHING}}"
   : "${DISPLAY_ENABLED:=${DEFAULT_DISPLAY_ENABLED}}"
-  : "${UNITS:=${DEFAULT_UNITS}}"
+  # Only set UNITS default if it wasn't already set above
+  if [ -z "${UNITS:-}" ]; then
+    : "${UNITS:=${DEFAULT_UNITS}}"
+  fi
 
   # Write the complete configuration
   sudo tee "${CFG}" > /dev/null <<EOF
@@ -705,6 +740,7 @@ main() {
 
   # Common post-installation steps
   enable_hardware_interfaces
+  ensure_fonts  # Install fonts for display rendering
   write_config
   create_settings_dir
   install_icons
