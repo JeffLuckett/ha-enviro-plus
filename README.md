@@ -37,6 +37,7 @@ Additional system telemetry is included:
 - Fast, configurable polling (default 2 s)
 - On-device temperature / humidity calibration offsets
 - CPU temperature compensation for accurate readings (adjustable factor: higher=less compensation, lower=more compensation)
+- Temperature smoothing window to reduce sensitivity to transient air currents (configurable, default: 5 minutes)
 - Host metrics: uptime, CPU temp, load, RAM, disk
 - MQTT availability and discovery payloads
 - Home Assistant controls:
@@ -45,6 +46,7 @@ Additional system telemetry is included:
     - Shutdown
     - Apply calibration offsets
     - Adjust CPU temperature compensation factor
+    - Adjust temperature smoothing window
 - Structured logging (rotation-friendly)
 - Graceful shutdown handling (SIGTERM/SIGINT)
 - Startup configuration validation

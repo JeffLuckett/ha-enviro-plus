@@ -119,6 +119,7 @@ Settings can be read and updated via MQTT:
 - `hum_offset` - Humidity offset in % (range: -20.0 to 20.0, step: 0.5)
 - `cpu_temp_factor` - CPU temperature compensation factor (range: 0.5 to 5.0, step: 0.1)
 - `cpu_temp_smoothing` - CPU temperature smoothing factor (range: 0.01 to 1.0, step: 0.01)
+- `temp_smoothing_minutes` - Temperature smoothing window in minutes (range: 0.0 to 60.0, step: 0.1)
 
 **QoS**: 1
 **Retained**: Yes
@@ -239,6 +240,13 @@ Settings are exposed as number entities for easy adjustment in Home Assistant:
 }
 ```
 
+**Available Number Entities**:
+- `temp_offset` - Temperature offset in °C (range: -10.0 to 10.0, step: 0.1)
+- `hum_offset` - Humidity offset in % (range: -20.0 to 20.0, step: 0.5)
+- `cpu_temp_factor` - CPU temperature compensation factor (range: 0.5 to 5.0, step: 0.1)
+- `cpu_temp_smoothing` - CPU temperature smoothing factor (range: 0.01 to 1.0, step: 0.01)
+- `temp_smoothing_minutes` - Temperature smoothing window in minutes (range: 0.0 to 60.0, step: 0.1)
+
 ## Device Information
 
 ### Device Identifiers
@@ -313,7 +321,8 @@ enviro_1234567890abcdef/
 │   ├── temp_offset                 # Temperature offset setting
 │   ├── hum_offset                  # Humidity offset setting
 │   ├── cpu_temp_factor             # CPU temp factor setting
-│   └── cpu_temp_smoothing          # CPU temp smoothing setting
+│   ├── cpu_temp_smoothing          # CPU temp smoothing setting
+│   └── temp_smoothing_minutes      # Temperature smoothing window setting
 └── device/
     └── attributes                  # Device metadata
 ```

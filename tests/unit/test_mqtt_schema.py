@@ -347,6 +347,31 @@ class TestPublishDiscoverySchema:
         assert len(number_calls) > 0
         config = json.loads(number_calls[0][0][1])
         assert config["uniq_id"] == "enviro_1234567890abcdef_num_temp_offset"
+
+    def test_number_discovery_temp_smoothing_minutes(self, mock_mqtt_client, mocker, mock_device_id):
+        """Test that temp_smoothing_minutes number entity is published."""
+        mocker.patch("ha_enviro_plus.agent.get_serial", return_value="1234567890abcdef")
+        mocker.patch("ha_enviro_plus.agent.device_id", "enviro_1234567890abcdef")
+        mocker.patch("ha_enviro_plus.agent.root", "enviro_1234567890abcdef")
+
+        client = mock_mqtt_client.return_value
+        publish_discovery(client)
+
+        calls = client.publish.call_args_list
+        number_calls = [
+            c for c in calls if "number" in c[0][0] and "temp_smoothing_minutes" in c[0][0]
+        ]
+
+        assert len(number_calls) > 0
+        config = json.loads(number_calls[0][0][1])
+        assert config["name"] == "Temp Smoothing Window"
+        assert config["uniq_id"] == "enviro_1234567890abcdef_num_temp_smoothing_minutes"
+        assert config["cmd_t"] == "enviro_1234567890abcdef/set/temp_smoothing_minutes"
+        assert config["stat_t"] == "enviro_1234567890abcdef/set/temp_smoothing_minutes"
+        assert config["unit_of_measurement"] == "min"
+        assert config["min"] == 0.0
+        assert config["max"] == 60.0
+        assert config["step"] == 0.1
         assert config["uniq_id"].startswith("enviro_")
         assert "_num_" in config["uniq_id"]
 

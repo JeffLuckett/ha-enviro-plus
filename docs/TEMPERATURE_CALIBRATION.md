@@ -25,11 +25,12 @@ For accurate environmental monitoring:
 
 ## Calibration Overview
 
-The system uses three parameters to accurately measure temperature:
+The system uses four parameters to accurately measure temperature:
 
 1. **`cpu_temp_factor`** - Controls CPU heat compensation (primary calibration)
 2. **`temp_offset`** - Fine-tuning offset in °C (secondary calibration)
 3. **`cpu_temp_smoothing`** - Response time to CPU temperature changes (optional - reduces jitter from transient loads, etc...)
+4. **`temp_smoothing_minutes`** - Temperature smoothing window in minutes (reduces sensitivity to transient air currents, default: 5.0 minutes)
 
 ### Temperature Calculation Formula
 
@@ -164,6 +165,7 @@ The installation creates Home Assistant number entities for each parameter:
 - **Humidity Offset** - Adjust `hum_offset` in %
 - **CPU Temp Factor** - Adjust `cpu_temp_factor`
 - **CPU Temp Smoothing** - Adjust `cpu_temp_smoothing`
+- **Temp Smoothing Window** - Adjust `temp_smoothing_minutes` in minutes (default: 5.0)
 
 ### Via Configuration File
 
@@ -173,6 +175,7 @@ Edit `/etc/default/ha-enviro-plus`:
 TEMP_OFFSET=-0.5
 CPU_TEMP_FACTOR=1.6
 CPU_TEMP_SMOOTHING=0.1
+TEMP_SMOOTHING_MINUTES=5.0
 ```
 
 Then restart the service:
