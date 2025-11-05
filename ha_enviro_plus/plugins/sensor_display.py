@@ -197,17 +197,40 @@ class SensorDisplayPlugin(DisplayPlugin):
         try:
             import subprocess
 
-            result = subprocess.run(
+            # Try fc-list with different syntaxes
+            for fc_cmd in [
+                ["fc-list", ":family=DejaVu", "file"],
                 ["fc-list", "DejaVu", "file"],
-                capture_output=True,
-                text=True,
-                timeout=2,
-            )
-            if result.returncode == 0 and result.stdout:
-                for line in result.stdout.strip().split("\n"):
-                    if line.strip() and "DejaVu" in line:
-                        font_paths.append(line.strip())
-        except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+                ["fc-list", "DejaVu"],
+            ]:
+                try:
+                    result = subprocess.run(
+                        fc_cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=2,
+                    )
+                    if result.returncode == 0 and result.stdout:
+                        for line in result.stdout.strip().split("\n"):
+                            line = line.strip()
+                            if line and "DejaVu" in line:
+                                # Extract file path from fc-list output
+                                # Format is usually: /path/to/file: Family:DejaVu or similar
+                                if ":" in line:
+                                    # Take the part before the first colon as the file path
+                                    file_path = line.split(":")[0].strip()
+                                    if file_path and os.path.exists(file_path):
+                                        if "Bold" in line or "bold" in line.lower():
+                                            font_paths.append(file_path)
+                                        elif ".ttf" in file_path.lower():
+                                            # Add regular fonts too, but prefer Bold
+                                            if file_path not in font_paths:
+                                                font_paths.append(file_path)
+                        if font_paths:
+                            break  # Found fonts, no need to try other commands
+                except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+                    continue
+        except Exception:
             pass
 
         # Add common hardcoded paths as fallback
@@ -226,19 +249,35 @@ class SensorDisplayPlugin(DisplayPlugin):
         try:
             import subprocess
 
-            result = subprocess.run(
-                ["find", "/usr/share/fonts", "-name", "*DejaVu*.ttf", "-type", "f", "2>/dev/null"],
-                capture_output=True,
-                text=True,
-                timeout=2,
-                shell=False,
-            )
-            if result.returncode == 0 and result.stdout:
-                for line in result.stdout.strip().split("\n"):
-                    if line.strip() and "Bold" in line:
-                        if line.strip() not in font_paths:
-                            font_paths.insert(0, line.strip())  # Prefer found fonts
-        except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+            # Try multiple find patterns
+            for find_pattern in [
+                ["find", "/usr/share/fonts", "-name", "*DejaVu*Bold*.ttf", "-type", "f"],
+                ["find", "/usr/share/fonts", "-name", "*DejaVu*.ttf", "-type", "f"],
+                ["find", "/usr/share/fonts", "-name", "DejaVuSans-Bold.ttf", "-type", "f"],
+            ]:
+                try:
+                    result = subprocess.run(
+                        find_pattern,
+                        capture_output=True,
+                        text=True,
+                        timeout=3,
+                        shell=False,
+                    )
+                    if result.returncode == 0 and result.stdout:
+                        for line in result.stdout.strip().split("\n"):
+                            line = line.strip()
+                            if line and os.path.exists(line):
+                                if "Bold" in line:
+                                    if line not in font_paths:
+                                        font_paths.insert(0, line)  # Prefer Bold fonts
+                                elif ".ttf" in line.lower():
+                                    if line not in font_paths:
+                                        font_paths.append(line)
+                        if font_paths:
+                            break  # Found fonts, no need to try other patterns
+                except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+                    continue
+        except Exception:
             pass
 
         # Remove duplicates while preserving order
@@ -251,9 +290,11 @@ class SensorDisplayPlugin(DisplayPlugin):
         font_paths = unique_font_paths
 
         loaded_font_path = None
+        self.logger.debug("Font discovery found %d potential font paths", len(font_paths))
         for font_path in font_paths:
             try:
                 if os.path.exists(font_path):
+                    self.logger.debug("Trying to load font from: %s", font_path)
                     # Test if we can actually load the font
                     test_font = ImageFont.truetype(font_path, 12)
                     # If successful, load the actual sizes we need
@@ -267,6 +308,8 @@ class SensorDisplayPlugin(DisplayPlugin):
                         self.FONT_SIZE_LARGE,
                     )
                     break
+                else:
+                    self.logger.debug("Font path does not exist: %s", font_path)
             except (OSError, IOError) as e:
                 self.logger.debug("Failed to load font from %s: %s", font_path, e)
                 continue

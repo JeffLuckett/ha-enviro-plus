@@ -382,10 +382,31 @@ class DisplayManager:
         except (AttributeError, Exception):
             pass
 
+    def clear_display(self) -> None:
+        """
+        Clear the display by showing a black image.
+
+        This ensures the display is blank before shutdown or before showing new content.
+        """
+        if not self.display_available or not self.display:
+            return
+
+        try:
+            if PIL_AVAILABLE:
+                # Create a black image and display it
+                black_image = Image.new("RGB", (160, 80), color=(0, 0, 0))
+                self.display.display(black_image)
+                self.logger.debug("Display: Cleared with black image")
+        except Exception as e:
+            self.logger.debug("Display: Could not clear display: %s", e)
+
     def cleanup(self) -> None:
         """
         Clean up display resources and stop display thread.
         """
+        # Clear the display first (show black image)
+        self.clear_display()
+
         # Signal the thread to stop
         self._stop_event.set()
 

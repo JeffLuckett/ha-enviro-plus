@@ -405,6 +405,13 @@ write_config() {
   if load_existing_config; then
     echo "==> Found existing configuration, preserving current settings..."
 
+    # Re-check UNITS after loading config - it might be empty or invalid
+    # This is critical because load_existing_config might set UNITS="" if it exists but is empty
+    if [ -z "${UNITS:-}" ] || ([ "${UNITS:-}" != "metric" ] && [ "${UNITS:-}" != "imperial" ]); then
+      units_in_config=false  # Override previous check - it's not valid
+      unset UNITS  # Clear it so we prompt
+    fi
+
     # Check for new options that need configuration
     if check_new_config_options && [ -t 0 ]; then
       echo
@@ -442,7 +449,7 @@ write_config() {
     # Always prompt for UNITS on interactive installs if it's missing or invalid
     # This ensures users are always prompted when UNITS is not properly set
     if [ -t 0 ]; then
-      # Check if UNITS is unset, empty, or invalid
+      # Check if UNITS is unset, empty, or invalid AFTER loading config
       local units_valid=false
       if [ -n "${UNITS:-}" ] && [ "${UNITS:-}" = "metric" ]; then
         units_valid=true
