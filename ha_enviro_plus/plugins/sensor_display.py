@@ -441,7 +441,7 @@ class SensorDisplayPlugin(DisplayPlugin):
 
     def _find_fonts_with_find(self) -> List[str]:
         """Find fonts using find command."""
-        font_paths = []
+        font_paths: List[str] = []
 
         for find_pattern in [
             [
