@@ -142,7 +142,10 @@ class SensorDisplayPlugin(DisplayPlugin):
                     )
                 else:
                     # Orangey red (hotter = more red)
-                    ratio = max(0, min(1, (temp_f - self.TEMP_COMFORT_MAX_F) / (90 - self.TEMP_COMFORT_MAX_F)))
+                    ratio = max(
+                        0,
+                        min(1, (temp_f - self.TEMP_COMFORT_MAX_F) / (90 - self.TEMP_COMFORT_MAX_F)),
+                    )
                     bg_color = (
                         int(255 - ratio * 30),  # R: 255-225
                         int(140 - ratio * 40),  # G: 140-100
@@ -163,7 +166,10 @@ class SensorDisplayPlugin(DisplayPlugin):
                     )
                 else:
                     # Orangey red (hotter = more red)
-                    ratio = max(0, min(1, (temp_c - self.TEMP_COMFORT_MAX_C) / (35 - self.TEMP_COMFORT_MAX_C)))
+                    ratio = max(
+                        0,
+                        min(1, (temp_c - self.TEMP_COMFORT_MAX_C) / (35 - self.TEMP_COMFORT_MAX_C)),
+                    )
                     bg_color = (
                         int(255 - ratio * 30),  # R: 255-225
                         int(140 - ratio * 40),  # G: 140-100
@@ -190,6 +196,7 @@ class SensorDisplayPlugin(DisplayPlugin):
         # Try to use fc-list to find DejaVu fonts
         try:
             import subprocess
+
             result = subprocess.run(
                 ["fc-list", "DejaVu", "file"],
                 capture_output=True,
@@ -204,18 +211,21 @@ class SensorDisplayPlugin(DisplayPlugin):
             pass
 
         # Add common hardcoded paths as fallback
-        font_paths.extend([
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-            "/usr/share/fonts/truetype/ttf-dejavu/DejaVuSans-Bold.ttf",
-            "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",  # Fallback to regular if bold not available
-            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-        ])
+        font_paths.extend(
+            [
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+                "/usr/share/fonts/truetype/ttf-dejavu/DejaVuSans-Bold.ttf",
+                "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",  # Fallback to regular if bold not available
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+            ]
+        )
 
         # Try to find any TTF font using find command
         try:
             import subprocess
+
             result = subprocess.run(
                 ["find", "/usr/share/fonts", "-name", "*DejaVu*.ttf", "-type", "f", "2>/dev/null"],
                 capture_output=True,
@@ -250,8 +260,12 @@ class SensorDisplayPlugin(DisplayPlugin):
                     font_banner = ImageFont.truetype(font_path, self.FONT_SIZE_BANNER)
                     font_large = ImageFont.truetype(font_path, self.FONT_SIZE_LARGE)
                     loaded_font_path = font_path
-                    self.logger.info("Successfully loaded font from %s (banner: %dpt, large: %dpt)",
-                                    font_path, self.FONT_SIZE_BANNER, self.FONT_SIZE_LARGE)
+                    self.logger.info(
+                        "Successfully loaded font from %s (banner: %dpt, large: %dpt)",
+                        font_path,
+                        self.FONT_SIZE_BANNER,
+                        self.FONT_SIZE_LARGE,
+                    )
                     break
             except (OSError, IOError) as e:
                 self.logger.debug("Failed to load font from %s: %s", font_path, e)
@@ -261,7 +275,9 @@ class SensorDisplayPlugin(DisplayPlugin):
         if font_banner is None or font_large is None:
             self.logger.warning("Failed to load any truetype fonts! Tried paths: %s", font_paths)
             self.logger.warning("Falling back to default bitmap font (will be very small)")
-            self.logger.warning("To fix: Install fonts with: sudo apt-get install fonts-dejavu-core")
+            self.logger.warning(
+                "To fix: Install fonts with: sudo apt-get install fonts-dejavu-core"
+            )
             try:
                 # Default font is bitmap and doesn't scale - it will be tiny
                 default_font = ImageFont.load_default()
@@ -280,8 +296,12 @@ class SensorDisplayPlugin(DisplayPlugin):
         date_str = now.strftime("%d %b %y")  # e.g., "15 Nov 19"
 
         # Draw time/date in black banner (white text, bold)
-        draw.text((self.TIME_X, self.BANNER_Y_OFFSET), time_str, font=font_banner, fill=(255, 255, 255))
-        draw.text((self.DATE_X, self.BANNER_Y_OFFSET), date_str, font=font_banner, fill=(255, 255, 255))
+        draw.text(
+            (self.TIME_X, self.BANNER_Y_OFFSET), time_str, font=font_banner, fill=(255, 255, 255)
+        )
+        draw.text(
+            (self.DATE_X, self.BANNER_Y_OFFSET), date_str, font=font_banner, fill=(255, 255, 255)
+        )
 
         # Load icons from repository or installed location
         # Icons are stored in the repo at icons/ and copied to /opt/ha-enviro-plus/icons/ during install
@@ -289,9 +309,8 @@ class SensorDisplayPlugin(DisplayPlugin):
         package_icon_path = None
         try:
             import ha_enviro_plus
-            package_dir = os.path.dirname(
-                os.path.dirname(os.path.abspath(ha_enviro_plus.__file__))
-            )
+
+            package_dir = os.path.dirname(os.path.dirname(os.path.abspath(ha_enviro_plus.__file__)))
             repo_icons = os.path.join(package_dir, "icons")
             if os.path.isdir(repo_icons):
                 package_icon_path = repo_icons
@@ -418,7 +437,9 @@ class SensorDisplayPlugin(DisplayPlugin):
                 draw.text((text_x, y_temp), temp_str, font=font_large, fill=(255, 255, 255))
             except Exception as e:
                 self.logger.warning("Failed to read temperature: %s", e)
-                draw.text((self.LEFT_COLUMN_X, y_temp), "T --", font=font_large, fill=(255, 255, 255))
+                draw.text(
+                    (self.LEFT_COLUMN_X, y_temp), "T --", font=font_large, fill=(255, 255, 255)
+                )
 
         # Left column - Humidity (middle row, left side)
         y_hum = content_y + self.ROW_SPACING
@@ -430,7 +451,9 @@ class SensorDisplayPlugin(DisplayPlugin):
 
                 # Draw icon if available, otherwise use text
                 icon_x = self.LEFT_COLUMN_X
-                text_x = icon_x + self.ICON_SIZE + self.ICON_TEXT_SPACING if icon_humidity else icon_x
+                text_x = (
+                    icon_x + self.ICON_SIZE + self.ICON_TEXT_SPACING if icon_humidity else icon_x
+                )
                 if icon_humidity:
                     # Resize icon to fit (matches font size)
                     icon_resized = icon_humidity.resize(
@@ -444,7 +467,9 @@ class SensorDisplayPlugin(DisplayPlugin):
                 draw.text((text_x, y_hum), hum_str, font=font_large, fill=(255, 255, 255))
             except Exception as e:
                 self.logger.warning("Failed to read humidity: %s", e)
-                draw.text((self.LEFT_COLUMN_X, y_hum), "H --%", font=font_large, fill=(255, 255, 255))
+                draw.text(
+                    (self.LEFT_COLUMN_X, y_hum), "H --%", font=font_large, fill=(255, 255, 255)
+                )
 
         # Right column - Pressure (top row, right side)
         y_pressure = content_y
@@ -463,7 +488,9 @@ class SensorDisplayPlugin(DisplayPlugin):
 
                 # Draw icon if available, otherwise use text
                 icon_x = self.RIGHT_COLUMN_X
-                text_x = icon_x + self.ICON_SIZE + self.ICON_TEXT_SPACING if icon_pressure else icon_x
+                text_x = (
+                    icon_x + self.ICON_SIZE + self.ICON_TEXT_SPACING if icon_pressure else icon_x
+                )
                 if icon_pressure:
                     # Resize icon to fit (matches font size)
                     icon_resized = icon_pressure.resize(
@@ -477,6 +504,8 @@ class SensorDisplayPlugin(DisplayPlugin):
                 draw.text((text_x, y_pressure), pressure_str, font=font_large, fill=(255, 255, 255))
             except Exception as e:
                 self.logger.warning("Failed to read pressure: %s", e)
-                draw.text((self.RIGHT_COLUMN_X, y_pressure), "P --", font=font_large, fill=(255, 255, 255))
+                draw.text(
+                    (self.RIGHT_COLUMN_X, y_pressure), "P --", font=font_large, fill=(255, 255, 255)
+                )
 
         return image
