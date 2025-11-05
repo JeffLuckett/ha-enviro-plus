@@ -39,19 +39,80 @@ TEMP_OFFSET = float(_get_config("TEMP_OFFSET", "0.0"))
 HUM_OFFSET = float(_get_config("HUM_OFFSET", "0.0"))
 CPU_TEMP_FACTOR = float(_get_config("CPU_TEMP_FACTOR", "1.8"))
 CPU_TEMP_SMOOTHING = float(_get_config("CPU_TEMP_SMOOTHING", "0.1"))
+TEMP_SMOOTHING_MINUTES = float(_get_config("TEMP_SMOOTHING_MINUTES", "5.0"))
 DISPLAY_ENABLED = int(_get_config("DISPLAY_ENABLED", "1")) == 1
 SENSOR_WARMUP_SEC = float(_get_config("SENSOR_WARMUP_SEC", "2"))
 UNITS = _get_config("UNITS", "metric")
+DEVICE_LOCATION = _get_config("DEVICE_LOCATION", "")  # Optional location/name for device
 LOG_TO_FILE = int(_get_config("LOG_TO_FILE", "0")) == 1
 LOG_PATH = f"/var/log/{APP_NAME}.log"
 # ------------------------------------------------------------
 
 hostname = socket.gethostname()
-device_id = f"enviro_{hostname.replace('-', '')}"
-root = device_id  # topic root for states & commands
-avail_t = f"{root}/status"
-cmd_t = f"{root}/cmd"  # expects: reboot|shutdown|restart
-set_t = f"{root}/set/+"  # retained settings, e.g. set/temp_offset
+
+
+def get_mac_address() -> Optional[str]:
+    """
+    Get MAC address from primary network interface (prefer wlan0, then eth0).
+
+    Returns:
+        MAC address string, or None if unable to determine
+    """
+    # Use a temporary logger in case module logger isn't initialized yet
+    temp_logger = logging.getLogger(__name__)
+    try:
+        addrs = psutil.net_if_addrs()
+        # Prefer wlan0, then eth0, then first non-loopback interface
+        for iface_name in ["wlan0", "eth0"]:
+            if iface_name in addrs:
+                for addr in addrs[iface_name]:
+                    # psutil uses socket.AF_LINK (17 on Linux) or psutil.AF_LINK for MAC
+                    # Check for address family that represents link-layer (MAC)
+                    if hasattr(addr, "family"):
+                        # On Linux, MAC addresses are in family with value 17 (AF_PACKET/AF_LINK)
+                        # On some systems, we check the address format
+                        mac = getattr(addr, "address", None)
+                        if mac and isinstance(mac, str) and len(mac) == 17 and ":" in mac:
+                            temp_logger.debug("Using %s MAC address: %s", iface_name, mac)
+                            return mac
+
+        # Fallback: first non-loopback interface with valid MAC
+        for iface_name, iface_addrs in addrs.items():
+            if iface_name == "lo":
+                continue
+            for addr in iface_addrs:
+                mac = getattr(addr, "address", None)
+                if mac and isinstance(mac, str) and len(mac) == 17 and ":" in mac:
+                    temp_logger.debug("Using %s MAC address: %s", iface_name, mac)
+                    return mac
+    except Exception as e:
+        temp_logger.debug("Failed to get MAC address: %s", e)
+    return None
+
+
+def get_device_id() -> str:
+    """
+    Get unique device identifier using serial number (HA best practice).
+
+    Falls back to hostname if serial is unavailable.
+
+    Returns:
+        Unique device ID string (e.g., "enviro_1234567890abcdef")
+    """
+    # Use a temporary logger in case module logger isn't initialized yet
+    temp_logger = logging.getLogger(__name__)
+    serial = get_serial()
+    if serial and serial != "unknown":
+        # Use serial number for unique identification (HA best practice)
+        dev_id = f"enviro_{serial}"
+        temp_logger.debug("Using serial number for device_id: %s", dev_id)
+        return dev_id
+    else:
+        # Fallback to hostname if serial unavailable
+        dev_id = f"enviro_{hostname.replace('-', '')}"
+        temp_logger.warning("Serial number unavailable, using hostname for device_id: %s", dev_id)
+        temp_logger.info("Consider using serial number for unique device identification")
+        return dev_id
 
 
 def get_ipv4_prefer_wlan0() -> str:
@@ -145,24 +206,34 @@ def get_serial() -> str:
     Raises:
         Never raises - always returns a fallback value
     """
+    # Use a temporary logger in case module logger isn't initialized yet
+    temp_logger = logging.getLogger(__name__)
     try:
-        with open("/proc/cpuinfo", "r") as f:
+        with open("/proc/cpuinfo", "r", encoding="utf-8") as f:
             for line in f:
                 if line.startswith("Serial"):
                     serial = line.split(":")[1].strip()
-                    logger.debug("Device serial: %s", serial)
+                    temp_logger.debug("Device serial: %s", serial)
                     return serial
-        logger.warning("Serial number not found in cpuinfo")
-        logger.info("Serial number will be reported as 'unknown'")
+        temp_logger.warning("Serial number not found in cpuinfo")
+        temp_logger.info("Serial number will be reported as 'unknown'")
         return "unknown"
     except FileNotFoundError:
-        logger.error("CPU info file not found")
-        logger.info("Serial number will be reported as 'unknown'")
+        temp_logger.error("CPU info file not found")
+        temp_logger.info("Serial number will be reported as 'unknown'")
         return "unknown"
     except Exception as e:
-        logger.error("Failed to read device serial: %s", e)
-        logger.info("Serial number will be reported as 'unknown'")
+        temp_logger.error("Failed to read device serial: %s", e)
+        temp_logger.info("Serial number will be reported as 'unknown'")
         return "unknown"
+
+
+# Device ID must be set after get_serial() is defined
+device_id = get_device_id()
+root = device_id  # topic root for states & commands
+avail_t = f"{root}/status"
+cmd_t = f"{root}/cmd"  # expects: reboot|shutdown|restart
+set_t = f"{root}/set/+"  # retained settings, e.g. set/temp_offset
 
 
 def get_os_release() -> str:
@@ -225,14 +296,53 @@ for h in handlers:
     logger.addHandler(h)
 # ----------------------------
 
-DEVICE_INFO = {
-    "identifiers": [device_id],
-    "name": "Enviro+",
-    "manufacturer": "Pimoroni",
-    "model": "Enviro+ (no PMS5003)",
-    "sw_version": f"{APP_NAME} {VERSION}",
-    "configuration_url": "https://github.com/JeffLuckett/ha-enviro-plus",
-}
+
+def get_device_info() -> Dict[str, Any]:
+    """
+    Get device info for Home Assistant discovery.
+
+    Returns:
+        Dictionary with device information including identifiers and connections
+    """
+    # Use serial number as primary identifier (HA best practice)
+    serial = get_serial()
+    identifiers = []
+    if serial and serial != "unknown":
+        identifiers.append(serial)
+    else:
+        # Fallback to device_id if serial unavailable
+        # device_id is already set at module level
+        identifiers.append(device_id)
+
+    # Build device name with location if provided
+    device_name = "Enviro+"
+    if DEVICE_LOCATION:
+        device_name = f"Enviro+ {DEVICE_LOCATION}"
+
+    # Get MAC address for connections (HA best practice)
+    connections_list = []
+    mac_address = get_mac_address()
+    if mac_address:
+        connections_list.append(["mac", mac_address])
+
+    device_info = {
+        "identifiers": identifiers,
+        "name": device_name,
+        "manufacturer": "Pimoroni",
+        "model": get_model(),  # Use actual model instead of hardcoded
+        "sw_version": f"{APP_NAME} {VERSION}",
+        "configuration_url": "https://github.com/JeffLuckett/ha-enviro-plus",
+    }
+
+    if connections_list:
+        device_info["connections"] = connections_list
+
+    return device_info
+
+
+# Note: DEVICE_INFO is now a function call, not a constant
+# This ensures device info is refreshed with current location/serial/etc
+# Individual discovery payloads call get_device_info() directly
 
 SENSORS = {
     "bme280/temperature": ("Temperature", "°C", "temperature"),
@@ -262,12 +372,34 @@ def disc_payload(
     state_class: Optional[str] = "measurement",
     icon: Optional[str] = None,
 ) -> Dict[str, Any]:
+    """
+    Create discovery payload for Home Assistant MQTT integration.
+
+    Args:
+        topic_tail: Sensor topic path (e.g., "bme280/temperature")
+        name: Display name for the sensor
+        unit: Unit of measurement (e.g., "°C", "%")
+        device_class: Device class (e.g., "temperature", "humidity")
+        state_class: State class (default: "measurement")
+        icon: Optional icon name
+
+    Returns:
+        Dictionary with discovery configuration
+    """
+    # Use serial number for unique_id if available (HA best practice)
+    serial = get_serial()
+    if serial and serial != "unknown":
+        uniq_id = f"enviro_{serial}_{topic_tail.replace('/', '_')}"
+    else:
+        # Fallback to device_id
+        uniq_id = f"{device_id}_{topic_tail.replace('/', '_')}"
+
     cfg = {
         "name": name,
-        "uniq_id": f"{device_id}_{topic_tail.replace('/', '_')}",
+        "uniq_id": uniq_id,
         "state_topic": f"{root}/{topic_tail}",
         "availability_topic": avail_t,
-        "device": DEVICE_INFO,
+        "device": get_device_info(),  # Always get fresh device info
     }
     if unit:
         cfg["unit_of_measurement"] = unit
@@ -281,7 +413,18 @@ def disc_payload(
 
 
 def publish_discovery(c: mqtt.Client, enviro_sensors: Optional[EnviroPlusSensors] = None) -> None:
-    # sensors - only publish discovery for available sensors
+    # sensors - publish discovery for ALL sensors (including unavailable ones)
+    # Home Assistant will show unavailable sensors as "unavailable"
+    # Refresh device info to ensure it's up to date
+    device_info = get_device_info()
+
+    # Use serial number for object_id if available (for topic consistency)
+    serial = get_serial()
+    if serial and serial != "unknown":
+        obj_id = f"enviro_{serial}"
+    else:
+        obj_id = device_id
+
     for tail, (name, unit, devcls) in SENSORS.items():
         # Check if sensor is available
         if enviro_sensors is not None:
@@ -296,28 +439,40 @@ def publish_discovery(c: mqtt.Client, enviro_sensors: Optional[EnviroPlusSensors
                 continue
 
         obj = tail.replace("/", "_")
-        topic = f"{MQTT_DISCOVERY_PREFIX}/sensor/{device_id}/{obj}/config"
+        topic = f"{MQTT_DISCOVERY_PREFIX}/sensor/{obj_id}/{obj}/config"
         # For text sensors (no unit), don't set state_class
         state_class = None if unit is None else "measurement"
+        # Update device info in payload
+        payload = disc_payload(tail, name, unit, devcls, state_class)
+        payload["device"] = device_info
         c.publish(
             topic,
-            json.dumps(disc_payload(tail, name, unit, devcls, state_class)),
+            json.dumps(payload),
             qos=1,
             retain=True,
         )
 
     # controls: simple button commands
     def button(topic_key: str, name: str, icon: str) -> None:
+        # Use serial number for unique_id if available
+        serial = get_serial()
+        if serial and serial != "unknown":
+            uniq_id = f"enviro_{serial}_btn_{topic_key}"
+            obj_id = f"enviro_{serial}"
+        else:
+            uniq_id = f"{device_id}_btn_{topic_key}"
+            obj_id = device_id
+
         cfg = {
             "name": name,
-            "uniq_id": f"{device_id}_btn_{topic_key}",
+            "uniq_id": uniq_id,
             "cmd_t": f"{root}/cmd",
             "pl_prs": topic_key,
             "availability_topic": avail_t,
-            "device": DEVICE_INFO,
+            "device": get_device_info(),  # Always get fresh device info
             "icon": icon,
         }
-        topic = f"{MQTT_DISCOVERY_PREFIX}/button/{device_id}/{topic_key}/config"
+        topic = f"{MQTT_DISCOVERY_PREFIX}/button/{obj_id}/{topic_key}/config"
         c.publish(topic, json.dumps(cfg), qos=1, retain=True)
 
     button("reboot", "Reboot Enviro Zero", "mdi:restart")
@@ -329,20 +484,29 @@ def publish_discovery(c: mqtt.Client, enviro_sensors: Optional[EnviroPlusSensors
     def number(
         name: str, key: str, unit: Optional[str], minv: float, maxv: float, step: float
     ) -> None:
+        # Use serial number for unique_id if available
+        serial = get_serial()
+        if serial and serial != "unknown":
+            uniq_id = f"enviro_{serial}_num_{key}"
+            obj_id = f"enviro_{serial}"
+        else:
+            uniq_id = f"{device_id}_num_{key}"
+            obj_id = device_id
+
         cfg = {
             "name": name,
-            "uniq_id": f"{device_id}_num_{key}",
+            "uniq_id": uniq_id,
             "cmd_t": f"{root}/set/{key}",
             "stat_t": f"{root}/set/{key}",
             "availability_topic": avail_t,
-            "device": DEVICE_INFO,
+            "device": get_device_info(),  # Always get fresh device info
             "unit_of_measurement": unit,
             "min": minv,
             "max": maxv,
             "step": step,
             "mode": "box",
         }
-        topic = f"{MQTT_DISCOVERY_PREFIX}/number/{device_id}/{key}/config"
+        topic = f"{MQTT_DISCOVERY_PREFIX}/number/{obj_id}/{key}/config"
         c.publish(topic, json.dumps(cfg), qos=1, retain=True)
 
     number("Temp Offset", "temp_offset", "°C", -10, 10, 0.1)
@@ -372,19 +536,30 @@ def read_all(enviro_sensors: EnviroPlusSensors) -> Dict[str, Any]:
         "meta/last_update": datetime.now(timezone.utc).isoformat(),
     }
 
-    # Only include sensor data if sensors are available
+    # Include all sensor data - use "unavailable" for missing sensors
+    # This ensures Home Assistant knows about all sensors, even if they're not present
     if enviro_sensors.has_sensor("bme280"):
         vals["bme280/temperature"] = sensor_data["temperature"]
         vals["bme280/humidity"] = sensor_data["humidity"]
         vals["bme280/pressure"] = sensor_data["pressure"]
+    else:
+        vals["bme280/temperature"] = "unavailable"
+        vals["bme280/humidity"] = "unavailable"
+        vals["bme280/pressure"] = "unavailable"
 
     if enviro_sensors.has_sensor("ltr559"):
         vals["ltr559/lux"] = sensor_data["lux"]
+    else:
+        vals["ltr559/lux"] = "unavailable"
 
     if enviro_sensors.has_sensor("gas"):
         vals["gas/oxidising"] = sensor_data["gas_oxidising"]
         vals["gas/reducing"] = sensor_data["gas_reducing"]
         vals["gas/nh3"] = sensor_data["gas_nh3"]
+    else:
+        vals["gas/oxidising"] = "unavailable"
+        vals["gas/reducing"] = "unavailable"
+        vals["gas/nh3"] = "unavailable"
 
     return vals
 
@@ -636,6 +811,9 @@ def main() -> None:
     hum_offset = settings_manager.get_hum_offset()
     cpu_temp_factor = settings_manager.get_cpu_temp_factor()
     cpu_temp_smoothing = settings_manager.get_cpu_temp_smoothing()
+    temp_smoothing_minutes = float(
+        _get_config("TEMP_SMOOTHING_MINUTES", str(settings_manager.get_temp_smoothing_minutes()))
+    )
 
     # Load units setting (from environment or settings file)
     units = _get_config("UNITS", settings_manager.get_units())
@@ -645,11 +823,12 @@ def main() -> None:
     settings_manager.set_units(units)
 
     logger.info(
-        "Initial offsets: TEMP=%s°C HUM=%s%% CPU_FACTOR=%s CPU_SMOOTHING=%s UNITS=%s",
+        "Initial offsets: TEMP=%s°C HUM=%s%% CPU_FACTOR=%s CPU_SMOOTHING=%s TEMP_SMOOTHING=%s min UNITS=%s",
         temp_offset,
         hum_offset,
         cpu_temp_factor,
         cpu_temp_smoothing,
+        temp_smoothing_minutes,
         units,
     )
 
@@ -659,6 +838,7 @@ def main() -> None:
         hum_offset=hum_offset,
         cpu_temp_factor=cpu_temp_factor,
         cpu_temp_smoothing=cpu_temp_smoothing,
+        temp_smoothing_minutes=temp_smoothing_minutes,
         logger=logger,
     )
 
@@ -758,11 +938,38 @@ def main() -> None:
     }
     client.publish(f"{root}/device/attributes", json.dumps(static), retain=True)
 
+    # Track previous values to only publish changes
+    previous_vals: Dict[str, Any] = {}
+
     try:
         while True:
             vals = read_all(enviro_sensors)
             for tail, val in vals.items():
-                client.publish(f"{root}/{tail}", str(val), retain=True)
+                # Convert value to string for comparison
+                val_str = str(val)
+
+                # Check if value has changed (with tolerance for floats)
+                if tail not in previous_vals:
+                    # First time seeing this value - always publish
+                    client.publish(f"{root}/{tail}", val_str, retain=True)
+                    previous_vals[tail] = val_str
+                else:
+                    # Compare with previous value
+                    prev_val_str = previous_vals[tail]
+
+                    # For numeric values, compare with small tolerance
+                    try:
+                        prev_val_float = float(prev_val_str)
+                        val_float = float(val_str)
+                        # Use 0.01 tolerance for floating point comparison
+                        if abs(val_float - prev_val_float) > 0.01:
+                            client.publish(f"{root}/{tail}", val_str, retain=True)
+                            previous_vals[tail] = val_str
+                    except (ValueError, TypeError):
+                        # Non-numeric values - string comparison
+                        if val_str != prev_val_str:
+                            client.publish(f"{root}/{tail}", val_str, retain=True)
+                            previous_vals[tail] = val_str
 
             # Update display plugin data periodically
             if display and display.display_available:

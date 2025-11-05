@@ -40,6 +40,7 @@ class SettingsManager:
             "hum_offset": 0.0,
             "cpu_temp_factor": 1.8,
             "cpu_temp_smoothing": 0.1,
+            "temp_smoothing_minutes": 5.0,
             "units": "metric",
         }
 
@@ -208,6 +209,15 @@ class SettingsManager:
     def set_cpu_temp_smoothing(self, value: float) -> None:
         """Set CPU temperature smoothing setting."""
         self.set_setting("cpu_temp_smoothing", float(value))
+
+    def get_temp_smoothing_minutes(self) -> float:
+        """Get temperature smoothing window in minutes."""
+        value = self.get_setting("temp_smoothing_minutes")
+        return float(value) if value is not None else 5.0
+
+    def set_temp_smoothing_minutes(self, value: float) -> None:
+        """Set temperature smoothing window in minutes."""
+        self.set_setting("temp_smoothing_minutes", value)
 
     def get_units(self) -> str:
         """Get units setting (metric or imperial)."""

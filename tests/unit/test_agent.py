@@ -18,7 +18,7 @@ from ha_enviro_plus.agent import (
     on_message,
     _handle_command,
     _handle_calibration_setting,
-    DEVICE_INFO,
+    get_device_info,
     SENSORS,
 )
 
@@ -213,7 +213,8 @@ class TestDiscoveryPayload:
         assert payload["unit_of_measurement"] == "°C"
         assert "device_class" not in payload
         assert payload["state_class"] == "measurement"
-        assert payload["device"] == DEVICE_INFO
+        device_info = get_device_info()
+        assert payload["device"] == device_info
 
     def test_disc_payload_with_device_class(self):
         """Test discovery payload with device class."""
@@ -345,7 +346,16 @@ class TestMainFunction:
         # Mock all the dependencies
         mocker.patch("ha_enviro_plus.agent.mqtt.Client")
         mocker.patch("ha_enviro_plus.agent.EnviroPlusSensors")
-        mocker.patch("ha_enviro_plus.agent.SettingsManager")
+        mock_settings_manager = mocker.patch("ha_enviro_plus.agent.SettingsManager")
+        # Mock settings manager methods
+        mock_settings_instance = mock_settings_manager.return_value
+        mock_settings_instance.get_temp_offset.return_value = 0.0
+        mock_settings_instance.get_hum_offset.return_value = 0.0
+        mock_settings_instance.get_cpu_temp_factor.return_value = 1.8
+        mock_settings_instance.get_cpu_temp_smoothing.return_value = 0.1
+        mock_settings_instance.get_temp_smoothing_minutes.return_value = 5.0
+        mock_settings_instance.get_units.return_value = "metric"
+        mock_settings_instance.set_units.return_value = None
         mocker.patch("ha_enviro_plus.agent.time.sleep", side_effect=KeyboardInterrupt)
 
         # Mock the logger to capture log messages
@@ -813,17 +823,19 @@ class TestConstants:
     """Test module constants."""
 
     def test_device_info_structure(self):
-        """Test DEVICE_INFO structure."""
-        assert "identifiers" in DEVICE_INFO
-        assert "name" in DEVICE_INFO
-        assert "manufacturer" in DEVICE_INFO
-        assert "model" in DEVICE_INFO
-        assert "sw_version" in DEVICE_INFO
-        assert "configuration_url" in DEVICE_INFO
+        """Test get_device_info() structure."""
+        device_info = get_device_info()
+        assert "identifiers" in device_info
+        assert "name" in device_info
+        assert "manufacturer" in device_info
+        assert "model" in device_info
+        assert "sw_version" in device_info
+        assert "configuration_url" in device_info
 
-        assert DEVICE_INFO["name"] == "Enviro+"
-        assert DEVICE_INFO["manufacturer"] == "Pimoroni"
-        assert DEVICE_INFO["model"] == "Enviro+ (no PMS5003)"
+        assert device_info["name"] == "Enviro+"
+        assert device_info["manufacturer"] == "Pimoroni"
+        # Model may vary based on actual device, so just check it exists
+        assert "model" in device_info
 
     def test_sensors_structure(self):
         """Test SENSORS structure."""

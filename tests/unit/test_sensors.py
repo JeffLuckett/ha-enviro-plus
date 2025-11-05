@@ -18,6 +18,7 @@ class TestEnviroPlusSensorsInit:
         assert sensors.hum_offset == 0.0
         assert sensors.cpu_temp_factor == 1.8
         assert sensors.cpu_temp_smoothing == 0.1
+        assert sensors.temp_smoothing_minutes == 5.0
         assert sensors.logger is not None
         assert sensors.bme280 is not None
         assert sensors.ltr559 is not None
@@ -30,6 +31,7 @@ class TestEnviroPlusSensorsInit:
             hum_offset=-5.0,
             cpu_temp_factor=2.0,
             cpu_temp_smoothing=0.3,
+            temp_smoothing_minutes=10.0,
             logger=logger,
         )
 
@@ -37,6 +39,7 @@ class TestEnviroPlusSensorsInit:
         assert sensors.hum_offset == -5.0
         assert sensors.cpu_temp_factor == 2.0
         assert sensors.cpu_temp_smoothing == 0.3
+        assert sensors.temp_smoothing_minutes == 10.0
         assert sensors.logger == logger
 
     def test_init_sensor_failure_graceful(self, mock_logger):
@@ -293,7 +296,10 @@ class TestTemperatureReadings:
         mock_bme280.get_temperature.return_value = 25.0
         mock_subprocess.return_value = "temp=50.0'C\n"
 
-        sensors = EnviroPlusSensors(temp_offset=2.0, cpu_temp_factor=2.0)
+        # Disable smoothing for this test
+        sensors = EnviroPlusSensors(
+            temp_offset=2.0, cpu_temp_factor=2.0, temp_smoothing_minutes=0.0
+        )
         temp = sensors.temp()
 
         # Raw: 25.0, Compensated: 25.0 - ((50.0 - 25.0) / 2.0) = 12.5, Final: 12.5 + 2.0 = 14.5
@@ -333,11 +339,98 @@ class TestTemperatureReadings:
         """Test temperature with various offset values."""
         mock_bme280.get_temperature.return_value = 25.5
         mock_subprocess.return_value = "temp=25.5'C\n"  # Same as raw temp
-
-        sensors = EnviroPlusSensors(temp_offset=offset)
+        # Disable smoothing for this test
+        sensors = EnviroPlusSensors(temp_offset=offset, temp_smoothing_minutes=0.0)
         temp = sensors.temp()
 
         assert temp == expected
+
+
+class TestTemperatureSmoothing:
+    """Test temperature smoothing functionality."""
+
+    def test_temp_smoothing_disabled(
+        self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess
+    ):
+        """Test temperature smoothing when disabled (0 minutes)."""
+        mock_bme280.get_temperature.return_value = 25.0
+        mock_subprocess.return_value = "temp=25.0'C\n"
+
+        sensors = EnviroPlusSensors(temp_smoothing_minutes=0.0)
+        temp1 = sensors.temp()
+        temp2 = sensors.temp()
+
+        # Without smoothing, should return the same value
+        assert temp1 == pytest.approx(temp2, abs=0.01)
+
+    def test_temp_smoothing_enabled(
+        self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess
+    ):
+        """Test temperature smoothing with time-based window."""
+        import time
+        from unittest.mock import patch
+
+        mock_bme280.get_temperature.return_value = 25.0
+        mock_subprocess.return_value = "temp=25.0'C\n"
+
+        # Use a very short window (0.001 minutes = ~0.06 seconds) for testing
+        sensors = EnviroPlusSensors(temp_smoothing_minutes=0.001)
+
+        # First reading should be the actual value (no history yet)
+        temp1 = sensors.temp()
+        assert temp1 == pytest.approx(25.0, abs=0.1)
+
+        # Second reading should be averaged with first
+        temp2 = sensors.temp()
+        assert temp2 == pytest.approx(25.0, abs=0.1)
+
+        # Change the temperature significantly
+        mock_bme280.get_temperature.return_value = 30.0
+
+        # With a very short window, the average should shift toward new value quickly
+        # But it will still be averaged with previous readings in the window
+        temp3 = sensors.temp()
+        # Should be between 25.0 and 30.0 (average of readings in window)
+        assert 25.0 <= temp3 <= 30.0
+
+    def test_temp_smoothing_history_cleanup(
+        self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess
+    ):
+        """Test that old readings are removed from smoothing history."""
+        import time
+
+        mock_bme280.get_temperature.return_value = 25.0
+        mock_subprocess.return_value = "temp=25.0'C\n"
+
+        # Use a very short window for testing (0.001 minutes = ~0.06 seconds)
+        sensors = EnviroPlusSensors(temp_smoothing_minutes=0.001)
+
+        # Take a reading
+        sensors.temp()
+
+        # Wait for window to expire (0.1 seconds > 0.06 seconds)
+        time.sleep(0.1)
+
+        # Change temperature
+        mock_bme280.get_temperature.return_value = 30.0
+        mock_subprocess.return_value = "temp=30.0'C\n"
+
+        # New reading should be closer to 30.0 since old reading expired
+        # Note: Temperature compensation may affect the result, so we check it's
+        # at least closer to 30.0 than 25.0
+        temp = sensors.temp()
+        # Should be significantly closer to 30.0 than 25.0
+        assert abs(temp - 30.0) < abs(temp - 25.0)
+
+    def test_temp_smoothing_init_default(self, mock_bme280, mock_ltr559, mock_gas_sensor):
+        """Test that temp_smoothing_minutes defaults to 5.0."""
+        sensors = EnviroPlusSensors()
+        assert sensors.temp_smoothing_minutes == 5.0
+
+    def test_temp_smoothing_custom_value(self, mock_bme280, mock_ltr559, mock_gas_sensor):
+        """Test setting custom temp_smoothing_minutes value."""
+        sensors = EnviroPlusSensors(temp_smoothing_minutes=10.0)
+        assert sensors.temp_smoothing_minutes == 10.0
 
 
 class TestHumidityReadings:

@@ -61,6 +61,8 @@ class TestEndToEndWorkflows:
                 mock_settings.get_hum_offset.return_value = 0.0
                 mock_settings.get_cpu_temp_factor.return_value = 1.8
                 mock_settings.get_cpu_temp_smoothing.return_value = 0.1
+                mock_settings.get_temp_smoothing_minutes.return_value = 5.0
+                mock_settings.get_units.return_value = "metric"
 
                 with patch("ha_enviro_plus.agent.EnviroPlusSensors") as mock_sensors_class:
                     mock_sensors = Mock()

@@ -41,6 +41,7 @@ class EnviroPlusSensors:
         hum_offset: float = 0.0,
         cpu_temp_factor: float = 1.8,
         cpu_temp_smoothing: float = 0.1,
+        temp_smoothing_minutes: float = 5.0,
         logger: Optional[logging.Logger] = None,
     ):
         """
@@ -51,18 +52,23 @@ class EnviroPlusSensors:
             hum_offset: Humidity calibration offset in %
             cpu_temp_factor: CPU temperature compensation factor (higher=less compensation, lower=more compensation)
             cpu_temp_smoothing: CPU temperature smoothing factor (0.0-1.0, lower=more smoothing)
+            temp_smoothing_minutes: Temperature smoothing window in minutes (0.0 = no smoothing)
             logger: Optional logger instance
         """
         self.temp_offset = temp_offset
         self.hum_offset = hum_offset
         self.cpu_temp_factor = cpu_temp_factor
         self.cpu_temp_smoothing = cpu_temp_smoothing
+        self.temp_smoothing_minutes = temp_smoothing_minutes
         self.logger = logger or logging.getLogger(__name__)
 
         # CPU temperature smoothing state
         # Initialize with typical Pi Zero CPU temperature (105°F = 40.6°C)
         self._cpu_temp_smoothed = 40.6
         self._cpu_temp_last_update = 0.0
+
+        # Temperature smoothing history (list of (timestamp, temperature) tuples)
+        self._temp_history: list[tuple[float, float]] = []
 
         # Humidity compensation temperature error smoothing state
         # Initialize to 0 (no error expected initially)
@@ -117,6 +123,25 @@ class EnviroPlusSensors:
         else:
             # Create mock sensors for testing environments
             self.logger.info("Enviro+ sensors initialized in test mode (no hardware)")
+
+    def has_sensor(self, sensor_name: str) -> bool:
+        """
+        Check if a sensor is available.
+
+        Args:
+            sensor_name: Name of the sensor ("bme280", "ltr559", or "gas")
+
+        Returns:
+            True if sensor is available, False otherwise
+        """
+        if sensor_name == "bme280":
+            return self.bme280 is not None
+        elif sensor_name == "ltr559":
+            return self.ltr559 is not None
+        elif sensor_name == "gas":
+            return self._gas_available
+        else:
+            return False
 
     def _read_cpu_temp(self) -> float:
         """
@@ -251,13 +276,65 @@ class EnviroPlusSensors:
             self.logger.info("Using raw temperature reading: %.1f°C", raw_temp)
             return raw_temp
 
+    def _get_smoothed_temp(self, compensated_temp: float) -> float:
+        """
+        Get smoothed temperature using time-based moving average.
+
+        Args:
+            compensated_temp: Compensated temperature reading (after CPU compensation and offset)
+
+        Returns:
+            Smoothed temperature in °C, or compensated_temp if smoothing disabled or insufficient history
+        """
+        # If smoothing is disabled (0 minutes), return the value as-is
+        if self.temp_smoothing_minutes <= 0.0:
+            return compensated_temp
+
+        try:
+            current_time = time.time()
+            window_seconds = self.temp_smoothing_minutes * 60.0
+
+            # Add current reading to history
+            self._temp_history.append((current_time, compensated_temp))
+
+            # Remove readings outside the time window
+            cutoff_time = current_time - window_seconds
+            self._temp_history = [
+                (ts, temp) for ts, temp in self._temp_history if ts >= cutoff_time
+            ]
+
+            # If we don't have enough history, return the current value
+            if len(self._temp_history) == 0:
+                self.logger.debug(
+                    "Temperature smoothing: insufficient history, using current value: %.2f°C",
+                    compensated_temp,
+                )
+                return compensated_temp
+
+            # Calculate average of readings within the window
+            avg_temp = sum(temp for _, temp in self._temp_history) / len(self._temp_history)
+
+            self.logger.debug(
+                "Temperature smoothing: current=%.2f°C, smoothed=%.2f°C (window=%.1f min, samples=%d)",
+                compensated_temp,
+                avg_temp,
+                self.temp_smoothing_minutes,
+                len(self._temp_history),
+            )
+
+            return round(avg_temp, 2)
+        except Exception as e:
+            self.logger.error("Failed to get smoothed temperature: %s", e)
+            self.logger.info("Using uncompensated temperature: %.2f°C", compensated_temp)
+            return compensated_temp
+
     # Temperature accessors
     def temp(self) -> float:
         """
-        Get compensated and calibrated temperature.
+        Get compensated, calibrated, and smoothed temperature.
 
         Returns:
-            Temperature in °C (compensated + offset)
+            Temperature in °C (compensated + offset + smoothed)
 
         Raises:
             Never raises - always returns a fallback value
@@ -268,14 +345,17 @@ class EnviroPlusSensors:
         try:
             raw_temp = self.bme280.get_temperature()
             compensated_temp = self._apply_temp_compensation(raw_temp)
-            final_temp = round(compensated_temp + self.temp_offset, 2)
+            final_temp = compensated_temp + self.temp_offset
+            smoothed_temp = self._get_smoothed_temp(final_temp)
             self.logger.debug(
-                "Final temperature: %.2f°C (raw=%.2f, offset=%.2f)",
-                final_temp,
+                "Final temperature: %.2f°C (raw=%.2f, compensated=%.2f, offset=%.2f, pre-smoothed=%.2f)",
+                smoothed_temp,
                 raw_temp,
+                compensated_temp,
                 self.temp_offset,
+                final_temp,
             )
-            return final_temp
+            return smoothed_temp
         except Exception as e:
             self.logger.error("Failed to read temperature: %s", e)
             self.logger.info("Temperature will be reported as 0.0°C")
@@ -625,24 +705,6 @@ class EnviroPlusSensors:
         if cpu_temp_smoothing is not None:
             self.cpu_temp_smoothing = cpu_temp_smoothing
             self.logger.info("Updated CPU temperature smoothing to %s", cpu_temp_smoothing)
-
-    def has_sensor(self, sensor_type: str) -> bool:
-        """
-        Check if a specific sensor type is available.
-
-        Args:
-            sensor_type: Sensor type to check ('bme280', 'ltr559', 'gas')
-
-        Returns:
-            True if sensor is available, False otherwise
-        """
-        if sensor_type == "bme280":
-            return self.bme280 is not None
-        elif sensor_type == "ltr559":
-            return self.ltr559 is not None
-        elif sensor_type == "gas":
-            return self._gas_available
-        return False
 
     def get_all_sensor_data(self) -> Dict[str, Any]:
         """

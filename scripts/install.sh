@@ -381,6 +381,10 @@ check_new_config_options() {
     new_options+=("CPU_TEMP_SMOOTHING")
   fi
 
+  if [ -z "${TEMP_SMOOTHING_MINUTES:-}" ]; then
+    new_options+=("TEMP_SMOOTHING_MINUTES")
+  fi
+
   if [ -z "${UNITS:-}" ]; then
     new_options+=("UNITS")
   fi
@@ -447,6 +451,11 @@ write_config() {
           CPU_TEMP_SMOOTHING="${CPU_TEMP_SMOOTHING_INPUT:-${DEFAULT_CPU_TEMP_SMOOTHING}}"
         fi
 
+        if [ -z "${TEMP_SMOOTHING_MINUTES:-}" ]; then
+          read -rp "Temperature smoothing window (minutes) [${DEFAULT_TEMP_SMOOTHING_MINUTES}]: " TEMP_SMOOTHING_MINUTES_INPUT
+          TEMP_SMOOTHING_MINUTES="${TEMP_SMOOTHING_MINUTES_INPUT:-${DEFAULT_TEMP_SMOOTHING_MINUTES}}"
+        fi
+
         if [ -z "${UNITS:-}" ] || ([ "${UNITS:-}" != "metric" ] && [ "${UNITS:-}" != "imperial" ]); then
           read -rp "Display units (metric/imperial) [${DEFAULT_UNITS}]: " UNITS_INPUT
           UNITS="${UNITS_INPUT:-${DEFAULT_UNITS}}"
@@ -462,6 +471,7 @@ write_config() {
         echo "==> Using defaults for new options (non-interactive mode)"
         : "${CPU_TEMP_FACTOR:=${DEFAULT_CPU_TEMP_FACTOR}}"
         : "${CPU_TEMP_SMOOTHING:=${DEFAULT_CPU_TEMP_SMOOTHING}}"
+        : "${TEMP_SMOOTHING_MINUTES:=${DEFAULT_TEMP_SMOOTHING_MINUTES}}"
         # Only set UNITS default if it wasn't in the config file with a valid value
         if [ "$units_in_config" = "false" ]; then
           : "${UNITS:=${DEFAULT_UNITS}}"
@@ -471,6 +481,7 @@ write_config() {
       # Use defaults for new options if not interactive
       : "${CPU_TEMP_FACTOR:=${DEFAULT_CPU_TEMP_FACTOR}}"
       : "${CPU_TEMP_SMOOTHING:=${DEFAULT_CPU_TEMP_SMOOTHING}}"
+      : "${TEMP_SMOOTHING_MINUTES:=${DEFAULT_TEMP_SMOOTHING_MINUTES}}"
       # Only set UNITS default if it wasn't in the config file with a valid value
       if [ "$units_in_config" = "false" ]; then
         : "${UNITS:=${DEFAULT_UNITS}}"
@@ -529,6 +540,7 @@ write_config() {
       read -rp "Humidity offset % [${DEFAULT_HUM_OFFSET}]: " HUM_OFFSET
       read -rp "CPU temperature compensation factor (higher=less compensation, lower=more compensation) [${DEFAULT_CPU_TEMP_FACTOR}]: " CPU_TEMP_FACTOR
       read -rp "CPU temperature smoothing factor [${DEFAULT_CPU_TEMP_SMOOTHING}]: " CPU_TEMP_SMOOTHING
+      read -rp "Temperature smoothing window (minutes) [${DEFAULT_TEMP_SMOOTHING_MINUTES}]: " TEMP_SMOOTHING_MINUTES
       read -rp "Display units (metric/imperial) [${DEFAULT_UNITS}]: " UNITS
       # Validate units
       if [ "$UNITS" != "metric" ] && [ "$UNITS" != "imperial" ]; then
@@ -555,6 +567,7 @@ write_config() {
   : "${HUM_OFFSET:=${DEFAULT_HUM_OFFSET}}"
   : "${CPU_TEMP_FACTOR:=${DEFAULT_CPU_TEMP_FACTOR}}"
   : "${CPU_TEMP_SMOOTHING:=${DEFAULT_CPU_TEMP_SMOOTHING}}"
+  : "${TEMP_SMOOTHING_MINUTES:=${DEFAULT_TEMP_SMOOTHING_MINUTES}}"
   : "${DISPLAY_ENABLED:=${DEFAULT_DISPLAY_ENABLED}}"
   # Only set UNITS default if it wasn't already set above
   if [ -z "${UNITS:-}" ]; then
@@ -573,6 +586,7 @@ TEMP_OFFSET="${TEMP_OFFSET}"
 HUM_OFFSET="${HUM_OFFSET}"
 CPU_TEMP_FACTOR="${CPU_TEMP_FACTOR}"
 CPU_TEMP_SMOOTHING="${CPU_TEMP_SMOOTHING}"
+TEMP_SMOOTHING_MINUTES="${TEMP_SMOOTHING_MINUTES}"
 DISPLAY_ENABLED="${DISPLAY_ENABLED}"
 UNITS="${UNITS}"
 EOF
