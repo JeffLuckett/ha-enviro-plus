@@ -100,9 +100,9 @@ ensure_fonts() {
     fi
   done
 
-  # Also try using fc-list to check for fonts
+  # Also try using fc-list to check for fonts (only if fontconfig is installed)
   if [ "$font_found" = "false" ] && command -v fc-list >/dev/null 2>&1; then
-    if fc-list | grep -qi "dejavu"; then
+    if fc-list 2>/dev/null | grep -qi "dejavu"; then
       font_found=true
       echo "==> DejaVu fonts found via fontconfig"
     fi
@@ -113,22 +113,32 @@ ensure_fonts() {
     return 0
   fi
 
-  # Install fonts for display rendering
+  # Fonts not found - install them
+  echo "==> DejaVu fonts not found, installing..."
   echo "==> Installing DejaVu fonts and fontconfig for display..."
-  sudo apt-get update -y
-  sudo apt-get install -y fonts-dejavu-core fonts-dejavu-extra fontconfig || {
+
+  # Update package list
+  sudo apt-get update -y >/dev/null 2>&1
+
+  # Install fonts
+  if sudo apt-get install -y fonts-dejavu-core fonts-dejavu-extra fontconfig 2>&1; then
+    echo "==> Font packages installed successfully"
+  else
     echo "==> Warning: Failed to install fonts-dejavu packages, trying alternative..."
     # Try alternative package names
-    sudo apt-get install -y ttf-dejavu-core ttf-dejavu-extra 2>/dev/null || {
-      echo "==> Warning: Could not install DejaVu fonts automatically"
-      echo "==> Display will use default bitmap font (may be small)"
-      echo "==> To install fonts manually: sudo apt-get install fonts-dejavu-core fontconfig"
+    if sudo apt-get install -y ttf-dejavu-core ttf-dejavu-extra 2>&1; then
+      echo "==> Alternative font packages installed"
+    else
+      echo "==> Error: Could not install DejaVu fonts automatically"
+      echo "==> Display will use default bitmap font (will be very small)"
+      echo "==> To install fonts manually, run: sudo apt-get install fonts-dejavu-core fonts-dejavu-extra fontconfig"
       return 1
-    }
-  }
+    fi
+  fi
 
   # Update font cache
   if command -v fc-cache >/dev/null 2>&1; then
+    echo "==> Updating font cache..."
     sudo fc-cache -fv >/dev/null 2>&1 || true
   fi
 
@@ -141,16 +151,18 @@ ensure_fonts() {
     "/usr/share/fonts/truetype/ttf-dejavu/DejaVuSans-Bold.ttf"; do
     if [ -f "$font_path" ]; then
       font_found=true
-      echo "==> Fonts installed successfully at: $font_path"
+      echo "==> Fonts verified at: $font_path"
       break
     fi
   done
 
   if [ "$font_found" = "true" ]; then
+    echo "==> Font installation complete"
     return 0
   else
-    echo "==> Warning: Font installation may have failed, but continuing..."
-    echo "==> Fonts may be in a different location - font discovery will try to find them"
+    echo "==> Warning: Font installation completed but fonts not found in expected locations"
+    echo "==> Font discovery will search for fonts on startup"
+    echo "==> If fonts still don't work, check: find /usr/share/fonts -name '*DejaVu*.ttf'"
     return 1
   fi
 }
@@ -394,8 +406,9 @@ write_config() {
     # Check if UNITS line exists and has a valid non-empty value
     local units_line=$(sudo grep "^UNITS=" "${CFG}" 2>/dev/null || echo "")
     if [ -n "$units_line" ]; then
-      local units_value=$(echo "$units_line" | cut -d'=' -f2 | tr -d '"' | tr -d ' ')
-      if [ -n "$units_value" ] && ([ "$units_value" = "metric" ] || [ "$units_value" = "imperial" ]); then
+      local units_value=$(echo "$units_line" | cut -d'=' -f2 | tr -d '"' | tr -d ' ' | tr -d '\n')
+      # Check if value is non-empty and valid
+      if [ -n "$units_value" ] && [ "$units_value" = "metric" ] || [ "$units_value" = "imperial" ]; then
         units_in_config=true
       fi
     fi
@@ -407,33 +420,47 @@ write_config() {
 
     # Re-check UNITS after loading config - it might be empty or invalid
     # This is critical because load_existing_config might set UNITS="" if it exists but is empty
-    if [ -z "${UNITS:-}" ] || ([ "${UNITS:-}" != "metric" ] && [ "${UNITS:-}" != "imperial" ]); then
+    # Check if UNITS is actually empty (not just unset) or invalid
+    local units_after_load="${UNITS:-}"
+    if [ -z "$units_after_load" ] || ([ "$units_after_load" != "metric" ] && [ "$units_after_load" != "imperial" ]); then
       units_in_config=false  # Override previous check - it's not valid
       unset UNITS  # Clear it so we prompt
     fi
 
     # Check for new options that need configuration
-    if check_new_config_options && [ -t 0 ]; then
-      echo
-      echo "Please configure the new options:"
+    if check_new_config_options; then
+      # Try to prompt if interactive, otherwise use defaults
+      if [ -t 0 ]; then
+        echo
+        echo "Please configure the new options:"
 
-      if [ -z "${CPU_TEMP_FACTOR:-}" ]; then
-        read -rp "CPU temperature compensation factor (higher=less compensation, lower=more compensation) [${DEFAULT_CPU_TEMP_FACTOR}]: " CPU_TEMP_FACTOR_INPUT
-        CPU_TEMP_FACTOR="${CPU_TEMP_FACTOR_INPUT:-${DEFAULT_CPU_TEMP_FACTOR}}"
-      fi
+        if [ -z "${CPU_TEMP_FACTOR:-}" ]; then
+          read -rp "CPU temperature compensation factor (higher=less compensation, lower=more compensation) [${DEFAULT_CPU_TEMP_FACTOR}]: " CPU_TEMP_FACTOR_INPUT
+          CPU_TEMP_FACTOR="${CPU_TEMP_FACTOR_INPUT:-${DEFAULT_CPU_TEMP_FACTOR}}"
+        fi
 
-      if [ -z "${CPU_TEMP_SMOOTHING:-}" ]; then
-        read -rp "CPU temperature smoothing factor [${DEFAULT_CPU_TEMP_SMOOTHING}]: " CPU_TEMP_SMOOTHING_INPUT
-        CPU_TEMP_SMOOTHING="${CPU_TEMP_SMOOTHING_INPUT:-${DEFAULT_CPU_TEMP_SMOOTHING}}"
-      fi
+        if [ -z "${CPU_TEMP_SMOOTHING:-}" ]; then
+          read -rp "CPU temperature smoothing factor [${DEFAULT_CPU_TEMP_SMOOTHING}]: " CPU_TEMP_SMOOTHING_INPUT
+          CPU_TEMP_SMOOTHING="${CPU_TEMP_SMOOTHING_INPUT:-${DEFAULT_CPU_TEMP_SMOOTHING}}"
+        fi
 
-      if [ -z "${UNITS:-}" ] || ([ "${UNITS:-}" != "metric" ] && [ "${UNITS:-}" != "imperial" ]); then
-        read -rp "Display units (metric/imperial) [${DEFAULT_UNITS}]: " UNITS_INPUT
-        UNITS="${UNITS_INPUT:-${DEFAULT_UNITS}}"
-        # Validate units
-        if [ "$UNITS" != "metric" ] && [ "$UNITS" != "imperial" ]; then
-          echo "==> Invalid units: $UNITS, using default: ${DEFAULT_UNITS}"
-          UNITS="${DEFAULT_UNITS}"
+        if [ -z "${UNITS:-}" ] || ([ "${UNITS:-}" != "metric" ] && [ "${UNITS:-}" != "imperial" ]); then
+          read -rp "Display units (metric/imperial) [${DEFAULT_UNITS}]: " UNITS_INPUT
+          UNITS="${UNITS_INPUT:-${DEFAULT_UNITS}}"
+          # Validate units
+          if [ "$UNITS" != "metric" ] && [ "$UNITS" != "imperial" ]; then
+            echo "==> Invalid units: $UNITS, using default: ${DEFAULT_UNITS}"
+            UNITS="${DEFAULT_UNITS}"
+          fi
+        fi
+      else
+        # Use defaults for new options if not interactive
+        echo "==> Using defaults for new options (non-interactive mode)"
+        : "${CPU_TEMP_FACTOR:=${DEFAULT_CPU_TEMP_FACTOR}}"
+        : "${CPU_TEMP_SMOOTHING:=${DEFAULT_CPU_TEMP_SMOOTHING}}"
+        # Only set UNITS default if it wasn't in the config file with a valid value
+        if [ "$units_in_config" = "false" ]; then
+          : "${UNITS:=${DEFAULT_UNITS}}"
         fi
       fi
     else
@@ -446,27 +473,38 @@ write_config() {
       fi
     fi
 
-    # Always prompt for UNITS on interactive installs if it's missing or invalid
-    # This ensures users are always prompted when UNITS is not properly set
-    if [ -t 0 ]; then
-      # Check if UNITS is unset, empty, or invalid AFTER loading config
-      local units_valid=false
-      if [ -n "${UNITS:-}" ] && [ "${UNITS:-}" = "metric" ]; then
-        units_valid=true
-      elif [ -n "${UNITS:-}" ] && [ "${UNITS:-}" = "imperial" ]; then
-        units_valid=true
-      fi
+    # Always prompt for UNITS if it's missing or invalid (separate from new options check)
+    # Check if UNITS is unset, empty, or invalid AFTER loading config
+    local units_current="${UNITS:-}"
+    local units_valid=false
+    if [ -n "$units_current" ] && [ "$units_current" = "metric" ]; then
+      units_valid=true
+    elif [ -n "$units_current" ] && [ "$units_current" = "imperial" ]; then
+      units_valid=true
+    fi
 
-      if [ "$units_in_config" = "false" ] || [ "$units_valid" = "false" ]; then
+    # Prompt if not valid or not in config - ALWAYS prompt on interactive installs
+    if [ "$units_in_config" = "false" ] || [ "$units_valid" = "false" ]; then
+      # Try to prompt if we can (check if stdin is available)
+      if [ -t 0 ]; then
         echo
         echo "==> Display units configuration:"
         read -rp "Display units (metric/imperial) [${DEFAULT_UNITS}]: " UNITS_INPUT
-        UNITS="${UNITS_INPUT:-${DEFAULT_UNITS}}"
+        if [ -n "$UNITS_INPUT" ]; then
+          UNITS="$UNITS_INPUT"
+        else
+          UNITS="${DEFAULT_UNITS}"
+        fi
         # Validate units
         if [ "$UNITS" != "metric" ] && [ "$UNITS" != "imperial" ]; then
           echo "==> Invalid units: $UNITS, using default: ${DEFAULT_UNITS}"
           UNITS="${DEFAULT_UNITS}"
         fi
+      else
+        # Non-interactive - use default but warn
+        UNITS="${DEFAULT_UNITS}"
+        echo "==> UNITS not configured, using default: ${DEFAULT_UNITS}"
+        echo "==> To configure later, edit ${CFG} and set UNITS=\"metric\" or UNITS=\"imperial\""
       fi
     fi
   else
@@ -793,7 +831,9 @@ main() {
 
   # Common post-installation steps
   enable_hardware_interfaces
-  ensure_fonts  # Install fonts for display rendering
+  echo  # Blank line for readability
+  ensure_fonts  # Install fonts for display rendering - MUST run before write_config
+  echo  # Blank line for readability
   write_config
   create_settings_dir
   install_icons
