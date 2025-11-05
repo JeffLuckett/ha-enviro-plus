@@ -122,6 +122,11 @@ class DisplayManager:
                 except Exception as e:
                     self.logger.debug("Display: Could not clear on startup: %s", e)
 
+            # Clear any queued items and current display state to ensure clean startup
+            with self._lock:
+                self._display_queue.clear()
+                self._current_display = None
+
             # Start the display thread
             self._thread = threading.Thread(target=self._display_loop, daemon=True)
             self._thread.start()
@@ -305,9 +310,9 @@ class DisplayManager:
                                         pass
                                 self._current_display = None
                                 display_start_time = None
-                                # Advance plugin cycle if active
+                                # Queue next plugin if cycle is active
                                 if self._plugin_cycle_active:
-                                    self._advance_plugin_cycle()
+                                    self._queue_next_plugin()
 
                 # Small delay to prevent busy waiting
                 time.sleep(0.05)
@@ -417,7 +422,14 @@ class DisplayManager:
         Ensures the display is cleared (black) before shutdown to prevent
         old content from flashing on next startup.
         """
-        # Clear the display first (show black image) - this ensures clean
+        # Stop plugin cycle first to prevent new items from being queued
+        with self._lock:
+            self._plugin_cycle_active = False
+            # Clear any queued items to prevent them from flashing
+            self._display_queue.clear()
+            self._current_display = None
+
+        # Clear the display (show black image) - this ensures clean
         # shutdown and prevents old content from appearing on next startup
         self.clear_display()
 
@@ -461,6 +473,10 @@ class DisplayManager:
         """
         Start cycling through display plugins.
 
+        The first plugin will be queued after the current display item
+        (typically the splash screen) completes. This prevents plugins
+        from flashing before the splash screen.
+
         Args:
             plugins: List of DisplayPlugin instances to cycle through
         """
@@ -479,8 +495,10 @@ class DisplayManager:
             plugin_count = len(self._plugin_cycle_plugins)
             self.logger.info("Starting plugin cycle with %d plugin(s)", plugin_count)
 
-        # Queue the first plugin
-        self._queue_next_plugin()
+        # Don't queue the first plugin immediately - wait for current display
+        # (splash screen) to complete. The first plugin will be queued when
+        # the splash screen finishes and advances the cycle.
+        self.logger.debug("Plugin cycle ready - first plugin will queue after splash completes")
 
     def _queue_next_plugin(self) -> None:
         """Queue the next plugin in the cycle."""
@@ -605,7 +623,11 @@ class DisplayManager:
                 self._plugin_cycle_settings = settings
 
     def _advance_plugin_cycle(self) -> None:
-        """Advance to the next plugin in the cycle."""
+        """
+        Advance to the next plugin in the cycle.
+
+        This is called when a plugin display completes to move to the next one.
+        """
         if not self._plugin_cycle_active or not self._plugin_cycle_plugins:
             return
 
