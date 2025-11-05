@@ -669,8 +669,7 @@ def main() -> None:
         try:
             display = DisplayManager(logger=logger, enabled=DISPLAY_ENABLED)
             if display.display_available:
-                # Clear any old content from previous run before showing splash
-                display.clear_display()
+                # Display is already cleared during initialization
                 # Queue splash screen - this is non-blocking now!
                 display.show_splash(duration=8, fade_duration=2)
                 logger.info("Splash screen queued for display")

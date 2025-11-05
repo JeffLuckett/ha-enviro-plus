@@ -112,6 +112,16 @@ class DisplayManager:
             self.display_available = True
             self.logger.info("Display initialized successfully")
 
+            # Clear display immediately to remove any old content from previous session
+            # This prevents flashing of old content on startup
+            if PIL_AVAILABLE:
+                try:
+                    black_image = Image.new("RGB", (160, 80), color=(0, 0, 0))
+                    self.display.display(black_image)
+                    self.logger.debug("Display: Cleared old content on startup")
+                except Exception as e:
+                    self.logger.debug("Display: Could not clear on startup: %s", e)
+
             # Start the display thread
             self._thread = threading.Thread(target=self._display_loop, daemon=True)
             self._thread.start()
@@ -403,9 +413,17 @@ class DisplayManager:
     def cleanup(self) -> None:
         """
         Clean up display resources and stop display thread.
+
+        Ensures the display is cleared (black) before shutdown to prevent
+        old content from flashing on next startup.
         """
-        # Clear the display first (show black image)
+        # Clear the display first (show black image) - this ensures clean
+        # shutdown and prevents old content from appearing on next startup
         self.clear_display()
+
+        # Give the clear a moment to display before stopping thread
+        if self.display_available:
+            time.sleep(0.1)
 
         # Signal the thread to stop
         self._stop_event.set()
