@@ -680,6 +680,7 @@ class EnviroPlusSensors:
         hum_offset: Optional[float] = None,
         cpu_temp_factor: Optional[float] = None,
         cpu_temp_smoothing: Optional[float] = None,
+        temp_smoothing_minutes: Optional[float] = None,
     ) -> None:
         """
         Update calibration parameters.
@@ -689,6 +690,7 @@ class EnviroPlusSensors:
             hum_offset: New humidity offset in %
             cpu_temp_factor: New CPU temperature compensation factor (higher=less compensation, lower=more compensation)
             cpu_temp_smoothing: New CPU temperature smoothing factor (0.0-1.0, lower=more smoothing)
+            temp_smoothing_minutes: New temperature smoothing window in minutes (0.0 = no smoothing)
         """
         if temp_offset is not None:
             self.temp_offset = temp_offset
@@ -705,6 +707,14 @@ class EnviroPlusSensors:
         if cpu_temp_smoothing is not None:
             self.cpu_temp_smoothing = cpu_temp_smoothing
             self.logger.info("Updated CPU temperature smoothing to %s", cpu_temp_smoothing)
+
+        if temp_smoothing_minutes is not None:
+            self.temp_smoothing_minutes = temp_smoothing_minutes
+            # Clear history when smoothing window changes
+            self._temp_history.clear()
+            self.logger.info(
+                "Updated temperature smoothing window to %s minutes", temp_smoothing_minutes
+            )
 
     def get_all_sensor_data(self) -> Dict[str, Any]:
         """

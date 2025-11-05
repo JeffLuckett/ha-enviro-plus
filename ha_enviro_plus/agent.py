@@ -518,6 +518,7 @@ def publish_discovery(c: mqtt.Client, enviro_sensors: Optional[EnviroPlusSensors
     number("Humidity Offset", "hum_offset", "%", -20, 20, 0.5)
     number("CPU Temp Factor", "cpu_temp_factor", None, 0.5, 5.0, 0.1)
     number("CPU Temp Smoothing", "cpu_temp_smoothing", None, 0.01, 1.0, 0.01)
+    number("Temp Smoothing Window", "temp_smoothing_minutes", "min", 0.0, 60.0, 0.1)
 
 
 def read_all(enviro_sensors: EnviroPlusSensors) -> Dict[str, Any]:
@@ -597,12 +598,20 @@ def on_connect(
             str(settings_manager.get_cpu_temp_smoothing()),
             retain=True,
         )
+        client.publish(
+            f"{root}/set/temp_smoothing_minutes",
+            str(settings_manager.get_temp_smoothing_minutes()),
+            retain=True,
+        )
     else:
         # Fallback to environment variables if settings manager not available
         client.publish(f"{root}/set/temp_offset", str(TEMP_OFFSET), retain=True)
         client.publish(f"{root}/set/hum_offset", str(HUM_OFFSET), retain=True)
         client.publish(f"{root}/set/cpu_temp_factor", str(CPU_TEMP_FACTOR), retain=True)
         client.publish(f"{root}/set/cpu_temp_smoothing", str(CPU_TEMP_SMOOTHING), retain=True)
+        client.publish(
+            f"{root}/set/temp_smoothing_minutes", str(TEMP_SMOOTHING_MINUTES), retain=True
+        )
 
     # Subscribe to commands and setters
     client.subscribe([(cmd_t, 1), (set_t, 1)])
@@ -645,6 +654,11 @@ def _handle_command(
                     str(settings_manager.get_cpu_temp_smoothing()),
                     retain=True,
                 )
+                client.publish(
+                    f"{root}/set/temp_smoothing_minutes",
+                    str(settings_manager.get_temp_smoothing_minutes()),
+                    retain=True,
+                )
                 logger.info("Settings reset successfully")
             except Exception as e:
                 logger.error("Failed to reset settings: %s", e)
@@ -653,6 +667,7 @@ def _handle_command(
 
 
 def _handle_calibration_setting(
+    client: mqtt.Client,
     topic: str,
     payload: str,
     enviro_sensors: EnviroPlusSensors,
@@ -682,6 +697,19 @@ def _handle_calibration_setting(
             enviro_sensors.update_calibration(cpu_temp_smoothing=value)
             if settings_manager:
                 settings_manager.set_cpu_temp_smoothing(value)
+        elif key == "temp_smoothing_minutes":
+            value = float(payload)
+            if value < 0.0:
+                logger.warning("Temperature smoothing window must be >= 0, got %s", value)
+                value = 0.0
+            if value > 60.0:
+                logger.warning("Temperature smoothing window should be <= 60, got %s", value)
+                value = 60.0
+            enviro_sensors.update_calibration(temp_smoothing_minutes=value)
+            if settings_manager:
+                settings_manager.set_temp_smoothing_minutes(value)
+            # Publish updated value back to MQTT
+            client.publish(f"{root}/set/temp_smoothing_minutes", str(value), retain=True)
         else:
             logger.warning("Unknown calibration setting: %s", key)
     except ValueError:
@@ -704,7 +732,7 @@ def on_message(
         if topic == cmd_t:
             _handle_command(client, payload, settings_manager)
         elif topic.startswith(f"{root}/set/"):
-            _handle_calibration_setting(topic, payload, enviro_sensors, settings_manager)
+            _handle_calibration_setting(client, topic, payload, enviro_sensors, settings_manager)
     except Exception as e:
         logger.exception("on_message error: %s", e)
 

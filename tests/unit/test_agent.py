@@ -768,6 +768,28 @@ class TestOnMessage:
         # Should update calibration
         sensors.update_calibration.assert_called_once_with(cpu_temp_factor=2.5)
 
+    def test_on_message_temp_smoothing_minutes_update(
+        self, mock_mqtt_client, mock_bme280, mock_ltr559, mock_gas_sensor, mock_device_id
+    ):
+        """Test temperature smoothing window update via MQTT."""
+        client = mock_mqtt_client.return_value
+
+        msg = Mock()
+        msg.topic = "enviro_raspberrypi/set/temp_smoothing_minutes"
+        msg.payload.decode.return_value = "10.0"
+
+        sensors = Mock()
+        mock_settings = Mock()
+        mock_settings.set_temp_smoothing_minutes = Mock()
+
+        on_message(client, {"settings_manager": mock_settings}, msg, sensors)
+
+        # Should update calibration
+        sensors.update_calibration.assert_called_once_with(temp_smoothing_minutes=10.0)
+        mock_settings.set_temp_smoothing_minutes.assert_called_once_with(10.0)
+        # Should publish updated value back
+        assert client.publish.call_count > 0
+
     def test_on_message_invalid_command(
         self, mock_mqtt_client, mock_bme280, mock_ltr559, mock_gas_sensor
     ):
@@ -936,7 +958,7 @@ class TestSettingsIntegration:
         mock_enviro_sensors = Mock()
 
         _handle_calibration_setting(
-            "enviro_raspberrypi/set/temp_offset", "2.5", mock_enviro_sensors, mock_settings_manager
+            client, "enviro_raspberrypi/set/temp_offset", "2.5", mock_enviro_sensors, mock_settings_manager
         )
 
         # Verify settings manager was called
@@ -955,7 +977,7 @@ class TestSettingsIntegration:
         mock_enviro_sensors = Mock()
 
         _handle_calibration_setting(
-            "enviro_raspberrypi/set/temp_offset", "2.5", mock_enviro_sensors, None
+            client, "enviro_raspberrypi/set/temp_offset", "2.5", mock_enviro_sensors, None
         )
 
         # Verify sensor calibration was still updated
@@ -975,6 +997,7 @@ class TestSettingsIntegration:
 
         # Should not raise an exception for invalid value
         _handle_calibration_setting(
+            client,
             "enviro_raspberrypi/set/temp_offset",
             "invalid",
             mock_enviro_sensors,
@@ -1010,6 +1033,7 @@ class TestSettingsIntegration:
 
             # Verify calibration handler was called with settings manager
             mock_handler.assert_called_once_with(
+                client,
                 "enviro_raspberrypi/set/temp_offset",
                 "1.5",
                 mock_enviro_sensors,
@@ -1035,7 +1059,11 @@ class TestSettingsIntegration:
 
             # Verify calibration handler was called without settings manager
             mock_handler.assert_called_once_with(
-                "enviro_raspberrypi/set/temp_offset", "1.5", mock_enviro_sensors, None
+                client,
+                "enviro_raspberrypi/set/temp_offset",
+                "1.5",
+                mock_enviro_sensors,
+                None,
             )
 
     def test_on_connect_with_settings_manager(
@@ -1050,6 +1078,7 @@ class TestSettingsIntegration:
         mock_settings_manager.get_hum_offset.return_value = 2.0
         mock_settings_manager.get_cpu_temp_factor.return_value = 2.5
         mock_settings_manager.get_cpu_temp_smoothing.return_value = 0.3
+        mock_settings_manager.get_temp_smoothing_minutes.return_value = 5.0
 
         # Mock userdata
         userdata = {"settings_manager": mock_settings_manager}
@@ -1063,7 +1092,7 @@ class TestSettingsIntegration:
             # Find the settings publish calls
             settings_calls = [call for call in publish_calls if "set/" in call[0][0]]
 
-            assert len(settings_calls) == 4
+            assert len(settings_calls) == 5  # temp_offset, hum_offset, cpu_temp_factor, cpu_temp_smoothing, temp_smoothing_minutes
 
             # Verify each setting was published with correct value
             temp_offset_call = next(call for call in settings_calls if "temp_offset" in call[0][0])
@@ -1093,7 +1122,8 @@ class TestSettingsIntegration:
                 with patch("ha_enviro_plus.agent.HUM_OFFSET", 0.0):
                     with patch("ha_enviro_plus.agent.CPU_TEMP_FACTOR", 1.8):
                         with patch("ha_enviro_plus.agent.CPU_TEMP_SMOOTHING", 0.1):
-                            on_connect(client, None, None, 0)
+                            with patch("ha_enviro_plus.agent.TEMP_SMOOTHING_MINUTES", 5.0):
+                                on_connect(client, None, None, 0)
 
                             # Verify environment variable values were published
                             publish_calls = client.publish.call_args_list
@@ -1103,7 +1133,7 @@ class TestSettingsIntegration:
                                 call for call in publish_calls if "set/" in call[0][0]
                             ]
 
-                            assert len(settings_calls) == 4
+                            assert len(settings_calls) == 5  # temp_offset, hum_offset, cpu_temp_factor, cpu_temp_smoothing, temp_smoothing_minutes
 
                             # Verify each setting was published with environment variable value
                             temp_offset_call = next(
