@@ -698,18 +698,27 @@ def _handle_calibration_setting(
             if settings_manager:
                 settings_manager.set_cpu_temp_smoothing(value)
         elif key == "temp_smoothing_minutes":
-            value = float(payload)
+            original_value = float(payload)
+            value = original_value
+            value_changed = False
+
             if value < 0.0:
                 logger.warning("Temperature smoothing window must be >= 0, got %s", value)
                 value = 0.0
+                value_changed = True
             if value > 60.0:
                 logger.warning("Temperature smoothing window should be <= 60, got %s", value)
                 value = 60.0
+                value_changed = True
+
             enviro_sensors.update_calibration(temp_smoothing_minutes=value)
             if settings_manager:
                 settings_manager.set_temp_smoothing_minutes(value)
-            # Publish updated value back to MQTT
-            client.publish(f"{root}/set/temp_smoothing_minutes", str(value), retain=True)
+
+            # Only publish back if value was clamped (changed from original)
+            # This prevents infinite loops while still updating HA if we corrected the value
+            if value_changed:
+                client.publish(f"{root}/set/temp_smoothing_minutes", str(value), retain=True)
         else:
             logger.warning("Unknown calibration setting: %s", key)
     except ValueError:

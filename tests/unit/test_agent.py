@@ -787,8 +787,35 @@ class TestOnMessage:
         # Should update calibration
         sensors.update_calibration.assert_called_once_with(temp_smoothing_minutes=10.0)
         mock_settings.set_temp_smoothing_minutes.assert_called_once_with(10.0)
-        # Should publish updated value back
+        # Should NOT publish back when value is valid (prevents infinite loop)
+        # Only publishes back if value was clamped (outside valid range)
+        assert client.publish.call_count == 0
+
+    def test_on_message_temp_smoothing_minutes_clamped(
+        self, mock_mqtt_client, mock_bme280, mock_ltr559, mock_gas_sensor, mock_device_id
+    ):
+        """Test temperature smoothing window update with value clamping."""
+        client = mock_mqtt_client.return_value
+
+        msg = Mock()
+        msg.topic = "enviro_raspberrypi/set/temp_smoothing_minutes"
+        msg.payload.decode.return_value = "70.0"  # Value outside valid range
+
+        sensors = Mock()
+        mock_settings = Mock()
+        mock_settings.set_temp_smoothing_minutes = Mock()
+
+        on_message(client, {"settings_manager": mock_settings}, msg, sensors)
+
+        # Should update calibration with clamped value (60.0)
+        sensors.update_calibration.assert_called_once_with(temp_smoothing_minutes=60.0)
+        mock_settings.set_temp_smoothing_minutes.assert_called_once_with(60.0)
+        # Should publish back when value was clamped (so HA shows corrected value)
         assert client.publish.call_count > 0
+        # Verify the published value is the clamped value
+        publish_calls = [call for call in client.publish.call_args_list if "temp_smoothing_minutes" in call[0][0]]
+        assert len(publish_calls) > 0
+        assert publish_calls[0][0][1] == "60.0"
 
     def test_on_message_invalid_command(
         self, mock_mqtt_client, mock_bme280, mock_ltr559, mock_gas_sensor
