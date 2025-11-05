@@ -55,9 +55,11 @@ load_defaults() {
   DEFAULT_UNITS="metric"
 
   # Try to source from configuration file if it exists
+  # Use set +u temporarily to allow unset variables during sourcing
+  set +u
   if [ -f "${DEFAULTS_FILE}" ]; then
     # shellcheck source=config/install-defaults.conf
-    source "${DEFAULTS_FILE}"
+    source "${DEFAULTS_FILE}" || true  # Continue even if sourcing fails
     echo "==> Loaded defaults from ${DEFAULTS_FILE}"
   else
     # If file doesn't exist (e.g., during remote installation or PyPI install),
@@ -65,11 +67,16 @@ load_defaults() {
     if [ -d "${APP_DIR}/.git" ] || [ -f "${APP_DIR}/config/install-defaults.conf" ]; then
       local repo_defaults="${APP_DIR}/config/install-defaults.conf"
       if [ -f "${repo_defaults}" ]; then
-        source "${repo_defaults}"
+        source "${repo_defaults}" || true  # Continue even if sourcing fails
         echo "==> Loaded defaults from ${repo_defaults}"
       fi
     fi
   fi
+  set -u  # Re-enable unbound variable checking
+
+  # Ensure critical defaults are always set (even if config file didn't define them)
+  # This prevents "unbound variable" errors with set -u
+  : "${DEFAULT_TEMP_SMOOTHING_MINUTES:=5.0}"
 }
 
 ensure_git() {
@@ -404,6 +411,13 @@ write_config() {
 
   # Load default values from configuration file
   load_defaults
+
+  # Ensure critical defaults are always set (defensive programming)
+  # This prevents "unbound variable" errors even if config file doesn't define them
+  : "${DEFAULT_TEMP_SMOOTHING_MINUTES:=5.0}"
+  : "${DEFAULT_CPU_TEMP_FACTOR:=1.8}"
+  : "${DEFAULT_CPU_TEMP_SMOOTHING:=0.1}"
+  : "${DEFAULT_UNITS:=metric}"
 
   # Check if UNITS exists in config file with a valid value before loading
   local units_in_config=false
