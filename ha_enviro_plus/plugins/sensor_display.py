@@ -184,15 +184,61 @@ class SensorDisplayPlugin(DisplayPlugin):
         font_banner = None
         font_large = None
 
-        # Try multiple font paths (common locations on Raspberry Pi)
-        font_paths = [
+        # Try to discover fonts using fontconfig (fc-list) if available
+        font_paths = []
+
+        # Try to use fc-list to find DejaVu fonts
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["fc-list", "DejaVu", "file"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+            if result.returncode == 0 and result.stdout:
+                for line in result.stdout.strip().split("\n"):
+                    if line.strip() and "DejaVu" in line:
+                        font_paths.append(line.strip())
+        except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+            pass
+
+        # Add common hardcoded paths as fallback
+        font_paths.extend([
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
             "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
             "/usr/share/fonts/truetype/ttf-dejavu/DejaVuSans-Bold.ttf",
             "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",  # Fallback to regular if bold not available
             "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-        ]
+        ])
+
+        # Try to find any TTF font using find command
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["find", "/usr/share/fonts", "-name", "*DejaVu*.ttf", "-type", "f", "2>/dev/null"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                shell=False,
+            )
+            if result.returncode == 0 and result.stdout:
+                for line in result.stdout.strip().split("\n"):
+                    if line.strip() and "Bold" in line:
+                        if line.strip() not in font_paths:
+                            font_paths.insert(0, line.strip())  # Prefer found fonts
+        except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+            pass
+
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_font_paths = []
+        for path in font_paths:
+            if path not in seen:
+                seen.add(path)
+                unique_font_paths.append(path)
+        font_paths = unique_font_paths
 
         loaded_font_path = None
         for font_path in font_paths:

@@ -86,36 +86,71 @@ ensure_python() {
 ensure_fonts() {
   echo "==> Ensuring display fonts are installed..."
 
-  # Check if DejaVu fonts are already installed
-  if [ -f "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" ] || \
-     [ -f "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf" ] || \
-     [ -f "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf" ]; then
+  # Check if DejaVu fonts are already installed (check multiple locations)
+  local font_found=false
+  for font_path in \
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" \
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf" \
+    "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf" \
+    "/usr/share/fonts/truetype/ttf-dejavu/DejaVuSans-Bold.ttf"; do
+    if [ -f "$font_path" ]; then
+      font_found=true
+      echo "==> Found DejaVu font at: $font_path"
+      break
+    fi
+  done
+
+  # Also try using fc-list to check for fonts
+  if [ "$font_found" = "false" ] && command -v fc-list >/dev/null 2>&1; then
+    if fc-list | grep -qi "dejavu"; then
+      font_found=true
+      echo "==> DejaVu fonts found via fontconfig"
+    fi
+  fi
+
+  if [ "$font_found" = "true" ]; then
     echo "==> DejaVu fonts already installed"
     return 0
   fi
 
   # Install fonts for display rendering
-  echo "==> Installing DejaVu fonts for display..."
+  echo "==> Installing DejaVu fonts and fontconfig for display..."
   sudo apt-get update -y
-  sudo apt-get install -y fonts-dejavu-core fonts-dejavu-extra || {
+  sudo apt-get install -y fonts-dejavu-core fonts-dejavu-extra fontconfig || {
     echo "==> Warning: Failed to install fonts-dejavu packages, trying alternative..."
     # Try alternative package names
     sudo apt-get install -y ttf-dejavu-core ttf-dejavu-extra 2>/dev/null || {
       echo "==> Warning: Could not install DejaVu fonts automatically"
       echo "==> Display will use default bitmap font (may be small)"
-      echo "==> To install fonts manually: sudo apt-get install fonts-dejavu-core"
+      echo "==> To install fonts manually: sudo apt-get install fonts-dejavu-core fontconfig"
       return 1
     }
   }
 
+  # Update font cache
+  if command -v fc-cache >/dev/null 2>&1; then
+    sudo fc-cache -fv >/dev/null 2>&1 || true
+  fi
+
   # Verify font installation
-  if [ -f "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" ] || \
-     [ -f "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf" ] || \
-     [ -f "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf" ]; then
-    echo "==> Fonts installed successfully"
+  font_found=false
+  for font_path in \
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" \
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf" \
+    "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf" \
+    "/usr/share/fonts/truetype/ttf-dejavu/DejaVuSans-Bold.ttf"; do
+    if [ -f "$font_path" ]; then
+      font_found=true
+      echo "==> Fonts installed successfully at: $font_path"
+      break
+    fi
+  done
+
+  if [ "$font_found" = "true" ]; then
     return 0
   else
     echo "==> Warning: Font installation may have failed, but continuing..."
+    echo "==> Fonts may be in a different location - font discovery will try to find them"
     return 1
   fi
 }
@@ -385,7 +420,7 @@ write_config() {
         CPU_TEMP_SMOOTHING="${CPU_TEMP_SMOOTHING_INPUT:-${DEFAULT_CPU_TEMP_SMOOTHING}}"
       fi
 
-      if [ -z "${UNITS:-}" ] || [ "${UNITS:-}" != "metric" ] && [ "${UNITS:-}" != "imperial" ]; then
+      if [ -z "${UNITS:-}" ] || ([ "${UNITS:-}" != "metric" ] && [ "${UNITS:-}" != "imperial" ]); then
         read -rp "Display units (metric/imperial) [${DEFAULT_UNITS}]: " UNITS_INPUT
         UNITS="${UNITS_INPUT:-${DEFAULT_UNITS}}"
         # Validate units
@@ -404,16 +439,27 @@ write_config() {
       fi
     fi
 
-    # Always prompt for UNITS on interactive installs if it wasn't properly set in config
-    if [ -t 0 ] && ([ "$units_in_config" = "false" ] || [ -z "${UNITS:-}" ] || ([ "${UNITS:-}" != "metric" ] && [ "${UNITS:-}" != "imperial" ])); then
-      echo
-      echo "==> Display units configuration:"
-      read -rp "Display units (metric/imperial) [${DEFAULT_UNITS}]: " UNITS_INPUT
-      UNITS="${UNITS_INPUT:-${DEFAULT_UNITS}}"
-      # Validate units
-      if [ "$UNITS" != "metric" ] && [ "$UNITS" != "imperial" ]; then
-        echo "==> Invalid units: $UNITS, using default: ${DEFAULT_UNITS}"
-        UNITS="${DEFAULT_UNITS}"
+    # Always prompt for UNITS on interactive installs if it's missing or invalid
+    # This ensures users are always prompted when UNITS is not properly set
+    if [ -t 0 ]; then
+      # Check if UNITS is unset, empty, or invalid
+      local units_valid=false
+      if [ -n "${UNITS:-}" ] && [ "${UNITS:-}" = "metric" ]; then
+        units_valid=true
+      elif [ -n "${UNITS:-}" ] && [ "${UNITS:-}" = "imperial" ]; then
+        units_valid=true
+      fi
+
+      if [ "$units_in_config" = "false" ] || [ "$units_valid" = "false" ]; then
+        echo
+        echo "==> Display units configuration:"
+        read -rp "Display units (metric/imperial) [${DEFAULT_UNITS}]: " UNITS_INPUT
+        UNITS="${UNITS_INPUT:-${DEFAULT_UNITS}}"
+        # Validate units
+        if [ "$UNITS" != "metric" ] && [ "$UNITS" != "imperial" ]; then
+          echo "==> Invalid units: $UNITS, using default: ${DEFAULT_UNITS}"
+          UNITS="${DEFAULT_UNITS}"
+        fi
       fi
     fi
   else
