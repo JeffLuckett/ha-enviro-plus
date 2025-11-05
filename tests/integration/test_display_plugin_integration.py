@@ -241,6 +241,7 @@ class TestDisplayPluginIntegration:
 
     def test_units_conversion_in_plugin_rendering(self, mock_sensors, mock_settings):
         """Test that units conversion is applied correctly in plugin rendering."""
+        import ha_enviro_plus.plugins.sensor_display as sensor_display_module
         from ha_enviro_plus.plugins.sensor_display import SensorDisplayPlugin
         from ha_enviro_plus.display_plugins import celsius_to_fahrenheit, hpa_to_inhg
 
@@ -248,39 +249,79 @@ class TestDisplayPluginIntegration:
         mock_settings.get_units.return_value = "metric"
         plugin = SensorDisplayPlugin()
 
-        with patch("ha_enviro_plus.plugins.sensor_display.PIL_AVAILABLE", True):
-            with patch("ha_enviro_plus.plugins.sensor_display.Image") as mock_image:
-                with patch("ha_enviro_plus.plugins.sensor_display.ImageDraw") as mock_draw:
-                    with patch("ha_enviro_plus.plugins.sensor_display.ImageFont") as mock_font:
-                        mock_img_instance = Mock()
-                        mock_image.new.return_value = mock_img_instance
-                        mock_draw_instance = Mock()
-                        mock_draw.Draw.return_value = mock_draw_instance
-                        mock_font_instance = Mock()
-                        mock_font.truetype.return_value = mock_font_instance
+        # Create mock PIL modules
+        mock_image = MagicMock()
+        mock_draw = MagicMock()
+        mock_font = MagicMock()
+        mock_img_instance = Mock()
+        mock_image.new.return_value = mock_img_instance
+        mock_draw_instance = Mock()
+        mock_draw.Draw.return_value = mock_draw_instance
+        mock_font_instance = Mock()
+        mock_font.truetype.return_value = mock_font_instance
+        mock_font.load_default.return_value = mock_font_instance
 
-                        plugin.render(mock_sensors, mock_settings)
+        # Store original values if they exist
+        original_pil_available = getattr(sensor_display_module, "PIL_AVAILABLE", False)
+        original_image = getattr(sensor_display_module, "Image", None)
+        original_imagedraw = getattr(sensor_display_module, "ImageDraw", None)
+        original_imagefont = getattr(sensor_display_module, "ImageFont", None)
 
-                        # Verify temperature was read (should be in Celsius)
-                        mock_sensors.temp.assert_called()
+        # Set PIL_AVAILABLE and module-level imports directly
+        sensor_display_module.PIL_AVAILABLE = True
+        sensor_display_module.Image = mock_image
+        sensor_display_module.ImageDraw = mock_draw
+        sensor_display_module.ImageFont = mock_font
+
+        try:
+            plugin.render(mock_sensors, mock_settings)
+
+            # Verify temperature was read (should be in Celsius)
+            mock_sensors.temp.assert_called()
+        finally:
+            # Restore original values
+            sensor_display_module.PIL_AVAILABLE = original_pil_available
+            if original_image is not None:
+                sensor_display_module.Image = original_image
+            else:
+                delattr(sensor_display_module, "Image")
+            if original_imagedraw is not None:
+                sensor_display_module.ImageDraw = original_imagedraw
+            else:
+                delattr(sensor_display_module, "ImageDraw")
+            if original_imagefont is not None:
+                sensor_display_module.ImageFont = original_imagefont
+            else:
+                delattr(sensor_display_module, "ImageFont")
 
         # Test imperial rendering
         mock_settings.get_units.return_value = "imperial"
         mock_sensors.temp.return_value = 25.0  # Reset
 
-        with patch("ha_enviro_plus.plugins.sensor_display.PIL_AVAILABLE", True):
-            with patch("ha_enviro_plus.plugins.sensor_display.Image") as mock_image:
-                with patch("ha_enviro_plus.plugins.sensor_display.ImageDraw") as mock_draw:
-                    with patch("ha_enviro_plus.plugins.sensor_display.ImageFont") as mock_font:
-                        mock_img_instance = Mock()
-                        mock_image.new.return_value = mock_img_instance
-                        mock_draw_instance = Mock()
-                        mock_draw.Draw.return_value = mock_draw_instance
-                        mock_font_instance = Mock()
-                        mock_font.truetype.return_value = mock_font_instance
+        # Set PIL_AVAILABLE and module-level imports again for imperial test
+        sensor_display_module.PIL_AVAILABLE = True
+        sensor_display_module.Image = mock_image
+        sensor_display_module.ImageDraw = mock_draw
+        sensor_display_module.ImageFont = mock_font
 
-                        plugin.render(mock_sensors, mock_settings)
+        try:
+            plugin.render(mock_sensors, mock_settings)
 
-                        # Verify temperature was read and will be converted
-                        mock_sensors.temp.assert_called()
-                        # The conversion happens in the plugin render method
+            # Verify temperature was read and will be converted
+            mock_sensors.temp.assert_called()
+            # The conversion happens in the plugin render method
+        finally:
+            # Restore original values
+            sensor_display_module.PIL_AVAILABLE = original_pil_available
+            if original_image is not None:
+                sensor_display_module.Image = original_image
+            else:
+                delattr(sensor_display_module, "Image")
+            if original_imagedraw is not None:
+                sensor_display_module.ImageDraw = original_imagedraw
+            else:
+                delattr(sensor_display_module, "ImageDraw")
+            if original_imagefont is not None:
+                sensor_display_module.ImageFont = original_imagefont
+            else:
+                delattr(sensor_display_module, "ImageFont")

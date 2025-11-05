@@ -54,9 +54,9 @@ class SensorDisplayPlugin(DisplayPlugin):
 
     # Layout configuration
     TIME_X = 5  # X position for time in banner
-    DATE_X = 100  # X position for date in banner
-    LEFT_COLUMN_X = 5  # X position for left column (temperature, humidity)
-    RIGHT_COLUMN_X = 85  # X position for right column (pressure)
+    DATE_X = 70  # X position for date in banner (closer to time to fit year)
+    LEFT_COLUMN_X = 5  # X position for left column (temperature, pressure)
+    RIGHT_COLUMN_X = 85  # X position for right column (humidity)
 
     # Temperature ranges (for background color and icon selection)
     TEMP_COMFORT_MIN_C = 18  # Minimum comfort zone temperature (°C)
@@ -449,8 +449,8 @@ class SensorDisplayPlugin(DisplayPlugin):
         # Add vertical spacing between banner and content, and between rows
         content_y = self.BANNER_HEIGHT + self.CONTENT_Y_OFFSET
 
-        # Left column - Temperature (top row, left side)
-        y_temp = content_y
+        # Top row - Temperature (left) and Humidity (right)
+        y_top = content_y
         if sensors.has_sensor("bme280"):
             try:
                 if temp_c is None:
@@ -473,27 +473,25 @@ class SensorDisplayPlugin(DisplayPlugin):
                         (self.ICON_SIZE, self.ICON_SIZE), Image.Resampling.LANCZOS
                     )
                     # Paste icon with alpha blending
-                    image.paste(icon_resized, (icon_x, y_temp), icon_resized)
+                    image.paste(icon_resized, (icon_x, y_top), icon_resized)
                 else:
                     # Fallback: use "T" text
-                    draw.text((icon_x, y_temp), "T", font=font_large, fill=(255, 255, 255))
-                draw.text((text_x, y_temp), temp_str, font=font_large, fill=(255, 255, 255))
+                    draw.text((icon_x, y_top), "T", font=font_large, fill=(255, 255, 255))
+                draw.text((text_x, y_top), temp_str, font=font_large, fill=(255, 255, 255))
             except Exception as e:
                 self.logger.warning("Failed to read temperature: %s", e)
                 draw.text(
-                    (self.LEFT_COLUMN_X, y_temp), "T --", font=font_large, fill=(255, 255, 255)
+                    (self.LEFT_COLUMN_X, y_top), "T --", font=font_large, fill=(255, 255, 255)
                 )
 
-        # Left column - Humidity (middle row, left side)
-        y_hum = content_y + self.ROW_SPACING
-        if sensors.has_sensor("bme280"):
+            # Right column - Humidity (top row, right side)
             try:
                 if humidity is None:
                     humidity = sensors.humidity()
                 hum_str = f"{humidity:.0f}%"
 
                 # Draw icon if available, otherwise use text
-                icon_x = self.LEFT_COLUMN_X
+                icon_x = self.RIGHT_COLUMN_X
                 text_x = (
                     icon_x + self.ICON_SIZE + self.ICON_TEXT_SPACING if icon_humidity else icon_x
                 )
@@ -503,19 +501,19 @@ class SensorDisplayPlugin(DisplayPlugin):
                         (self.ICON_SIZE, self.ICON_SIZE), Image.Resampling.LANCZOS
                     )
                     # Paste icon with alpha blending
-                    image.paste(icon_resized, (icon_x, y_hum), icon_resized)
+                    image.paste(icon_resized, (icon_x, y_top), icon_resized)
                 else:
                     # Fallback: use "H" text
-                    draw.text((icon_x, y_hum), "H", font=font_large, fill=(255, 255, 255))
-                draw.text((text_x, y_hum), hum_str, font=font_large, fill=(255, 255, 255))
+                    draw.text((icon_x, y_top), "H", font=font_large, fill=(255, 255, 255))
+                draw.text((text_x, y_top), hum_str, font=font_large, fill=(255, 255, 255))
             except Exception as e:
                 self.logger.warning("Failed to read humidity: %s", e)
                 draw.text(
-                    (self.LEFT_COLUMN_X, y_hum), "H --%", font=font_large, fill=(255, 255, 255)
+                    (self.RIGHT_COLUMN_X, y_top), "H --%", font=font_large, fill=(255, 255, 255)
                 )
 
-        # Right column - Pressure (top row, right side)
-        y_pressure = content_y
+        # Bottom row - Pressure (left side)
+        y_pressure = content_y + self.ROW_SPACING
         if sensors.has_sensor("bme280"):
             try:
                 if pressure_hpa is None:
@@ -530,7 +528,7 @@ class SensorDisplayPlugin(DisplayPlugin):
                     pressure_str = f"{pressure_value:.0f}"
 
                 # Draw icon if available, otherwise use text
-                icon_x = self.RIGHT_COLUMN_X
+                icon_x = self.LEFT_COLUMN_X
                 text_x = (
                     icon_x + self.ICON_SIZE + self.ICON_TEXT_SPACING if icon_pressure else icon_x
                 )
@@ -548,7 +546,7 @@ class SensorDisplayPlugin(DisplayPlugin):
             except Exception as e:
                 self.logger.warning("Failed to read pressure: %s", e)
                 draw.text(
-                    (self.RIGHT_COLUMN_X, y_pressure), "P --", font=font_large, fill=(255, 255, 255)
+                    (self.LEFT_COLUMN_X, y_pressure), "P --", font=font_large, fill=(255, 255, 255)
                 )
 
         return image
