@@ -338,6 +338,7 @@ class InitPlugin(DisplayPlugin):
         """Test that SensorDisplayPlugin is registered by default."""
         # Clear any cached modules to ensure fresh state
         import sys
+
         modules_to_clear = [
             "ha_enviro_plus.display_plugins",
             "ha_enviro_plus.plugins",
