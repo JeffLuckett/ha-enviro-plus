@@ -114,9 +114,7 @@ class SensorDisplayPlugin(DisplayPlugin):
         """Get the name of this plugin."""
         return "Sensor Display"
 
-    def is_available(
-        self, sensors: "EnviroPlusSensors", settings: "SettingsManager"
-    ) -> bool:
+    def is_available(self, sensors: "EnviroPlusSensors", settings: "SettingsManager") -> bool:
         """
         Check if sensor display is available.
 
@@ -143,9 +141,7 @@ class SensorDisplayPlugin(DisplayPlugin):
         """
         return 0.1  # Update continuously (very short duration)
 
-    def render(
-        self, sensors: "EnviroPlusSensors", settings: "SettingsManager"
-    ) -> "Image.Image":
+    def render(self, sensors: "EnviroPlusSensors", settings: "SettingsManager") -> "Image.Image":
         """
         Render the sensor display screen.
 
@@ -174,9 +170,7 @@ class SensorDisplayPlugin(DisplayPlugin):
         bg_color = self._calculate_background_color(temp_c, units)
 
         # Create image with temperature-based background
-        image = Image.new(
-            "RGB", (self.DISPLAY_WIDTH, self.DISPLAY_HEIGHT), color=bg_color
-        )
+        image = Image.new("RGB", (self.DISPLAY_WIDTH, self.DISPLAY_HEIGHT), color=bg_color)
         draw = ImageDraw.Draw(image)
 
         # Draw black banner at top
@@ -232,11 +226,7 @@ class SensorDisplayPlugin(DisplayPlugin):
 
     def _get_units(self, settings: "SettingsManager") -> str:
         """Get units setting, defaulting to metric."""
-        return (
-            settings.get_units()
-            if hasattr(settings, "get_units")
-            else "metric"
-        )
+        return settings.get_units() if hasattr(settings, "get_units") else "metric"
 
     def _read_sensors(
         self, sensors: "EnviroPlusSensors"
@@ -316,8 +306,7 @@ class SensorDisplayPlugin(DisplayPlugin):
                 0,
                 min(
                     1,
-                    (temp - cold_range_start)
-                    / (comfort_min - cold_range_start),
+                    (temp - cold_range_start) / (comfort_min - cold_range_start),
                 ),
             )
             return (
@@ -327,9 +316,7 @@ class SensorDisplayPlugin(DisplayPlugin):
             )
 
         # Above comfort: orangey red gradient
-        ratio = max(
-            0, min(1, (temp - comfort_max) / (hot_range_end - comfort_max))
-        )
+        ratio = max(0, min(1, (temp - comfort_max) / (hot_range_end - comfort_max)))
         return (
             int(255 - ratio * 30),  # R: 255-225
             int(140 - ratio * 40),  # G: 140-100
@@ -338,15 +325,11 @@ class SensorDisplayPlugin(DisplayPlugin):
 
     def _draw_banner(self, draw: "ImageDraw.ImageDraw") -> None:
         """Draw black banner at top of display."""
-        draw.rectangle(
-            [(0, 0), (self.DISPLAY_WIDTH, self.BANNER_HEIGHT)], fill=(0, 0, 0)
-        )
+        draw.rectangle([(0, 0), (self.DISPLAY_WIDTH, self.BANNER_HEIGHT)], fill=(0, 0, 0))
 
     def _load_fonts(
         self,
-    ) -> Tuple[
-        Optional["ImageFont.FreeTypeFont"], Optional["ImageFont.FreeTypeFont"]
-    ]:
+    ) -> Tuple[Optional["ImageFont.FreeTypeFont"], Optional["ImageFont.FreeTypeFont"]]:
         """
         Load fonts with fallback to default font.
 
@@ -367,12 +350,8 @@ class SensorDisplayPlugin(DisplayPlugin):
                     # Test if font can be loaded
                     ImageFont.truetype(font_path, 12)
                     # Load actual sizes
-                    font_banner = ImageFont.truetype(
-                        font_path, self.FONT_SIZE_BANNER
-                    )
-                    font_large = ImageFont.truetype(
-                        font_path, self.FONT_SIZE_LARGE
-                    )
+                    font_banner = ImageFont.truetype(font_path, self.FONT_SIZE_BANNER)
+                    font_large = ImageFont.truetype(font_path, self.FONT_SIZE_LARGE)
                     self.logger.info(
                         "Loaded font from %s (banner: %dpt, large: %dpt)",
                         font_path,
@@ -381,15 +360,11 @@ class SensorDisplayPlugin(DisplayPlugin):
                     )
                     return font_banner, font_large
             except (OSError, IOError) as e:
-                self.logger.debug(
-                    "Failed to load font from %s: %s", font_path, e
-                )
+                self.logger.debug("Failed to load font from %s: %s", font_path, e)
                 continue
 
         # Fallback to default font
-        self.logger.warning(
-            "Failed to load truetype fonts, using default bitmap font"
-        )
+        self.logger.warning("Failed to load truetype fonts, using default bitmap font")
         try:
             default_font = ImageFont.load_default()
             return default_font, default_font
@@ -445,9 +420,7 @@ class SensorDisplayPlugin(DisplayPlugin):
             ["fc-list", "DejaVu"],
         ]:
             try:
-                result = subprocess.run(
-                    fc_cmd, capture_output=True, text=True, timeout=2
-                )
+                result = subprocess.run(fc_cmd, capture_output=True, text=True, timeout=2)
                 if result.returncode == 0 and result.stdout:
                     for line in result.stdout.strip().split("\n"):
                         line = line.strip()
@@ -510,9 +483,7 @@ class SensorDisplayPlugin(DisplayPlugin):
                         if line and os.path.exists(line):
                             if "Bold" in line:
                                 if line not in font_paths:
-                                    font_paths.insert(
-                                        0, line
-                                    )  # Prefer Bold fonts
+                                    font_paths.insert(0, line)  # Prefer Bold fonts
                             elif ".ttf" in line.lower():
                                 if line not in font_paths:
                                     font_paths.append(line)
@@ -566,9 +537,7 @@ class SensorDisplayPlugin(DisplayPlugin):
         try:
             import ha_enviro_plus
 
-            package_dir = os.path.dirname(
-                os.path.dirname(os.path.abspath(ha_enviro_plus.__file__))
-            )
+            package_dir = os.path.dirname(os.path.dirname(os.path.abspath(ha_enviro_plus.__file__)))
             repo_icons = os.path.join(package_dir, "icons")
             if os.path.isdir(repo_icons):
                 icon_paths.append(repo_icons)
@@ -594,9 +563,7 @@ class SensorDisplayPlugin(DisplayPlugin):
 
         return None
 
-    def _load_temperature_icon(
-        self, icon_dir: Optional[str]
-    ) -> Optional["Image.Image"]:
+    def _load_temperature_icon(self, icon_dir: Optional[str]) -> Optional["Image.Image"]:
         """Load temperature icon from icon directory."""
         if not icon_dir:
             return None
@@ -711,9 +678,7 @@ class SensorDisplayPlugin(DisplayPlugin):
         text_x = x
         if icon:
             # Resize and paste icon
-            icon_resized = icon.resize(
-                (self.ICON_SIZE, self.ICON_SIZE), Image.Resampling.LANCZOS
-            )
+            icon_resized = icon.resize((self.ICON_SIZE, self.ICON_SIZE), Image.Resampling.LANCZOS)
             image.paste(icon_resized, (x, y), icon_resized)
             text_x = x + self.ICON_SIZE + self.ICON_TEXT_SPACING
         else:
