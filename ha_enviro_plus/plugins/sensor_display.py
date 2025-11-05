@@ -42,7 +42,7 @@ class SensorDisplayPlugin(DisplayPlugin):
 
     # Display configuration constants
     FONT_SIZE_BANNER = 16  # Date/time font size
-    FONT_SIZE_LARGE = 16  # Sensor value font size
+    FONT_SIZE_LARGE = 20  # Sensor value font size
     BANNER_HEIGHT = 20  # Height of black banner at top
     BANNER_Y_OFFSET = 3  # Vertical offset for text in banner
     CONTENT_Y_OFFSET = 5  # Vertical spacing from banner to content
@@ -520,12 +520,12 @@ class SensorDisplayPlugin(DisplayPlugin):
                     pressure_hpa = sensors.pressure()
                 if units == "imperial":
                     pressure_value = hpa_to_inhg(pressure_hpa)
-                    pressure_unit = "in"
-                    pressure_str = f"{pressure_value:.1f}"
+                    pressure_unit = "inHg"
+                    pressure_str = f"{pressure_value:.1f}{pressure_unit}"
                 else:
                     pressure_value = pressure_hpa
                     pressure_unit = "hPa"
-                    pressure_str = f"{pressure_value:.0f}"
+                    pressure_str = f"{pressure_value:.0f}{pressure_unit}"
 
                 # Draw icon if available, otherwise use text
                 icon_x = self.LEFT_COLUMN_X
