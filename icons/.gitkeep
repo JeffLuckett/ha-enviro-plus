@@ -1,0 +1,9 @@
+# This directory contains display icons for the sensor display plugin
+# Copy icon files from:
+# https://github.com/pimoroni/enviroplus-python/tree/main/examples/icons
+#
+# Required files:
+# - icon_temperature.png
+# - icon_humidity.png
+# - icon_pressure.png
+

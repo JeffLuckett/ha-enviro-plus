@@ -40,6 +40,7 @@ class SettingsManager:
             "hum_offset": 0.0,
             "cpu_temp_factor": 1.8,
             "cpu_temp_smoothing": 0.1,
+            "units": "metric",
         }
 
         # Current settings cache
@@ -207,3 +208,14 @@ class SettingsManager:
     def set_cpu_temp_smoothing(self, value: float) -> None:
         """Set CPU temperature smoothing setting."""
         self.set_setting("cpu_temp_smoothing", float(value))
+
+    def get_units(self) -> str:
+        """Get units setting (metric or imperial)."""
+        return str(self.get_setting("units"))
+
+    def set_units(self, value: str) -> None:
+        """Set units setting (metric or imperial)."""
+        if value not in ("metric", "imperial"):
+            self.logger.warning("Invalid units value: %s, must be 'metric' or 'imperial'", value)
+            return
+        self.set_setting("units", str(value))

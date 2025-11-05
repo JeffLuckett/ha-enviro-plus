@@ -9,7 +9,7 @@ on the Pimoroni Enviro+ and Enviro HAT.
 import time
 import logging
 import threading
-from typing import Optional, Callable, TYPE_CHECKING
+from typing import Optional, Callable, TYPE_CHECKING, Any
 from pathlib import Path
 from dataclasses import dataclass
 
@@ -25,11 +25,14 @@ except ImportError:
     ST7735_AVAILABLE = False
 
 try:
-    from PIL import Image
+    from PIL import Image, ImageDraw, ImageFont
 
     PIL_AVAILABLE = True
 except ImportError:
     PIL_AVAILABLE = False
+    Image = None  # type: ignore
+    ImageDraw = None  # type: ignore
+    ImageFont = None  # type: ignore
 
 
 @dataclass
@@ -80,6 +83,13 @@ class DisplayManager:
         self._thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
 
+        # Plugin cycling control
+        self._plugin_cycle_active = False
+        self._plugin_cycle_plugins: list[Any] = []
+        self._plugin_cycle_index = 0
+        self._plugin_cycle_sensors: Optional[Any] = None
+        self._plugin_cycle_settings: Optional[Any] = None
+
         if not enabled:
             self.logger.debug("Display disabled by configuration")
             return
@@ -101,6 +111,21 @@ class DisplayManager:
             self.display.begin()
             self.display_available = True
             self.logger.info("Display initialized successfully")
+
+            # Clear display immediately to remove any old content from previous session
+            # This prevents flashing of old content on startup
+            if PIL_AVAILABLE:
+                try:
+                    black_image = Image.new("RGB", (160, 80), color=(0, 0, 0))
+                    self.display.display(black_image)
+                    self.logger.debug("Display: Cleared old content on startup")
+                except Exception as e:
+                    self.logger.debug("Display: Could not clear on startup: %s", e)
+
+            # Clear any queued items and current display state to ensure clean startup
+            with self._lock:
+                self._display_queue.clear()
+                self._current_display = None
 
             # Start the display thread
             self._thread = threading.Thread(target=self._display_loop, daemon=True)
@@ -247,6 +272,9 @@ class DisplayManager:
                             self._current_display = None
                             display_start_time = None
                             fade_out_start_time = None
+                            # Advance plugin cycle if active
+                            if self._plugin_cycle_active:
+                                self._advance_plugin_cycle()
                         else:
                             # Continue fading
                             progress = fade_elapsed / fade_time
@@ -257,7 +285,7 @@ class DisplayManager:
                                     progress * 100,
                                     int(100 * (1 - progress)),
                                 )
-                    # Check if we should start fade out
+                    # Check if we should start fade out or update
                     elif elapsed >= (self._current_display.duration - fade_time):
                         if self._current_display.fade_out:
                             self.logger.info(
@@ -267,15 +295,24 @@ class DisplayManager:
                             )
                             fade_out_start_time = time.time()
                         else:
-                            # Just turn off immediately
-                            self.logger.info("Display: Turning off (no fade)")
-                            if self.display:
-                                try:
-                                    self.display.set_backlight(0)
-                                except (AttributeError, Exception):
-                                    pass
-                            self._current_display = None
-                            display_start_time = None
+                            # For continuous updates (very short duration), update in place
+                            if self._current_display.duration < 0.5:
+                                # Re-render the current display without clearing
+                                self._render_display_immediate(self._current_display)
+                                display_start_time = time.time()  # Reset timer
+                            else:
+                                # Just turn off immediately for longer displays
+                                self.logger.info("Display: Turning off (no fade)")
+                                if self.display:
+                                    try:
+                                        self.display.set_backlight(0)
+                                    except (AttributeError, Exception):
+                                        pass
+                                self._current_display = None
+                                display_start_time = None
+                                # Queue next plugin if cycle is active
+                                if self._plugin_cycle_active:
+                                    self._queue_next_plugin()
 
                 # Small delay to prevent busy waiting
                 time.sleep(0.05)
@@ -360,10 +397,46 @@ class DisplayManager:
         except (AttributeError, Exception):
             pass
 
+    def clear_display(self) -> None:
+        """
+        Clear the display by showing a black image.
+
+        This ensures the display is blank before shutdown or before showing new content.
+        """
+        if not self.display_available or not self.display:
+            return
+
+        try:
+            if PIL_AVAILABLE:
+                # Create a black image and display it
+                black_image = Image.new("RGB", (160, 80), color=(0, 0, 0))
+                self.display.display(black_image)
+                self.logger.debug("Display: Cleared with black image")
+        except Exception as e:
+            self.logger.debug("Display: Could not clear display: %s", e)
+
     def cleanup(self) -> None:
         """
         Clean up display resources and stop display thread.
+
+        Ensures the display is cleared (black) before shutdown to prevent
+        old content from flashing on next startup.
         """
+        # Stop plugin cycle first to prevent new items from being queued
+        with self._lock:
+            self._plugin_cycle_active = False
+            # Clear any queued items to prevent them from flashing
+            self._display_queue.clear()
+            self._current_display = None
+
+        # Clear the display (show black image) - this ensures clean
+        # shutdown and prevents old content from appearing on next startup
+        self.clear_display()
+
+        # Give the clear a moment to display before stopping thread
+        if self.display_available:
+            time.sleep(0.1)
+
         # Signal the thread to stop
         self._stop_event.set()
 
@@ -395,3 +468,174 @@ class DisplayManager:
             duration: Duration to show this display in seconds
         """
         self.update_sensor_display(render_func, duration)
+
+    def start_plugin_cycle(self, plugins: list[Any]) -> None:
+        """
+        Start cycling through display plugins.
+
+        The first plugin will be queued after the current display item
+        (typically the splash screen) completes. This prevents plugins
+        from flashing before the splash screen.
+
+        Args:
+            plugins: List of DisplayPlugin instances to cycle through
+        """
+        if not self.display_available:
+            self.logger.debug("Plugin cycle skipped (display unavailable)")
+            return
+
+        if not plugins:
+            self.logger.warning("No plugins available for cycling")
+            return
+
+        with self._lock:
+            self._plugin_cycle_active = True
+            self._plugin_cycle_plugins = plugins
+            self._plugin_cycle_index = 0
+            plugin_count = len(self._plugin_cycle_plugins)
+            self.logger.info("Starting plugin cycle with %d plugin(s)", plugin_count)
+
+        # Don't queue the first plugin immediately - wait for current display
+        # (splash screen) to complete. The first plugin will be queued when
+        # the splash screen finishes and advances the cycle.
+        self.logger.debug("Plugin cycle ready - first plugin will queue after splash completes")
+
+    def _queue_next_plugin(self) -> None:
+        """Queue the next plugin in the cycle."""
+        if not self._plugin_cycle_active:
+            self.logger.debug("_queue_next_plugin: plugin cycle not active")
+            return
+        if not self._plugin_cycle_plugins:
+            self.logger.debug("_queue_next_plugin: no plugins available")
+            return
+
+        with self._lock:
+            if not self._plugin_cycle_plugins:
+                self.logger.debug("_queue_next_plugin: no plugins in lock")
+                return
+
+            plugin = self._plugin_cycle_plugins[self._plugin_cycle_index]
+            self.logger.info(
+                "Queueing plugin: %s (index %d)", plugin.name(), self._plugin_cycle_index
+            )
+
+            # Capture plugin at closure creation time
+            def render_plugin() -> "Image.Image":
+                """Render the current plugin with error handling."""
+                try:
+                    # Use current sensors and settings from display manager
+                    current_sensors = self._plugin_cycle_sensors
+                    current_settings = self._plugin_cycle_settings
+                    if current_sensors is None or current_settings is None:
+                        err_msg = f"{plugin.name()}: No sensor/settings data"
+                        return self._create_error_image(err_msg)
+                    return plugin.render(current_sensors, current_settings)
+                except Exception as e:
+                    self.logger.error("Plugin %s render error: %s", plugin.name(), e)
+                    return self._create_error_image(plugin.error_message(e))
+
+            item = DisplayItem(
+                duration=plugin.duration(), render_func=render_plugin, fade_out=False, fade_in=False
+            )
+            self._display_queue.append(item)
+
+    def _create_error_image(self, message: str) -> "Image.Image":
+        """
+        Create an error message image.
+
+        Args:
+            message: Error message text
+
+        Returns:
+            PIL Image with error message
+
+        Raises:
+            RuntimeError: If PIL is not available
+        """
+        if not PIL_AVAILABLE:
+            raise RuntimeError("PIL/Pillow not available")
+
+        image = Image.new("RGB", (160, 80), color=(255, 0, 0))
+        draw = ImageDraw.Draw(image)
+
+        try:
+            font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+            font = ImageFont.truetype(font_path, 10)
+        except (OSError, IOError):
+            try:
+                font = ImageFont.load_default()
+            except Exception:
+                font = None
+
+        # Split message into lines if too long
+        words = message.split()
+        lines = []
+        current_line = ""
+        for word in words:
+            if len(current_line + " " + word) <= 20:  # Approx 20 chars per line
+                current_line = current_line + " " + word if current_line else word
+            else:
+                if current_line:
+                    lines.append(current_line)
+                current_line = word
+        if current_line:
+            lines.append(current_line)
+
+        # Draw error message
+        y_pos = 10
+        for line in lines[:5]:  # Max 5 lines
+            draw.text((5, y_pos), line, font=font, fill=(255, 255, 255))
+            y_pos += 15
+
+        return image
+
+    def show_error_message(self, message: str) -> None:
+        """
+        Queue an error message for display.
+
+        Args:
+            message: Error message text
+        """
+        if not self.display_available:
+            return
+
+        def render_error() -> "Image.Image":
+            return self._create_error_image(message)
+
+        with self._lock:
+            item = DisplayItem(duration=3.0, render_func=render_error, fade_out=False)
+            self._display_queue.append(item)
+
+    def update_plugin_data(self, sensors: Any, settings: Any) -> None:
+        """
+        Update sensor and settings data for plugin rendering.
+
+        This should be called periodically from the main loop to keep plugin
+        data fresh.
+
+        Args:
+            sensors: EnviroPlusSensors instance
+            settings: SettingsManager instance
+        """
+        with self._lock:
+            if self._plugin_cycle_active:
+                self._plugin_cycle_sensors = sensors
+                self._plugin_cycle_settings = settings
+
+    def _advance_plugin_cycle(self) -> None:
+        """
+        Advance to the next plugin in the cycle.
+
+        This is called when a plugin display completes to move to the next one.
+        """
+        if not self._plugin_cycle_active or not self._plugin_cycle_plugins:
+            return
+
+        with self._lock:
+            self._plugin_cycle_index = (self._plugin_cycle_index + 1) % len(
+                self._plugin_cycle_plugins
+            )
+            self.logger.info("Advancing plugin cycle to index %d", self._plugin_cycle_index)
+
+        # Queue next plugin (outside lock to avoid reentrant lock issue)
+        self._queue_next_plugin()
