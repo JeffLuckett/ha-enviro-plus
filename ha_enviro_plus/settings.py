@@ -9,8 +9,53 @@ Settings are stored in JSON format and survive device restarts and updates.
 import json
 import os
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Type, TypeVar, Callable
 from pathlib import Path
+
+from .constants import Constants
+
+T = TypeVar("T")
+
+
+class SettingDescriptor:
+    """
+    Descriptor for settings with type conversion.
+
+    Provides elegant getter/setter interface without repetitive methods.
+    """
+
+    def __init__(self, key: str, type_converter: Type[T], default: Any = None):
+        """
+        Initialize setting descriptor.
+
+        Args:
+            key: Setting key name
+            type_converter: Type converter function (e.g., float, str)
+            default: Default value if setting is None
+        """
+        self.key = key
+        self.type_converter = type_converter
+        self.default = default
+
+    def __get__(self, obj: Optional["SettingsManager"], objtype: Optional[Any] = None) -> Any:
+        """Get setting value with type conversion."""
+        if obj is None:
+            return self
+        value = obj.get_setting(self.key)
+        if value is None and self.default is not None:
+            result = self.type_converter(self.default)  # type: ignore[call-arg]
+            return result
+        if value is not None:
+            result = self.type_converter(value)  # type: ignore[call-arg]
+            return result
+        # Return default value if no value and no default
+        if self.type_converter in (int, float):
+            return self.type_converter()  # type: ignore[call-arg]
+        return None
+
+    def __set__(self, obj: "SettingsManager", value: Any) -> None:
+        """Set setting value."""
+        obj.set_setting(self.key, value)
 
 
 class SettingsManager:
@@ -31,7 +76,7 @@ class SettingsManager:
         self.logger = logger or logging.getLogger(__name__)
 
         # Settings file path
-        self.settings_dir = Path("/var/lib/ha-enviro-plus")
+        self.settings_dir = Constants.SETTINGS_DIR
         self.settings_file = self.settings_dir / "settings.json"
 
         # Default settings values
@@ -178,54 +223,62 @@ class SettingsManager:
             self._settings_cache = old_settings
             raise
 
+    # Elegant property-based accessors using descriptors
+    temp_offset = SettingDescriptor("temp_offset", float, 0.0)
+    hum_offset = SettingDescriptor("hum_offset", float, 0.0)
+    cpu_temp_factor = SettingDescriptor("cpu_temp_factor", float, 1.8)
+    cpu_temp_smoothing = SettingDescriptor("cpu_temp_smoothing", float, 0.1)
+    temp_smoothing_minutes = SettingDescriptor("temp_smoothing_minutes", float, 5.0)
+    units = SettingDescriptor("units", str, "metric")
+
+    # Backward compatibility: keep getter/setter methods for existing code
     def get_temp_offset(self) -> float:
         """Get temperature offset setting."""
-        return float(self.get_setting("temp_offset"))
+        return float(self.temp_offset)
 
     def get_hum_offset(self) -> float:
         """Get humidity offset setting."""
-        return float(self.get_setting("hum_offset"))
+        return float(self.hum_offset)
 
     def get_cpu_temp_factor(self) -> float:
         """Get CPU temperature factor setting."""
-        return float(self.get_setting("cpu_temp_factor"))
+        return float(self.cpu_temp_factor)
 
     def get_cpu_temp_smoothing(self) -> float:
         """Get CPU temperature smoothing setting."""
-        return float(self.get_setting("cpu_temp_smoothing"))
+        return float(self.cpu_temp_smoothing)
 
     def set_temp_offset(self, value: float) -> None:
         """Set temperature offset setting."""
-        self.set_setting("temp_offset", float(value))
+        self.temp_offset = value
 
     def set_hum_offset(self, value: float) -> None:
         """Set humidity offset setting."""
-        self.set_setting("hum_offset", float(value))
+        self.hum_offset = value
 
     def set_cpu_temp_factor(self, value: float) -> None:
         """Set CPU temperature factor setting."""
-        self.set_setting("cpu_temp_factor", float(value))
+        self.cpu_temp_factor = value
 
     def set_cpu_temp_smoothing(self, value: float) -> None:
         """Set CPU temperature smoothing setting."""
-        self.set_setting("cpu_temp_smoothing", float(value))
+        self.cpu_temp_smoothing = value
 
     def get_temp_smoothing_minutes(self) -> float:
         """Get temperature smoothing window in minutes."""
-        value = self.get_setting("temp_smoothing_minutes")
-        return float(value) if value is not None else 5.0
+        return float(self.temp_smoothing_minutes)
 
     def set_temp_smoothing_minutes(self, value: float) -> None:
         """Set temperature smoothing window in minutes."""
-        self.set_setting("temp_smoothing_minutes", value)
+        self.temp_smoothing_minutes = value
 
     def get_units(self) -> str:
         """Get units setting (metric or imperial)."""
-        return str(self.get_setting("units"))
+        return str(self.units)
 
     def set_units(self, value: str) -> None:
         """Set units setting (metric or imperial)."""
         if value not in ("metric", "imperial"):
             self.logger.warning("Invalid units value: %s, must be 'metric' or 'imperial'", value)
             return
-        self.set_setting("units", str(value))
+        self.units = value

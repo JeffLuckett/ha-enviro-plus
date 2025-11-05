@@ -1,16 +1,13 @@
-#!/usr/bin/env python3
-"""
-Integration tests for display plugin system
-"""
+"""Integration tests for display plugin system."""
 
-import os
-import sys
+import importlib
 import time
 from unittest.mock import Mock, patch, MagicMock
+
 import pytest
 
-# Add the project root to the path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+import ha_enviro_plus.display_plugins
+import ha_enviro_plus.plugins.sensor_display
 
 
 class TestDisplayPluginIntegration:
@@ -45,12 +42,23 @@ class TestDisplayPluginIntegration:
 
     def test_plugin_discovery_and_availability(self, mock_sensors, mock_settings):
         """Test plugin discovery and availability checking."""
-        from ha_enviro_plus.display_plugins import get_available_plugins
+        # Ensure plugin is imported and registered
+        # Note: Reload is necessary due to module-level plugin registry that may be cleared by other tests
+        importlib.reload(ha_enviro_plus.plugins.sensor_display)
+        importlib.reload(ha_enviro_plus.display_plugins)
+
+        from ha_enviro_plus.display_plugins import get_available_plugins, register_plugin
         from ha_enviro_plus.plugins.sensor_display import SensorDisplayPlugin
+
+        # Manually ensure plugin is registered (in case registry was cleared)
+        register_plugin(SensorDisplayPlugin)
+
+        # Ensure mock_sensors has bme280 sensor
+        mock_sensors.has_sensor.return_value = True
 
         # Test discovery
         plugins = get_available_plugins(mock_sensors, mock_settings)
-        assert isinstance(plugins, list)
+        assert isinstance(plugins, list), "get_available_plugins should return a list"
 
         # Should include sensor display plugin if BME280 is available
         sensor_plugin = None
@@ -60,8 +68,8 @@ class TestDisplayPluginIntegration:
                 break
 
         if mock_sensors.has_sensor("bme280"):
-            assert sensor_plugin is not None
-            assert sensor_plugin.is_available(mock_sensors, mock_settings) is True
+            assert sensor_plugin is not None, "SensorDisplayPlugin should be found when BME280 is available"
+            assert sensor_plugin.is_available(mock_sensors, mock_settings) is True, "Plugin should be available when BME280 is present"
 
     @patch("ha_enviro_plus.display.ST7735_AVAILABLE", True)
     @patch("ha_enviro_plus.display.PIL_AVAILABLE", True)

@@ -1,15 +1,9 @@
-#!/usr/bin/env python3
-"""
-Unit tests for display.py module
-"""
+"""Unit tests for display.py module."""
 
-import os
-import sys
 import time
 from unittest.mock import Mock, patch
 
-# Add the project root to the path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+import pytest
 
 
 class TestDisplayManager:

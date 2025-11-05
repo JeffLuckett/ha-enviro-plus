@@ -11,6 +11,8 @@ import logging
 import time
 from typing import Dict, Any, Optional
 
+from .constants import Constants
+
 # Hardware imports with fallback for testing
 try:
     from bme280 import BME280
@@ -63,8 +65,8 @@ class EnviroPlusSensors:
         self.logger = logger or logging.getLogger(__name__)
 
         # CPU temperature smoothing state
-        # Initialize with typical Pi Zero CPU temperature (105°F = 40.6°C)
-        self._cpu_temp_smoothed = 40.6
+        # Initialize with typical Pi Zero CPU temperature
+        self._cpu_temp_smoothed = Constants.DEFAULT_CPU_TEMP_CELSIUS
         self._cpu_temp_last_update = 0.0
 
         # Temperature smoothing history (list of (timestamp, temperature) tuples)
@@ -82,7 +84,7 @@ class EnviroPlusSensors:
         if HARDWARE_AVAILABLE:
             # Initialize BME280 (temperature, humidity, pressure)
             try:
-                self.bme280 = BME280(i2c_addr=0x76)
+                self.bme280 = BME280(i2c_addr=Constants.BME280_I2C_ADDR)
                 self.logger.info("BME280 sensor initialized successfully")
             except Exception as e:
                 self.logger.warning("Failed to initialize BME280 sensor: %s", e)
@@ -194,7 +196,7 @@ class EnviroPlusSensors:
                 self.logger.debug(
                     "CPU temperature smoothing initialized: %.1f°C (was %.1f°C)",
                     raw_cpu_temp,
-                    40.6,
+                    Constants.DEFAULT_CPU_TEMP_CELSIUS,
                 )
                 return raw_cpu_temp
 
@@ -376,7 +378,7 @@ class EnviroPlusSensors:
             return 0.0
         try:
             raw_temp = self.bme280.get_temperature()
-            return round(float(raw_temp), 2)
+            return round(float(raw_temp), Constants.TEMP_ROUND_PRECISION)
         except Exception as e:
             self.logger.error("Failed to read raw temperature: %s", e)
             self.logger.info("Raw temperature will be reported as 0.0°C")
@@ -485,7 +487,7 @@ class EnviroPlusSensors:
             self.logger.debug("Raw humidity unavailable: BME280 not initialized")
             return 0.0
         try:
-            return round(float(self.bme280.get_humidity()), 2)
+            return round(float(self.bme280.get_humidity()), Constants.HUMIDITY_ROUND_PRECISION)
         except Exception as e:
             self.logger.error("Failed to read raw humidity: %s", e)
             self.logger.info("Raw humidity will be reported as 0.0%")
@@ -503,7 +505,7 @@ class EnviroPlusSensors:
             self.logger.debug("Pressure unavailable: BME280 not initialized")
             return 0.0
         try:
-            return round(float(self.bme280.get_pressure()), 2)
+            return round(float(self.bme280.get_pressure()), Constants.PRESSURE_ROUND_PRECISION)
         except Exception as e:
             self.logger.error("Failed to read pressure: %s", e)
             self.logger.info("Pressure will be reported as 0.0 hPa")
@@ -520,7 +522,7 @@ class EnviroPlusSensors:
             self.logger.debug("Raw pressure unavailable: BME280 not initialized")
             return 0.0
         try:
-            return round(float(self.bme280.get_pressure()), 2)
+            return round(float(self.bme280.get_pressure()), Constants.PRESSURE_ROUND_PRECISION)
         except Exception as e:
             self.logger.error("Failed to read raw pressure: %s", e)
             self.logger.info("Raw pressure will be reported as 0.0 hPa")
@@ -538,7 +540,7 @@ class EnviroPlusSensors:
             self.logger.debug("Lux unavailable: LTR559 not initialized")
             return 0.0
         try:
-            return round(float(self.ltr559.get_lux()), 2)
+            return round(float(self.ltr559.get_lux()), Constants.TEMP_ROUND_PRECISION)
         except Exception as e:
             self.logger.error("Failed to read lux: %s", e)
             self.logger.info("Lux will be reported as 0.0 lux")
@@ -555,7 +557,7 @@ class EnviroPlusSensors:
             self.logger.debug("Raw lux unavailable: LTR559 not initialized")
             return 0.0
         try:
-            return round(float(self.ltr559.get_lux()), 2)
+            return round(float(self.ltr559.get_lux()), Constants.TEMP_ROUND_PRECISION)
         except Exception as e:
             self.logger.error("Failed to read raw lux: %s", e)
             self.logger.info("Raw lux will be reported as 0.0 lux")
@@ -594,7 +596,7 @@ class EnviroPlusSensors:
             return 0.0
         try:
             gas_data = gas.read_all()
-            return round(float(gas_data.oxidising), 2)
+            return round(float(gas_data.oxidising), Constants.TEMP_ROUND_PRECISION)
         except Exception as e:
             self.logger.error("Failed to read raw oxidising gas: %s", e)
             self.logger.info("Raw oxidising gas will be reported as 0.0 Ω")
@@ -632,7 +634,7 @@ class EnviroPlusSensors:
             return 0.0
         try:
             gas_data = gas.read_all()
-            return round(float(gas_data.reducing), 2)
+            return round(float(gas_data.reducing), Constants.TEMP_ROUND_PRECISION)
         except Exception as e:
             self.logger.error("Failed to read raw reducing gas: %s", e)
             self.logger.info("Raw reducing gas will be reported as 0.0 Ω")
@@ -668,7 +670,7 @@ class EnviroPlusSensors:
             return 0.0
         try:
             gas_data = gas.read_all()
-            return round(float(gas_data.nh3), 2)
+            return round(float(gas_data.nh3), Constants.TEMP_ROUND_PRECISION)
         except Exception as e:
             self.logger.error("Failed to read raw NH3 gas: %s", e)
             self.logger.info("Raw NH3 gas will be reported as 0.0 Ω")

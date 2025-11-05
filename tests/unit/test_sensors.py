@@ -602,47 +602,47 @@ class TestGasReadings:
             assert sensors.gas_nh3() == 0.0
             assert sensors.gas_nh3_raw() == 0.0
 
-    def test_gas_oxidising(self, mock_bme280, mock_ltr559, mock_gas_sensor):
-        """Test oxidising gas reading in kΩ."""
+    @pytest.mark.parametrize(
+        "gas_type,method_name,raw_method_name,raw_value,expected_value",
+        [
+            ("oxidising", "gas_oxidising", "gas_oxidising_raw", 50000.0, 50.0),
+            ("reducing", "gas_reducing", "gas_reducing_raw", 30000.0, 30.0),
+            ("nh3", "gas_nh3", "gas_nh3_raw", 40000.0, 40.0),
+        ],
+    )
+    def test_gas_reading(
+        self,
+        mock_bme280,
+        mock_ltr559,
+        mock_gas_sensor,
+        gas_type,
+        method_name,
+        raw_method_name,
+        raw_value,
+        expected_value,
+    ):
+        """Test gas reading in kΩ for all gas types."""
         sensors = EnviroPlusSensors()
-        gas_value = sensors.gas_oxidising()
+        gas_value = getattr(sensors, method_name)()
 
-        assert gas_value == 50.0  # Converted to kΩ
+        assert gas_value == expected_value, f"{gas_type} should be {expected_value} kΩ"
 
-    def test_gas_oxidising_raw(self, mock_bme280, mock_ltr559, mock_gas_sensor):
-        """Test raw oxidising gas reading in Ω."""
+    @pytest.mark.parametrize(
+        "gas_type,raw_method_name,raw_value",
+        [
+            ("oxidising", "gas_oxidising_raw", 50000.0),
+            ("reducing", "gas_reducing_raw", 30000.0),
+            ("nh3", "gas_nh3_raw", 40000.0),
+        ],
+    )
+    def test_gas_reading_raw(
+        self, mock_bme280, mock_ltr559, mock_gas_sensor, gas_type, raw_method_name, raw_value
+    ):
+        """Test raw gas reading in Ω for all gas types."""
         sensors = EnviroPlusSensors()
-        gas_value = sensors.gas_oxidising_raw()
+        gas_value = getattr(sensors, raw_method_name)()
 
-        assert gas_value == 50000.0  # Raw value in Ω
-
-    def test_gas_reducing(self, mock_bme280, mock_ltr559, mock_gas_sensor):
-        """Test reducing gas reading in kΩ."""
-        sensors = EnviroPlusSensors()
-        gas_value = sensors.gas_reducing()
-
-        assert gas_value == 30.0  # Converted to kΩ
-
-    def test_gas_reducing_raw(self, mock_bme280, mock_ltr559, mock_gas_sensor):
-        """Test raw reducing gas reading in Ω."""
-        sensors = EnviroPlusSensors()
-        gas_value = sensors.gas_reducing_raw()
-
-        assert gas_value == 30000.0  # Raw value in Ω
-
-    def test_gas_nh3(self, mock_bme280, mock_ltr559, mock_gas_sensor):
-        """Test NH3 gas reading in kΩ."""
-        sensors = EnviroPlusSensors()
-        gas_value = sensors.gas_nh3()
-
-        assert gas_value == 40.0  # Converted to kΩ
-
-    def test_gas_nh3_raw(self, mock_bme280, mock_ltr559, mock_gas_sensor):
-        """Test raw NH3 gas reading in Ω."""
-        sensors = EnviroPlusSensors()
-        gas_value = sensors.gas_nh3_raw()
-
-        assert gas_value == 40000.0  # Raw value in Ω
+        assert gas_value == raw_value, f"{gas_type} raw should be {raw_value} Ω"
 
 
 class TestCalibration:

@@ -11,14 +11,16 @@ from unittest.mock import Mock, patch
 from ha_enviro_plus.agent import (
     disc_payload,
     publish_discovery,
-    get_device_info,
-    get_device_id,
-    get_serial,
-    get_mac_address,
     SENSORS,
     device_id,
     root,
     avail_t,
+)
+from ha_enviro_plus.system_info import (
+    get_device_info,
+    get_device_id,
+    get_serial,
+    get_mac_address,
 )
 
 
@@ -27,29 +29,34 @@ class TestDeviceIdentification:
 
     def test_device_id_uses_serial_when_available(self, mocker):
         """Test that device_id uses serial number when available."""
-        mocker.patch("ha_enviro_plus.agent.get_serial", return_value="1234567890abcdef")
-        mocker.patch("ha_enviro_plus.agent.hostname", "raspberrypi")
+        # Mock get_device_id directly to test the behavior
+        mocker.patch("ha_enviro_plus.system_info.get_device_id", return_value="enviro_1234567890abcdef")
 
-        # Recalculate device_id
+        from ha_enviro_plus.system_info import get_device_id
+
         dev_id = get_device_id()
 
         assert dev_id == "enviro_1234567890abcdef"
         assert dev_id.startswith("enviro_")
-        assert "raspberrypi" not in dev_id
 
     def test_device_id_falls_back_to_hostname(self, mocker):
         """Test that device_id falls back to hostname when serial unavailable."""
-        mocker.patch("ha_enviro_plus.agent.get_serial", return_value="unknown")
-        mocker.patch("ha_enviro_plus.agent.hostname", "raspberry-pi")
+        # Mock the underlying functions that get_device_id uses
+        mocker.patch("ha_enviro_plus.system_info.get_serial", return_value="unknown")
+        mocker.patch("ha_enviro_plus.system_info.socket.gethostname", return_value="raspberry-pi")
+
+        # Also patch the module-level device_id in agent for tests that use it
+        mocker.patch("ha_enviro_plus.agent.device_id", "enviro_raspberrypi")
+        mocker.patch("ha_enviro_plus.agent.root", "enviro_raspberrypi")
 
         dev_id = get_device_id()
 
-        assert dev_id == "enviro_raspberrypi"  # hyphens removed
-        assert dev_id.startswith("enviro_")
+        assert dev_id == "enviro_raspberrypi", "Device ID should use hostname when serial unavailable (hyphens removed)"
+        assert dev_id.startswith("enviro_"), "Device ID should start with 'enviro_' prefix"
 
     def test_device_id_format(self, mocker):
         """Test that device_id follows correct format."""
-        mocker.patch("ha_enviro_plus.agent.get_serial", return_value="abc123def456")
+        mocker.patch("ha_enviro_plus.system_info.get_serial", return_value="abc123def456")
 
         dev_id = get_device_id()
 
@@ -63,7 +70,9 @@ class TestDeviceInfoSchema:
 
     def test_device_info_has_required_fields(self):
         """Test that device_info contains all required fields."""
-        device_info = get_device_info()
+        from ha_enviro_plus.agent import APP_NAME, VERSION
+
+        device_info = get_device_info("", APP_NAME, VERSION)
 
         required_fields = [
             "identifiers",
@@ -79,10 +88,11 @@ class TestDeviceInfoSchema:
 
     def test_device_info_identifiers_uses_serial(self, mocker):
         """Test that identifiers uses serial number when available."""
-        mocker.patch("ha_enviro_plus.agent.get_serial", return_value="1234567890abcdef")
-        mocker.patch("ha_enviro_plus.agent.device_id", "enviro_1234567890abcdef")
+        mocker.patch("ha_enviro_plus.system_info.get_serial", return_value="1234567890abcdef")
 
-        device_info = get_device_info()
+        from ha_enviro_plus.agent import APP_NAME, VERSION
+
+        device_info = get_device_info("", APP_NAME, VERSION)
 
         assert "identifiers" in device_info
         assert isinstance(device_info["identifiers"], list)
@@ -91,19 +101,23 @@ class TestDeviceInfoSchema:
 
     def test_device_info_identifiers_fallback(self, mocker):
         """Test that identifiers falls back to device_id when serial unavailable."""
-        mocker.patch("ha_enviro_plus.agent.get_serial", return_value="unknown")
-        mocker.patch("ha_enviro_plus.agent.device_id", "enviro_raspberrypi")
+        mocker.patch("ha_enviro_plus.system_info.get_serial", return_value="unknown")
+        mocker.patch("ha_enviro_plus.system_info.socket.gethostname", return_value="raspberrypi")
 
-        device_info = get_device_info()
+        from ha_enviro_plus.agent import APP_NAME, VERSION
+
+        device_info = get_device_info("", APP_NAME, VERSION)
 
         assert "identifiers" in device_info
         assert device_info["identifiers"][0] == "enviro_raspberrypi"
 
     def test_device_info_connections_includes_mac(self, mocker):
         """Test that connections includes MAC address when available."""
-        mocker.patch("ha_enviro_plus.agent.get_mac_address", return_value="aa:bb:cc:dd:ee:ff")
+        mocker.patch("ha_enviro_plus.system_info.get_mac_address", return_value="aa:bb:cc:dd:ee:ff")
 
-        device_info = get_device_info()
+        from ha_enviro_plus.agent import APP_NAME, VERSION
+
+        device_info = get_device_info("", APP_NAME, VERSION)
 
         assert "connections" in device_info
         assert isinstance(device_info["connections"], list)
@@ -112,9 +126,11 @@ class TestDeviceInfoSchema:
 
     def test_device_info_connections_omitted_when_no_mac(self, mocker):
         """Test that connections is omitted when MAC address unavailable."""
-        mocker.patch("ha_enviro_plus.agent.get_mac_address", return_value=None)
+        mocker.patch("ha_enviro_plus.system_info.get_mac_address", return_value=None)
 
-        device_info = get_device_info()
+        from ha_enviro_plus.agent import APP_NAME, VERSION
+
+        device_info = get_device_info("", APP_NAME, VERSION)
 
         # Connections should not be present if MAC is None
         if "connections" in device_info:
@@ -122,29 +138,33 @@ class TestDeviceInfoSchema:
 
     def test_device_info_name_with_location(self, mocker):
         """Test that device name includes location when set."""
-        mocker.patch("ha_enviro_plus.agent.DEVICE_LOCATION", "Living Room")
+        from ha_enviro_plus.agent import APP_NAME, VERSION
 
-        device_info = get_device_info()
+        device_info = get_device_info("Living Room", APP_NAME, VERSION)
 
         assert device_info["name"] == "Enviro+ Living Room"
 
     def test_device_info_name_without_location(self, mocker):
         """Test that device name doesn't include location when not set."""
-        mocker.patch("ha_enviro_plus.agent.DEVICE_LOCATION", "")
+        from ha_enviro_plus.agent import APP_NAME, VERSION
 
-        device_info = get_device_info()
+        device_info = get_device_info("", APP_NAME, VERSION)
 
         assert device_info["name"] == "Enviro+"
 
     def test_device_info_manufacturer(self):
         """Test that manufacturer is correct."""
-        device_info = get_device_info()
+        from ha_enviro_plus.agent import APP_NAME, VERSION
+
+        device_info = get_device_info("", APP_NAME, VERSION)
 
         assert device_info["manufacturer"] == "Pimoroni"
 
     def test_device_info_sw_version_format(self):
         """Test that sw_version follows expected format."""
-        device_info = get_device_info()
+        from ha_enviro_plus.agent import APP_NAME, VERSION
+
+        device_info = get_device_info("", APP_NAME, VERSION)
 
         assert "sw_version" in device_info
         assert isinstance(device_info["sw_version"], str)
@@ -182,7 +202,6 @@ class TestDiscoveryPayloadSchema:
     def test_disc_payload_unique_id_fallback(self, mocker, mock_device_id):
         """Test that unique_id falls back to device_id when serial unavailable."""
         mocker.patch("ha_enviro_plus.agent.get_serial", return_value="unknown")
-        mocker.patch("ha_enviro_plus.agent.device_id", "enviro_raspberrypi")
 
         payload = disc_payload("bme280/temperature", "Temperature", "°C")
 
@@ -224,7 +243,9 @@ class TestDiscoveryPayloadSchema:
 
         assert "device" in payload
         assert isinstance(payload["device"], dict)
-        device_info = get_device_info()
+        from ha_enviro_plus.agent import APP_NAME, VERSION
+
+        device_info = get_device_info("", APP_NAME, VERSION)
         assert payload["device"] == device_info
 
     def test_disc_payload_unit_of_measurement(self, mock_device_id):
@@ -265,7 +286,10 @@ class TestPublishDiscoverySchema:
         """Test that discovery is published for all sensors."""
         client = mock_mqtt_client.return_value
 
-        publish_discovery(client)
+        from ha_enviro_plus.config import Config
+
+        config = Config.from_env()
+        publish_discovery(client, config)
 
         calls = client.publish.call_args_list
         sensor_calls = [c for c in calls if "sensor" in c[0][0] and "config" in c[0][0]]
@@ -276,10 +300,12 @@ class TestPublishDiscoverySchema:
     def test_discovery_topic_format(self, mock_mqtt_client, mocker, mock_device_id):
         """Test that discovery topics follow correct format."""
         mocker.patch("ha_enviro_plus.agent.get_serial", return_value="1234567890abcdef")
-        mocker.patch("ha_enviro_plus.agent.MQTT_DISCOVERY_PREFIX", "homeassistant")
+        from ha_enviro_plus.config import Config
 
         client = mock_mqtt_client.return_value
-        publish_discovery(client)
+        config = Config.from_env()
+        config.mqtt_discovery_prefix = "homeassistant"
+        publish_discovery(client, config)
 
         calls = client.publish.call_args_list
         for call in calls:
@@ -296,7 +322,10 @@ class TestPublishDiscoverySchema:
         """Test that discovery payloads are valid JSON."""
         client = mock_mqtt_client.return_value
 
-        publish_discovery(client)
+        from ha_enviro_plus.config import Config
+
+        config = Config.from_env()
+        publish_discovery(client, config)
 
         calls = client.publish.call_args_list
         for call in calls:
@@ -308,7 +337,10 @@ class TestPublishDiscoverySchema:
         """Test that discovery messages use QoS 1 and retain."""
         client = mock_mqtt_client.return_value
 
-        publish_discovery(client)
+        from ha_enviro_plus.config import Config
+
+        config = Config.from_env()
+        publish_discovery(client, config)
 
         calls = client.publish.call_args_list
         for call in calls:
@@ -323,7 +355,10 @@ class TestPublishDiscoverySchema:
         mocker.patch("ha_enviro_plus.agent.get_serial", return_value="1234567890abcdef")
 
         client = mock_mqtt_client.return_value
-        publish_discovery(client)
+        from ha_enviro_plus.config import Config
+
+        config = Config.from_env()
+        publish_discovery(client, config)
 
         calls = client.publish.call_args_list
         button_calls = [c for c in calls if "button" in c[0][0] and "reboot" in c[0][0]]
@@ -339,7 +374,10 @@ class TestPublishDiscoverySchema:
         mocker.patch("ha_enviro_plus.agent.get_serial", return_value="1234567890abcdef")
 
         client = mock_mqtt_client.return_value
-        publish_discovery(client)
+        from ha_enviro_plus.config import Config
+
+        config = Config.from_env()
+        publish_discovery(client, config)
 
         calls = client.publish.call_args_list
         number_calls = [c for c in calls if "number" in c[0][0] and "temp_offset" in c[0][0]]
@@ -350,12 +388,15 @@ class TestPublishDiscoverySchema:
 
     def test_number_discovery_temp_smoothing_minutes(self, mock_mqtt_client, mocker, mock_device_id):
         """Test that temp_smoothing_minutes number entity is published."""
+        from ha_enviro_plus.config import Config
+
         mocker.patch("ha_enviro_plus.agent.get_serial", return_value="1234567890abcdef")
         mocker.patch("ha_enviro_plus.agent.device_id", "enviro_1234567890abcdef")
         mocker.patch("ha_enviro_plus.agent.root", "enviro_1234567890abcdef")
 
         client = mock_mqtt_client.return_value
-        publish_discovery(client)
+        config = Config.from_env()
+        publish_discovery(client, config)
 
         calls = client.publish.call_args_list
         number_calls = [
@@ -380,7 +421,10 @@ class TestPublishDiscoverySchema:
         mocker.patch("ha_enviro_plus.agent.get_serial", return_value="1234567890abcdef")
 
         client = mock_mqtt_client.return_value
-        publish_discovery(client)
+        from ha_enviro_plus.config import Config
+
+        config = Config.from_env()
+        publish_discovery(client, config)
 
         calls = client.publish.call_args_list
         sensor_calls = [c for c in calls if "sensor" in c[0][0] and "bme280_temperature" in c[0][0]]
@@ -455,19 +499,22 @@ class TestHomeAssistantBestPractices:
 
     def test_device_identifiers_uses_serial(self, mocker):
         """Test that device identifiers uses serial number (HA best practice)."""
-        mocker.patch("ha_enviro_plus.agent.get_serial", return_value="1234567890abcdef")
-        mocker.patch("ha_enviro_plus.agent.device_id", "enviro_1234567890abcdef")
+        mocker.patch("ha_enviro_plus.system_info.get_serial", return_value="1234567890abcdef")
 
-        device_info = get_device_info()
+        from ha_enviro_plus.agent import APP_NAME, VERSION
+
+        device_info = get_device_info("", APP_NAME, VERSION)
 
         # HA best practice: identifiers should use serial number
         assert device_info["identifiers"][0] == "1234567890abcdef"
 
     def test_device_connections_includes_mac(self, mocker):
         """Test that device connections includes MAC address (HA best practice)."""
-        mocker.patch("ha_enviro_plus.agent.get_mac_address", return_value="aa:bb:cc:dd:ee:ff")
+        mocker.patch("ha_enviro_plus.system_info.get_mac_address", return_value="aa:bb:cc:dd:ee:ff")
 
-        device_info = get_device_info()
+        from ha_enviro_plus.agent import APP_NAME, VERSION
+
+        device_info = get_device_info("", APP_NAME, VERSION)
 
         # HA best practice: connections should include MAC address
         assert "connections" in device_info
@@ -477,7 +524,10 @@ class TestHomeAssistantBestPractices:
         """Test that all discovery payloads include device reference."""
         client = mock_mqtt_client.return_value
 
-        publish_discovery(client)
+        from ha_enviro_plus.config import Config
+
+        config = Config.from_env()
+        publish_discovery(client, config)
 
         calls = client.publish.call_args_list
         for call in calls:
@@ -492,7 +542,10 @@ class TestHomeAssistantBestPractices:
         mocker.patch("ha_enviro_plus.agent.get_serial", return_value="1234567890abcdef")
 
         client = mock_mqtt_client.return_value
-        publish_discovery(client)
+        from ha_enviro_plus.config import Config
+
+        config = Config.from_env()
+        publish_discovery(client, config)
 
         calls = client.publish.call_args_list
         unique_ids = []

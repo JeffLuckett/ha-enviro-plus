@@ -284,7 +284,7 @@ def mock_env_vars(mocker):
 @pytest.fixture
 def mock_socket(mocker):
     """Mock socket operations."""
-    mock_gethostname = mocker.patch("ha_enviro_plus.agent.socket.gethostname")
+    mock_gethostname = mocker.patch("ha_enviro_plus.system_info.socket.gethostname")
     mock_gethostname.return_value = "raspberrypi"
     return mock_gethostname
 
@@ -292,6 +292,23 @@ def mock_socket(mocker):
 @pytest.fixture
 def mock_platform(mocker):
     """Mock platform operations."""
-    mock_platform = mocker.patch("ha_enviro_plus.agent.platform.platform")
+    mock_platform = mocker.patch("ha_enviro_plus.system_info.platform.platform")
     mock_platform.return_value = "Linux-5.15.0-rpi4-aarch64-with-glibc2.31"
     return mock_platform
+
+
+@pytest.fixture
+def tmp_settings_dir(tmp_path):
+    """
+    Create a temporary directory for settings files.
+
+    This fixture provides a temporary directory that's automatically cleaned up
+    after each test. Use with patch to override SETTINGS_DIR.
+
+    Example:
+        def test_something(tmp_settings_dir):
+            with patch("ha_enviro_plus.settings.Constants.SETTINGS_DIR", tmp_settings_dir):
+                manager = SettingsManager()
+                # test code
+    """
+    return tmp_path / "ha-enviro-plus-settings"
