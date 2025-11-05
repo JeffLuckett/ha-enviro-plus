@@ -71,20 +71,25 @@ def get_mac_address() -> Optional[str]:
                     if hasattr(addr, "family"):
                         # On Linux, MAC addresses are in family with value 17 (AF_PACKET/AF_LINK)
                         # On some systems, we check the address format
-                        mac = getattr(addr, "address", None)
+                        mac: Any = getattr(addr, "address", None)
                         if mac and isinstance(mac, str) and len(mac) == 17 and ":" in mac:
                             temp_logger.debug("Using %s MAC address: %s", iface_name, mac)
-                            return mac
+                            return str(mac)  # Explicit cast to str after isinstance check
 
         # Fallback: first non-loopback interface with valid MAC
         for iface_name, iface_addrs in addrs.items():
             if iface_name == "lo":
                 continue
             for addr in iface_addrs:
-                mac = getattr(addr, "address", None)
-                if mac and isinstance(mac, str) and len(mac) == 17 and ":" in mac:
-                    temp_logger.debug("Using %s MAC address: %s", iface_name, mac)
-                    return mac
+                mac_fallback: Any = getattr(addr, "address", None)
+                if (
+                    mac_fallback
+                    and isinstance(mac_fallback, str)
+                    and len(mac_fallback) == 17
+                    and ":" in mac_fallback
+                ):
+                    temp_logger.debug("Using %s MAC address: %s", iface_name, mac_fallback)
+                    return str(mac_fallback)  # Explicit cast to str after isinstance check
     except Exception as e:
         temp_logger.debug("Failed to get MAC address: %s", e)
     return None
@@ -320,12 +325,12 @@ def get_device_info() -> Dict[str, Any]:
         device_name = f"Enviro+ {DEVICE_LOCATION}"
 
     # Get MAC address for connections (HA best practice)
-    connections_list = []
+    connections_list: List[List[str]] = []
     mac_address = get_mac_address()
     if mac_address:
         connections_list.append(["mac", mac_address])
 
-    device_info = {
+    device_info: Dict[str, Any] = {
         "identifiers": identifiers,
         "name": device_name,
         "manufacturer": "Pimoroni",
