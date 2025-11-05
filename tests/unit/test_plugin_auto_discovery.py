@@ -336,22 +336,32 @@ class InitPlugin(DisplayPlugin):
 
     def test_sensor_display_plugin_is_registered(self):
         """Test that SensorDisplayPlugin is registered by default."""
-        import importlib.util
-
-        spec = importlib.util.spec_from_file_location(
+        # Clear any cached modules to ensure fresh state
+        import sys
+        modules_to_clear = [
             "ha_enviro_plus.display_plugins",
-            os.path.join(
-                os.path.dirname(__file__), "..", "..", "ha_enviro_plus", "display_plugins.py"
-            ),
-        )
-        display_plugins_module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(display_plugins_module)
-        _plugin_registry = display_plugins_module._plugin_registry
-        SensorDisplayPlugin = display_plugins_module.SensorDisplayPlugin
-        get_available_plugins = display_plugins_module.get_available_plugins
+            "ha_enviro_plus.plugins",
+            "ha_enviro_plus.plugins.sensor_display",
+        ]
+        for module_name in modules_to_clear:
+            if module_name in sys.modules:
+                del sys.modules[module_name]
+
+        # Import modules to trigger plugin registration
+        import ha_enviro_plus.display_plugins
+        from ha_enviro_plus.plugins import sensor_display
+        from ha_enviro_plus.plugins.sensor_display import SensorDisplayPlugin
+
+        # Get the registry and available plugins function
+        _plugin_registry = ha_enviro_plus.display_plugins._plugin_registry
+        get_available_plugins = ha_enviro_plus.display_plugins.get_available_plugins
 
         # Check that SensorDisplayPlugin is in the registry
-        assert SensorDisplayPlugin in _plugin_registry
+        # The plugin should be registered when sensor_display module is imported
+        assert SensorDisplayPlugin in _plugin_registry, (
+            f"SensorDisplayPlugin not found in registry. "
+            f"Registry contains: {[p.__name__ for p in _plugin_registry]}"
+        )
 
         # Verify it can be discovered
         mock_sensors = Mock()
@@ -359,7 +369,10 @@ class InitPlugin(DisplayPlugin):
         mock_settings = Mock()
         available = get_available_plugins(mock_sensors, mock_settings)
         available_names = [p.name() for p in available]
-        assert "Sensor Display" in available_names
+        assert "Sensor Display" in available_names, (
+            f"'Sensor Display' not found in available plugins. "
+            f"Available plugins: {available_names}"
+        )
 
     def test_plugin_auto_import_with_logging(self, tmp_path, caplog):
         """Test that import errors are logged."""
