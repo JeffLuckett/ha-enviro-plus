@@ -74,7 +74,7 @@ class SensorDisplayPlugin(DisplayPlugin):
 
     # Display configuration constants
     FONT_SIZE_BANNER = 16  # Date/time font size
-    FONT_SIZE_LARGE = 20  # Sensor value font size
+    FONT_SIZE_LARGE = 18  # Sensor value font size
     BANNER_HEIGHT = 20  # Height of black banner at top
     BANNER_Y_OFFSET = 3  # Vertical offset for text in banner
     CONTENT_Y_OFFSET = 5  # Vertical spacing from banner to content
