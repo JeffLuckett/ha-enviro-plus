@@ -427,6 +427,9 @@ write_config() {
       unset UNITS  # Clear it so we prompt
     fi
 
+    # Track if UNITS was already prompted in the new options section
+    local units_prompted=false
+
     # Check for new options that need configuration
     if check_new_config_options; then
       # Try to prompt if interactive, otherwise use defaults
@@ -452,6 +455,7 @@ write_config() {
             echo "==> Invalid units: $UNITS, using default: ${DEFAULT_UNITS}"
             UNITS="${DEFAULT_UNITS}"
           fi
+          units_prompted=true  # Mark that UNITS was already prompted
         fi
       else
         # Use defaults for new options if not interactive
@@ -474,37 +478,40 @@ write_config() {
     fi
 
     # Always prompt for UNITS if it's missing or invalid (separate from new options check)
-    # Check if UNITS is unset, empty, or invalid AFTER loading config
-    local units_current="${UNITS:-}"
-    local units_valid=false
-    if [ -n "$units_current" ] && [ "$units_current" = "metric" ]; then
-      units_valid=true
-    elif [ -n "$units_current" ] && [ "$units_current" = "imperial" ]; then
-      units_valid=true
-    fi
+    # BUT only if it wasn't already prompted above
+    if [ "$units_prompted" = "false" ]; then
+      # Check if UNITS is unset, empty, or invalid AFTER loading config
+      local units_current="${UNITS:-}"
+      local units_valid=false
+      if [ -n "$units_current" ] && [ "$units_current" = "metric" ]; then
+        units_valid=true
+      elif [ -n "$units_current" ] && [ "$units_current" = "imperial" ]; then
+        units_valid=true
+      fi
 
-    # Prompt if not valid or not in config - ALWAYS prompt on interactive installs
-    if [ "$units_in_config" = "false" ] || [ "$units_valid" = "false" ]; then
-      # Try to prompt if we can (check if stdin is available)
-      if [ -t 0 ]; then
-        echo
-        echo "==> Display units configuration:"
-        read -rp "Display units (metric/imperial) [${DEFAULT_UNITS}]: " UNITS_INPUT
-        if [ -n "$UNITS_INPUT" ]; then
-          UNITS="$UNITS_INPUT"
+      # Prompt if not valid or not in config - ALWAYS prompt on interactive installs
+      if [ "$units_in_config" = "false" ] || [ "$units_valid" = "false" ]; then
+        # Try to prompt if we can (check if stdin is available)
+        if [ -t 0 ]; then
+          echo
+          echo "==> Display units configuration:"
+          read -rp "Display units (metric/imperial) [${DEFAULT_UNITS}]: " UNITS_INPUT
+          if [ -n "$UNITS_INPUT" ]; then
+            UNITS="$UNITS_INPUT"
+          else
+            UNITS="${DEFAULT_UNITS}"
+          fi
+          # Validate units
+          if [ "$UNITS" != "metric" ] && [ "$UNITS" != "imperial" ]; then
+            echo "==> Invalid units: $UNITS, using default: ${DEFAULT_UNITS}"
+            UNITS="${DEFAULT_UNITS}"
+          fi
         else
+          # Non-interactive - use default but warn
           UNITS="${DEFAULT_UNITS}"
+          echo "==> UNITS not configured, using default: ${DEFAULT_UNITS}"
+          echo "==> To configure later, edit ${CFG} and set UNITS=\"metric\" or UNITS=\"imperial\""
         fi
-        # Validate units
-        if [ "$UNITS" != "metric" ] && [ "$UNITS" != "imperial" ]; then
-          echo "==> Invalid units: $UNITS, using default: ${DEFAULT_UNITS}"
-          UNITS="${DEFAULT_UNITS}"
-        fi
-      else
-        # Non-interactive - use default but warn
-        UNITS="${DEFAULT_UNITS}"
-        echo "==> UNITS not configured, using default: ${DEFAULT_UNITS}"
-        echo "==> To configure later, edit ${CFG} and set UNITS=\"metric\" or UNITS=\"imperial\""
       fi
     fi
   else
