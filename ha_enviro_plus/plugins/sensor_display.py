@@ -145,16 +145,16 @@ class SensorDisplayPlugin(DisplayPlugin):
         image = Image.new("RGB", (160, 80), color=bg_color)
         draw = ImageDraw.Draw(image)
 
-        # Black banner at top for time/date (20 pixels tall)
-        banner_height = 20
+        # Black banner at top for time/date (24 pixels tall for larger text)
+        banner_height = 24
         draw.rectangle([(0, 0), (160, banner_height)], fill=(0, 0, 0))
 
-        # Try to load fonts - much larger fonts to fill cells
+        # Try to load fonts - much larger fonts to match icon size and be easily readable
         try:
             font_path_banner = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
             font_path_large = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-            font_banner = ImageFont.truetype(font_path_banner, 14)
-            font_large = ImageFont.truetype(font_path_large, 28)  # Much larger for sensor values
+            font_banner = ImageFont.truetype(font_path_banner, 18)  # Larger for date/time
+            font_large = ImageFont.truetype(font_path_large, 32)  # Match icon size (24px) + extra for readability
         except (OSError, IOError):
             # Fallback to default font
             try:
@@ -171,10 +171,10 @@ class SensorDisplayPlugin(DisplayPlugin):
             time_str = time_str[1:]  # Remove leading zero
         date_str = now.strftime("%d %b %y")  # e.g., "15 Nov 19"
 
-        # Draw time/date in black banner (white text)
+        # Draw time/date in black banner (white text, bold)
         time_x = 5
         date_x = 100
-        banner_y = 2
+        banner_y = 3  # Slightly adjusted for larger font
         draw.text((time_x, banner_y), time_str, font=font_banner, fill=(255, 255, 255))
         draw.text((date_x, banner_y), date_str, font=font_banner, fill=(255, 255, 255))
 
@@ -280,8 +280,8 @@ class SensorDisplayPlugin(DisplayPlugin):
 
         # Main content area starts below banner
         # With 80px height and 20px banner, we have 60px for content
-        # Split into 3 rows: ~20px each for Temperature, Humidity, Pressure
-        content_y = banner_height + 2
+        # Add more vertical spacing between banner and content, and between rows
+        content_y = banner_height + 8  # More space from banner
 
         # Left column - Temperature (top row, left side)
         y_temp = content_y
@@ -300,7 +300,7 @@ class SensorDisplayPlugin(DisplayPlugin):
 
                 # Draw icon if available, otherwise use text
                 icon_x = 5
-                icon_size = 24  # Larger icon to match larger font
+                icon_size = 28  # Slightly larger icons to match larger font
                 text_x = icon_x + icon_size + 5 if icon_temp else icon_x
                 if icon_temp:
                     # Resize icon to fit (larger to match font size)
@@ -318,7 +318,7 @@ class SensorDisplayPlugin(DisplayPlugin):
                 draw.text((5, y_temp), "T --", font=font_large, fill=(255, 255, 255))
 
         # Left column - Humidity (middle row, left side)
-        y_hum = content_y + 22
+        y_hum = content_y + 28  # More spacing between rows
         if sensors.has_sensor("bme280"):
             try:
                 if humidity is None:
@@ -327,7 +327,7 @@ class SensorDisplayPlugin(DisplayPlugin):
 
                 # Draw icon if available, otherwise use text
                 icon_x = 5
-                icon_size = 24  # Larger icon to match larger font
+                icon_size = 28  # Slightly larger icons to match larger font
                 text_x = icon_x + icon_size + 5 if icon_humidity else icon_x
                 if icon_humidity:
                     # Resize icon to fit (larger to match font size)
@@ -361,7 +361,7 @@ class SensorDisplayPlugin(DisplayPlugin):
 
                 # Draw icon if available, otherwise use text
                 icon_x = 85
-                icon_size = 24  # Larger icon to match larger font
+                icon_size = 28  # Slightly larger icons to match larger font
                 text_x = icon_x + icon_size + 5 if icon_pressure else icon_x
                 if icon_pressure:
                     # Resize icon to fit (larger to match font size)
