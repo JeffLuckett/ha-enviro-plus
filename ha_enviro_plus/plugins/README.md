@@ -4,7 +4,30 @@ This directory (`ha_enviro_plus/plugins/`) contains user-created display plugins
 
 ## Default Plugin
 
-The default sensor display (showing time/date, temperature, humidity, and pressure) is implemented as `SensorDisplayPlugin` in `ha_enviro_plus/display_plugins.py`. This plugin serves as the reference implementation and is automatically registered and available. It is defined in the base plugin system file, not in this directory.
+The default sensor display (showing time/date, temperature, humidity, and pressure) is implemented as `SensorDisplayPlugin` in `ha_enviro_plus/plugins/sensor_display.py`. This plugin serves as the reference implementation and is automatically registered and available.
+
+### Icons for Sensor Display
+
+The sensor display plugin will automatically load icons if they are available. Icons are included in the repository at `icons/` and are automatically copied to `/opt/ha-enviro-plus/icons/` during installation.
+
+**For developers/maintainers:**
+
+Icons should be placed in the `icons/` directory at the repository root. The required files are:
+- `icon_temperature.png`
+- `icon_humidity.png`
+- `icon_pressure.png`
+
+These can be downloaded from the Pimoroni repository:
+- https://github.com/pimoroni/enviroplus-python/tree/main/examples/icons
+
+**For users:**
+
+Icons are automatically installed during the installation process. If icons are not found, the plugin will fall back to displaying text labels (T, H, P) instead.
+
+The plugin checks for icons in the following locations (in order):
+1. Repository `icons/` directory (for development/testing)
+2. `/opt/ha-enviro-plus/icons/` (installed location)
+3. Other system locations where Pimoroni icons might be installed
 
 ## Plugin Architecture
 

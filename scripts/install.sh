@@ -350,6 +350,18 @@ write_config() {
       : "${CPU_TEMP_SMOOTHING:=${DEFAULT_CPU_TEMP_SMOOTHING}}"
       : "${UNITS:=${DEFAULT_UNITS}}"
     fi
+
+    # Always check UNITS separately on interactive installs, even if config exists
+    # This ensures users are prompted if UNITS is missing or empty
+    if [ -t 0 ] && [ -z "${UNITS:-}" ]; then
+      read -rp "Display units (metric/imperial) [${DEFAULT_UNITS}]: " UNITS_INPUT
+      UNITS="${UNITS_INPUT:-${DEFAULT_UNITS}}"
+      # Validate units
+      if [ "$UNITS" != "metric" ] && [ "$UNITS" != "imperial" ]; then
+        echo "==> Invalid units: $UNITS, using default: ${DEFAULT_UNITS}"
+        UNITS="${DEFAULT_UNITS}"
+      fi
+    fi
   else
     echo "==> Creating new configuration..."
 
@@ -373,6 +385,32 @@ write_config() {
       fi
     else
       echo "==> Using default values (non-interactive mode)"
+    fi
+
+    # Check for new options on fresh installs too (in case defaults changed)
+    if [ -t 0 ] && check_new_config_options; then
+      echo
+      echo "Please configure the new options:"
+
+      if [ -z "${CPU_TEMP_FACTOR:-}" ]; then
+        read -rp "CPU temperature compensation factor (higher=less compensation, lower=more compensation) [${DEFAULT_CPU_TEMP_FACTOR}]: " CPU_TEMP_FACTOR_INPUT
+        CPU_TEMP_FACTOR="${CPU_TEMP_FACTOR_INPUT:-${DEFAULT_CPU_TEMP_FACTOR}}"
+      fi
+
+      if [ -z "${CPU_TEMP_SMOOTHING:-}" ]; then
+        read -rp "CPU temperature smoothing factor [${DEFAULT_CPU_TEMP_SMOOTHING}]: " CPU_TEMP_SMOOTHING_INPUT
+        CPU_TEMP_SMOOTHING="${CPU_TEMP_SMOOTHING_INPUT:-${DEFAULT_CPU_TEMP_SMOOTHING}}"
+      fi
+
+      if [ -z "${UNITS:-}" ]; then
+        read -rp "Display units (metric/imperial) [${DEFAULT_UNITS}]: " UNITS_INPUT
+        UNITS="${UNITS_INPUT:-${DEFAULT_UNITS}}"
+        # Validate units
+        if [ "$UNITS" != "metric" ] && [ "$UNITS" != "imperial" ]; then
+          echo "==> Invalid units: $UNITS, using default: ${DEFAULT_UNITS}"
+          UNITS="${DEFAULT_UNITS}"
+        fi
+      fi
     fi
   fi
 
@@ -414,6 +452,27 @@ create_settings_dir() {
   sudo chown root:root "/var/lib/${APP_NAME}"
   sudo chmod 755 "/var/lib/${APP_NAME}"
   echo "==> Settings directory created: /var/lib/${APP_NAME}"
+}
+
+install_icons() {
+  echo "==> Installing display icons..."
+
+  local icons_source="${APP_DIR}/icons"
+  local icons_dest="/opt/${APP_NAME}/icons"
+
+  # Create destination directory
+  sudo mkdir -p "${icons_dest}"
+  sudo chmod 755 "${icons_dest}"
+
+  # Copy icons from repo if they exist
+  if [ -d "${icons_source}" ] && [ -n "$(ls -A "${icons_source}"/*.png 2>/dev/null)" ]; then
+    echo "==> Copying icons from ${icons_source} to ${icons_dest}..."
+    sudo cp -f "${icons_source}"/*.png "${icons_dest}/" 2>/dev/null || true
+    echo "==> Icons installed successfully"
+  else
+    echo "==> No icons found in ${icons_source}, skipping icon installation"
+    echo "==> Icons can be added later by copying PNG files to ${icons_dest}/"
+  fi
 }
 
 install_service() {
@@ -648,6 +707,7 @@ main() {
   enable_hardware_interfaces
   write_config
   create_settings_dir
+  install_icons
   install_service
   start_service
   post_message

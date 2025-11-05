@@ -71,11 +71,21 @@ class SensorDisplayPlugin(DisplayPlugin):
         # Get units setting
         units = settings.get_units() if hasattr(settings, "get_units") else "metric"
 
-        # Get sensor readings first to calculate background color
+        # Get sensor readings first to calculate background color and determine icons
         temp_c = None
+        humidity = None
+        pressure_hpa = None
         if sensors.has_sensor("bme280"):
             try:
                 temp_c = sensors.temp()
+            except Exception:
+                pass
+            try:
+                humidity = sensors.humidity()
+            except Exception:
+                pass
+            try:
+                pressure_hpa = sensors.pressure()
             except Exception:
                 pass
 
@@ -139,12 +149,12 @@ class SensorDisplayPlugin(DisplayPlugin):
         banner_height = 20
         draw.rectangle([(0, 0), (160, banner_height)], fill=(0, 0, 0))
 
-        # Try to load fonts - much larger fonts for readability
+        # Try to load fonts - much larger fonts to fill cells
         try:
             font_path_banner = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
             font_path_large = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-            font_banner = ImageFont.truetype(font_path_banner, 16)
-            font_large = ImageFont.truetype(font_path_large, 20)
+            font_banner = ImageFont.truetype(font_path_banner, 14)
+            font_large = ImageFont.truetype(font_path_large, 28)  # Much larger for sensor values
         except (OSError, IOError):
             # Fallback to default font
             try:
@@ -168,46 +178,112 @@ class SensorDisplayPlugin(DisplayPlugin):
         draw.text((time_x, banner_y), time_str, font=font_banner, fill=(255, 255, 255))
         draw.text((date_x, banner_y), date_str, font=font_banner, fill=(255, 255, 255))
 
-        # Load icons from Pimoroni examples (if available)
-        # Try common paths where icons might be installed
-        icon_paths = [
-            "/usr/local/lib/python3.*/site-packages/enviroplus/icons",
-            "/opt/enviroplus-python/examples/icons",
-            "~/.local/lib/python3.*/site-packages/enviroplus/icons",
-        ]
+        # Load icons from repository or installed location
+        # Icons are stored in the repo at icons/ and copied to /opt/ha-enviro-plus/icons/ during install
+        # Try to find package directory first (for development/testing)
+        package_icon_path = None
+        try:
+            import ha_enviro_plus
+            package_dir = os.path.dirname(
+                os.path.dirname(os.path.abspath(ha_enviro_plus.__file__))
+            )
+            repo_icons = os.path.join(package_dir, "icons")
+            if os.path.isdir(repo_icons):
+                package_icon_path = repo_icons
+        except Exception:
+            pass
+
+        icon_paths = []
+        if package_icon_path:
+            icon_paths.append(package_icon_path)  # Development/repo location
+        icon_paths.extend(
+            [
+                "/opt/ha-enviro-plus/icons",  # Primary installed location
+                "/usr/local/lib/python3.*/site-packages/enviroplus/icons",
+                "/opt/enviroplus-python/examples/icons",
+                "~/.local/lib/python3.*/site-packages/enviroplus/icons",
+            ]
+        )
 
         icon_temp = None
         icon_humidity = None
         icon_pressure = None
 
         # Try to find icon directory
+        icon_dir = None
         for pattern in icon_paths:
             expanded = os.path.expanduser(pattern)
             matches = glob.glob(expanded)
             if matches:
                 icon_dir = matches[0]
-                try:
-                    icon_temp_path = os.path.join(icon_dir, "icon_temperature.png")
-                    icon_humidity_path = os.path.join(icon_dir, "icon_humidity.png")
-                    icon_pressure_path = os.path.join(icon_dir, "icon_pressure.png")
-                    if os.path.exists(icon_temp_path):
-                        icon_temp = Image.open(icon_temp_path).convert("RGBA")
-                    if os.path.exists(icon_humidity_path):
-                        icon_humidity = Image.open(icon_humidity_path).convert("RGBA")
-                    if os.path.exists(icon_pressure_path):
-                        icon_pressure = Image.open(icon_pressure_path).convert("RGBA")
-                except Exception:
-                    pass
                 break
 
+        # Load icons based on sensor readings
+        if icon_dir:
+            try:
+                # Load temperature icon (generic - background color indicates state)
+                temp_icon_path = os.path.join(icon_dir, "icon_temperature.png")
+                if os.path.exists(temp_icon_path):
+                    icon_temp = Image.open(temp_icon_path).convert("RGBA")
+                else:
+                    # Fallback to temperature.png if icon_temperature.png doesn't exist
+                    fallback_path = os.path.join(icon_dir, "temperature.png")
+                    if os.path.exists(fallback_path):
+                        icon_temp = Image.open(fallback_path).convert("RGBA")
+            except Exception:
+                pass
+
+            try:
+                # Load humidity icon (variant based on reading)
+                if humidity is not None:
+                    # Good humidity: 30-60%, Bad: <30% or >60%
+                    if 30 <= humidity <= 60:
+                        hum_icon_name = "humidity-good.png"
+                    else:
+                        hum_icon_name = "humidity-bad.png"
+                    hum_icon_path = os.path.join(icon_dir, hum_icon_name)
+                    if os.path.exists(hum_icon_path):
+                        icon_humidity = Image.open(hum_icon_path).convert("RGBA")
+                    else:
+                        # Fallback to generic humidity icon
+                        fallback_path = os.path.join(icon_dir, "icon_humidity.png")
+                        if os.path.exists(fallback_path):
+                            icon_humidity = Image.open(fallback_path).convert("RGBA")
+            except Exception:
+                pass
+
+            try:
+                # Load pressure icon (weather-based)
+                if pressure_hpa is not None:
+                    # Standard atmospheric pressure: ~1013.25 hPa
+                    # Low pressure (<1000): storm/rain
+                    # Normal (1000-1025): fair
+                    # High (>1025): dry/clear
+                    if pressure_hpa < 1000:
+                        pressure_icon_name = "weather-storm.png"
+                    elif pressure_hpa < 1005:
+                        pressure_icon_name = "weather-rain.png"
+                    elif pressure_hpa <= 1025:
+                        pressure_icon_name = "weather-fair.png"
+                    else:
+                        pressure_icon_name = "weather-dry.png"
+                    pressure_icon_path = os.path.join(icon_dir, pressure_icon_name)
+                    if os.path.exists(pressure_icon_path):
+                        icon_pressure = Image.open(pressure_icon_path).convert("RGBA")
+                    else:
+                        # Fallback to generic pressure icon (if it exists)
+                        fallback_path = os.path.join(icon_dir, "icon_pressure.png")
+                        if os.path.exists(fallback_path):
+                            icon_pressure = Image.open(fallback_path).convert("RGBA")
+            except Exception:
+                pass
+
         # Main content area starts below banner
-        content_y = banner_height + 5
+        # With 80px height and 20px banner, we have 60px for content
+        # Split into 3 rows: ~20px each for Temperature, Humidity, Pressure
+        content_y = banner_height + 2
 
-        # Two-column layout
-        # Left column: Temperature, Humidity
-        # Right column: Pressure
-
-        # Left column - Temperature
+        # Left column - Temperature (top row, left side)
         y_temp = content_y
         if sensors.has_sensor("bme280"):
             try:
@@ -224,10 +300,13 @@ class SensorDisplayPlugin(DisplayPlugin):
 
                 # Draw icon if available, otherwise use text
                 icon_x = 5
-                text_x = icon_x + 20 if icon_temp else icon_x
+                icon_size = 24  # Larger icon to match larger font
+                text_x = icon_x + icon_size + 5 if icon_temp else icon_x
                 if icon_temp:
-                    # Resize icon to fit (16x16)
-                    icon_resized = icon_temp.resize((16, 16), Image.Resampling.LANCZOS)
+                    # Resize icon to fit (larger to match font size)
+                    icon_resized = icon_temp.resize(
+                        (icon_size, icon_size), Image.Resampling.LANCZOS
+                    )
                     # Paste icon with alpha blending
                     image.paste(icon_resized, (icon_x, y_temp), icon_resized)
                 else:
@@ -238,19 +317,23 @@ class SensorDisplayPlugin(DisplayPlugin):
                 self.logger.warning("Failed to read temperature: %s", e)
                 draw.text((5, y_temp), "T --", font=font_large, fill=(255, 255, 255))
 
-        # Left column - Humidity
-        y_hum = content_y + 30
+        # Left column - Humidity (middle row, left side)
+        y_hum = content_y + 22
         if sensors.has_sensor("bme280"):
             try:
-                humidity = sensors.humidity()
+                if humidity is None:
+                    humidity = sensors.humidity()
                 hum_str = f"{humidity:.0f}%"
 
                 # Draw icon if available, otherwise use text
                 icon_x = 5
-                text_x = icon_x + 20 if icon_humidity else icon_x
+                icon_size = 24  # Larger icon to match larger font
+                text_x = icon_x + icon_size + 5 if icon_humidity else icon_x
                 if icon_humidity:
-                    # Resize icon to fit (16x16)
-                    icon_resized = icon_humidity.resize((16, 16), Image.Resampling.LANCZOS)
+                    # Resize icon to fit (larger to match font size)
+                    icon_resized = icon_humidity.resize(
+                        (icon_size, icon_size), Image.Resampling.LANCZOS
+                    )
                     # Paste icon with alpha blending
                     image.paste(icon_resized, (icon_x, y_hum), icon_resized)
                 else:
@@ -261,11 +344,12 @@ class SensorDisplayPlugin(DisplayPlugin):
                 self.logger.warning("Failed to read humidity: %s", e)
                 draw.text((5, y_hum), "H --%", font=font_large, fill=(255, 255, 255))
 
-        # Right column - Pressure
+        # Right column - Pressure (top row, right side)
         y_pressure = content_y
         if sensors.has_sensor("bme280"):
             try:
-                pressure_hpa = sensors.pressure()
+                if pressure_hpa is None:
+                    pressure_hpa = sensors.pressure()
                 if units == "imperial":
                     pressure_value = hpa_to_inhg(pressure_hpa)
                     pressure_unit = "in"
@@ -277,10 +361,13 @@ class SensorDisplayPlugin(DisplayPlugin):
 
                 # Draw icon if available, otherwise use text
                 icon_x = 85
-                text_x = icon_x + 20 if icon_pressure else icon_x
+                icon_size = 24  # Larger icon to match larger font
+                text_x = icon_x + icon_size + 5 if icon_pressure else icon_x
                 if icon_pressure:
-                    # Resize icon to fit (16x16)
-                    icon_resized = icon_pressure.resize((16, 16), Image.Resampling.LANCZOS)
+                    # Resize icon to fit (larger to match font size)
+                    icon_resized = icon_pressure.resize(
+                        (icon_size, icon_size), Image.Resampling.LANCZOS
+                    )
                     # Paste icon with alpha blending
                     image.paste(icon_resized, (icon_x, y_pressure), icon_resized)
                 else:
