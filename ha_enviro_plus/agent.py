@@ -253,6 +253,8 @@ def publish_discovery(
     number("CPU Temp Factor", "cpu_temp_factor", None, 0.5, 5.0, 0.1)
     number("CPU Temp Smoothing", "cpu_temp_smoothing", None, 0.01, 1.0, 0.01)
     number("Temp Smoothing Window", "temp_smoothing_minutes", "min", 0.0, 60.0, 0.1)
+    number("Pressure Offset", "pressure_offset", "hPa", -10.0, 10.0, 0.01)
+    number("Elevation", "elevation_meters", "m", 0.0, 8848.0, 0.1)  # 0 to Mount Everest
 
 
 def read_all(enviro_sensors: EnviroPlusSensors) -> Dict[str, Any]:
@@ -262,7 +264,6 @@ def read_all(enviro_sensors: EnviroPlusSensors) -> Dict[str, Any]:
     Returns a dictionary with all sensor readings, using "unavailable" for
     missing sensors to ensure Home Assistant knows about all sensors.
     """
-    from .constants import Constants
     from .system_info import (
         get_uptime_seconds,
         get_ipv4_prefer_wlan0,
@@ -387,6 +388,16 @@ def on_connect(
             str(settings_manager.get_temp_smoothing_minutes()),
             retain=Constants.MQTT_RETAIN_STATE,
         )
+        client.publish(
+            f"{root}/set/pressure_offset",
+            str(settings_manager.pressure_offset),
+            retain=Constants.MQTT_RETAIN_STATE,
+        )
+        client.publish(
+            f"{root}/set/elevation_meters",
+            str(settings_manager.elevation_meters),
+            retain=Constants.MQTT_RETAIN_STATE,
+        )
     else:
         # Fallback to config if settings manager not available
         if config:
@@ -411,6 +422,16 @@ def on_connect(
             client.publish(
                 f"{root}/set/temp_smoothing_minutes",
                 str(config.temp_smoothing_minutes),
+                retain=Constants.MQTT_RETAIN_STATE,
+            )
+            client.publish(
+                f"{root}/set/pressure_offset",
+                str(config.pressure_offset),
+                retain=Constants.MQTT_RETAIN_STATE,
+            )
+            client.publish(
+                f"{root}/set/elevation_meters",
+                str(config.elevation_meters),
                 retain=Constants.MQTT_RETAIN_STATE,
             )
 
@@ -464,7 +485,17 @@ def _handle_command(
                 client.publish(
                     f"{root}/set/temp_smoothing_minutes",
                     str(settings_manager.get_temp_smoothing_minutes()),
-                    retain=True,
+                    retain=Constants.MQTT_RETAIN_STATE,
+                )
+                client.publish(
+                    f"{root}/set/pressure_offset",
+                    str(settings_manager.pressure_offset),
+                    retain=Constants.MQTT_RETAIN_STATE,
+                )
+                client.publish(
+                    f"{root}/set/elevation_meters",
+                    str(settings_manager.elevation_meters),
+                    retain=Constants.MQTT_RETAIN_STATE,
                 )
                 logger.info("Settings reset successfully")
             except Exception as e:
@@ -525,7 +556,24 @@ def _handle_calibration_setting(
             # Only publish back if value was clamped (changed from original)
             # This prevents infinite loops while still updating HA if we corrected the value
             if value_changed:
-                client.publish(f"{root}/set/temp_smoothing_minutes", str(value), retain=True)
+                client.publish(
+                    f"{root}/set/temp_smoothing_minutes",
+                    str(value),
+                    retain=Constants.MQTT_RETAIN_STATE,
+                )
+        elif key == "pressure_offset":
+            value = float(payload)
+            enviro_sensors.update_calibration(pressure_offset=value)
+            if settings_manager:
+                settings_manager.pressure_offset = value
+        elif key == "elevation_meters":
+            value = float(payload)
+            if value < 0.0:
+                logger.warning("Elevation cannot be negative, got %s", value)
+                value = 0.0
+            enviro_sensors.update_calibration(elevation_meters=value)
+            if settings_manager:
+                settings_manager.elevation_meters = value
         else:
             logger.warning("Unknown calibration setting: %s", key)
     except ValueError:
@@ -663,6 +711,16 @@ def main() -> None:
     cpu_temp_factor: float = settings_manager.cpu_temp_factor
     cpu_temp_smoothing: float = settings_manager.cpu_temp_smoothing
     temp_smoothing_minutes: float = config.temp_smoothing_minutes
+    pressure_offset: float = (
+        settings_manager.pressure_offset
+        if hasattr(settings_manager, "pressure_offset")
+        else config.pressure_offset
+    )
+    elevation_meters: float = (
+        settings_manager.elevation_meters
+        if hasattr(settings_manager, "elevation_meters")
+        else config.elevation_meters
+    )
 
     # Load units setting (from config or settings file)
     units = config.units
@@ -672,12 +730,14 @@ def main() -> None:
     settings_manager.units = units
 
     logger.info(
-        "Initial offsets: TEMP=%s°C HUM=%s%% CPU_FACTOR=%s CPU_SMOOTHING=%s TEMP_SMOOTHING=%s min UNITS=%s",
+        "Initial offsets: TEMP=%s°C HUM=%s%% CPU_FACTOR=%s CPU_SMOOTHING=%s TEMP_SMOOTHING=%s min PRESSURE=%s hPa ELEVATION=%s m UNITS=%s",
         temp_offset,
         hum_offset,
         cpu_temp_factor,
         cpu_temp_smoothing,
         temp_smoothing_minutes,
+        pressure_offset,
+        elevation_meters,
         units,
     )
 
@@ -688,6 +748,8 @@ def main() -> None:
         cpu_temp_factor=cpu_temp_factor,
         cpu_temp_smoothing=cpu_temp_smoothing,
         temp_smoothing_minutes=temp_smoothing_minutes,
+        pressure_offset=pressure_offset,
+        elevation_meters=elevation_meters,
         logger=logger,
     )
 

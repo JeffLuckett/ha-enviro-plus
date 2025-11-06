@@ -166,6 +166,8 @@ The installation creates Home Assistant number entities for each parameter:
 - **CPU Temp Factor** - Adjust `cpu_temp_factor`
 - **CPU Temp Smoothing** - Adjust `cpu_temp_smoothing`
 - **Temp Smoothing Window** - Adjust `temp_smoothing_minutes` in minutes (default: 5.0)
+- **Pressure Offset** - Adjust `pressure_offset` in hPa (default: 0.0)
+- **Elevation** - Adjust `elevation_meters` in meters for sea-level pressure correction (default: 0.0)
 
 ### Via Configuration File
 
@@ -176,6 +178,8 @@ TEMP_OFFSET=-0.5
 CPU_TEMP_FACTOR=1.6
 CPU_TEMP_SMOOTHING=0.1
 TEMP_SMOOTHING_MINUTES=5.0
+PRESSURE_OFFSET=0.14
+ELEVATION_METERS=0.0
 ```
 
 Then restart the service:
@@ -290,4 +294,100 @@ Here are some example calibrated values from various installations:
 | Well-isolated | 1.8 | 0.0 | Good thermal isolation |
 
 Your optimal values will depend on your specific hardware, environment, and usage patterns.
+
+---
+
+## Pressure Calibration
+
+The system provides two parameters for accurate pressure readings:
+
+1. **`elevation_meters`** - Elevation above sea level for automatic sea-level pressure correction
+2. **`pressure_offset`** - Fine-tuning offset in hPa (for matching weather station readings)
+
+### Sea-Level Pressure Correction
+
+Weather stations typically report sea-level equivalent pressure (what you'd see at sea level), not the actual station pressure at your elevation. The system automatically converts station pressure to sea-level pressure when elevation is set.
+
+**Default value:** `0.0` (no correction)
+**Recommended:** Set your actual elevation in meters
+
+#### How It Works
+
+1. **Set your elevation** - Enter your location's elevation above sea level in meters
+2. **System calculates** - Automatically converts station pressure to sea-level equivalent
+3. **Fine-tune if needed** - Use `pressure_offset` to match a reference weather station
+
+#### Example
+
+- **Location:** Denver, CO (~1600m elevation)
+- **Station pressure:** ~850 hPa (actual pressure at elevation)
+- **Set `elevation_meters = 1600`** → System calculates sea-level equivalent: ~1013 hPa
+- **Compare with weather station** → If weather station shows 1013.25 hPa, set `pressure_offset = 0.25`
+
+### Pressure Offset
+
+For fine-tuning to match a reference weather station or calibrate the sensor:
+
+**Default value:** `0.0`
+**Recommended range:** `-2.0` to `+2.0` hPa
+
+**Note:** 1 hPa ≈ 0.75 mmHg (1 mmHg ≈ 1.33 hPa)
+
+#### Calibration Process
+
+1. **Set elevation first** (if not at sea level)
+2. **Compare with reference** - Check your reading vs. a local weather station or calibrated barometer
+3. **Calculate difference** - If your reading is 1013.25 hPa and weather station shows 1013.39 hPa, difference is +0.14 hPa
+4. **Set offset** - Apply the difference: `pressure_offset = 0.14`
+
+### Adjusting Pressure Values
+
+#### Via Home Assistant
+
+The installation creates Home Assistant number entities:
+- **Pressure Offset** - Adjust `pressure_offset` in hPa (range: -10.0 to 10.0, step: 0.01)
+- **Elevation** - Adjust `elevation_meters` in meters (range: 0.0 to 8848.0, step: 0.1)
+
+#### Via Configuration File
+
+Edit `/etc/default/ha-enviro-plus`:
+
+```bash
+PRESSURE_OFFSET=0.14
+ELEVATION_METERS=1600.0
+```
+
+Then restart the service:
+```bash
+sudo systemctl restart ha-enviro-plus
+```
+
+#### Via MQTT
+
+Publish to MQTT topics (values are persistent):
+
+```bash
+mosquitto_pub -h homeassistant.local \
+  -t "enviro_raspberrypi/set/pressure_offset" \
+  -m "0.14"
+
+mosquitto_pub -h homeassistant.local \
+  -t "enviro_raspberrypi/set/elevation_meters" \
+  -m "1600.0"
+```
+
+### Pressure Calibration Summary
+
+| Parameter | Default | Purpose | Typical Range |
+|-----------|---------|---------|---------------|
+| `elevation_meters` | 0.0 | Sea-level pressure correction | 0.0 - 8848.0 m |
+| `pressure_offset` | 0.0 | Fine-tuning offset | -2.0 to +2.0 hPa |
+
+### Tips for Best Results
+
+1. **Find your elevation** - Use online tools or GPS to determine your elevation above sea level
+2. **Set elevation first** - This ensures sea-level correction is applied correctly
+3. **Compare with weather station** - Use a local weather station as reference for offset calibration
+4. **Normal range** - Barometric pressure typically ranges from 980-1050 hPa at sea level
+5. **Small adjustments** - Pressure offset should typically be small (0.01-0.5 hPa) if elevation is set correctly
 

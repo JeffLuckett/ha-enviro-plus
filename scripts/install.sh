@@ -51,6 +51,8 @@ load_defaults() {
   DEFAULT_CPU_TEMP_FACTOR="1.8"
   DEFAULT_CPU_TEMP_SMOOTHING="0.1"
   DEFAULT_TEMP_SMOOTHING_MINUTES="5.0"
+  DEFAULT_PRESSURE_OFFSET="0.0"
+  DEFAULT_ELEVATION_METERS="0.0"
   DEFAULT_DISPLAY_ENABLED="1"
   DEFAULT_UNITS="metric"
 
@@ -77,6 +79,8 @@ load_defaults() {
   # Ensure critical defaults are always set (even if config file didn't define them)
   # This prevents "unbound variable" errors with set -u
   : "${DEFAULT_TEMP_SMOOTHING_MINUTES:=5.0}"
+  : "${DEFAULT_PRESSURE_OFFSET:=0.0}"
+  : "${DEFAULT_ELEVATION_METERS:=0.0}"
 }
 
 ensure_git() {
@@ -415,6 +419,8 @@ write_config() {
   # Ensure critical defaults are always set (defensive programming)
   # This prevents "unbound variable" errors even if config file doesn't define them
   : "${DEFAULT_TEMP_SMOOTHING_MINUTES:=5.0}"
+  : "${DEFAULT_PRESSURE_OFFSET:=0.0}"
+  : "${DEFAULT_ELEVATION_METERS:=0.0}"
   : "${DEFAULT_CPU_TEMP_FACTOR:=1.8}"
   : "${DEFAULT_CPU_TEMP_SMOOTHING:=0.1}"
   : "${DEFAULT_UNITS:=metric}"
@@ -471,6 +477,16 @@ write_config() {
           TEMP_SMOOTHING_MINUTES="${TEMP_SMOOTHING_MINUTES_INPUT:-${DEFAULT_TEMP_SMOOTHING_MINUTES}}"
         fi
 
+        if [ -z "${PRESSURE_OFFSET:-}" ]; then
+          read -rp "Pressure offset (hPa, e.g. 0.14 for ~1 mmHg correction) [${DEFAULT_PRESSURE_OFFSET}]: " PRESSURE_OFFSET_INPUT
+          PRESSURE_OFFSET="${PRESSURE_OFFSET_INPUT:-${DEFAULT_PRESSURE_OFFSET}}"
+        fi
+
+        if [ -z "${ELEVATION_METERS:-}" ]; then
+          read -rp "Elevation in meters above sea level (for sea-level pressure correction, 0 to disable) [${DEFAULT_ELEVATION_METERS}]: " ELEVATION_METERS_INPUT
+          ELEVATION_METERS="${ELEVATION_METERS_INPUT:-${DEFAULT_ELEVATION_METERS}}"
+        fi
+
         if [ -z "${UNITS:-}" ] || ([ "${UNITS:-}" != "metric" ] && [ "${UNITS:-}" != "imperial" ]); then
           read -rp "Display units (metric/imperial) [${DEFAULT_UNITS}]: " UNITS_INPUT
           UNITS="${UNITS_INPUT:-${DEFAULT_UNITS}}"
@@ -487,6 +503,8 @@ write_config() {
         : "${CPU_TEMP_FACTOR:=${DEFAULT_CPU_TEMP_FACTOR}}"
         : "${CPU_TEMP_SMOOTHING:=${DEFAULT_CPU_TEMP_SMOOTHING}}"
         : "${TEMP_SMOOTHING_MINUTES:=${DEFAULT_TEMP_SMOOTHING_MINUTES}}"
+        : "${PRESSURE_OFFSET:=${DEFAULT_PRESSURE_OFFSET}}"
+        : "${ELEVATION_METERS:=${DEFAULT_ELEVATION_METERS}}"
         # Only set UNITS default if it wasn't in the config file with a valid value
         if [ "$units_in_config" = "false" ]; then
           : "${UNITS:=${DEFAULT_UNITS}}"
@@ -556,6 +574,8 @@ write_config() {
       read -rp "CPU temperature compensation factor (higher=less compensation, lower=more compensation) [${DEFAULT_CPU_TEMP_FACTOR}]: " CPU_TEMP_FACTOR
       read -rp "CPU temperature smoothing factor [${DEFAULT_CPU_TEMP_SMOOTHING}]: " CPU_TEMP_SMOOTHING
       read -rp "Temperature smoothing window (minutes) [${DEFAULT_TEMP_SMOOTHING_MINUTES}]: " TEMP_SMOOTHING_MINUTES
+      read -rp "Pressure offset (hPa, e.g. 0.14 for ~1 mmHg correction) [${DEFAULT_PRESSURE_OFFSET}]: " PRESSURE_OFFSET
+      read -rp "Elevation in meters above sea level (for sea-level pressure correction, 0 to disable) [${DEFAULT_ELEVATION_METERS}]: " ELEVATION_METERS
       read -rp "Display units (metric/imperial) [${DEFAULT_UNITS}]: " UNITS
       # Validate units
       if [ "$UNITS" != "metric" ] && [ "$UNITS" != "imperial" ]; then
@@ -602,6 +622,8 @@ HUM_OFFSET="${HUM_OFFSET}"
 CPU_TEMP_FACTOR="${CPU_TEMP_FACTOR}"
 CPU_TEMP_SMOOTHING="${CPU_TEMP_SMOOTHING}"
 TEMP_SMOOTHING_MINUTES="${TEMP_SMOOTHING_MINUTES}"
+PRESSURE_OFFSET="${PRESSURE_OFFSET}"
+ELEVATION_METERS="${ELEVATION_METERS}"
 DISPLAY_ENABLED="${DISPLAY_ENABLED}"
 UNITS="${UNITS}"
 EOF

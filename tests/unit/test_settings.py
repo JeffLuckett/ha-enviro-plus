@@ -82,6 +82,8 @@ class TestSettingsManager:
                 "cpu_temp_factor",
                 "cpu_temp_smoothing",
                 "temp_smoothing_minutes",
+                "pressure_offset",
+                "elevation_meters",
                 "units",
             }
             assert set(settings.keys()) == expected_keys
@@ -90,6 +92,8 @@ class TestSettingsManager:
             assert settings["cpu_temp_factor"] == 1.8
             assert settings["cpu_temp_smoothing"] == 0.1
             assert settings["temp_smoothing_minutes"] == 5.0
+            assert settings["pressure_offset"] == 0.0
+            assert settings["elevation_meters"] == 0.0
             assert settings["units"] == "metric"
 
     def test_set_setting_validates_key(self):

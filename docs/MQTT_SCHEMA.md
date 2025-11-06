@@ -120,6 +120,8 @@ Settings can be read and updated via MQTT:
 - `cpu_temp_factor` - CPU temperature compensation factor (range: 0.5 to 5.0, step: 0.1)
 - `cpu_temp_smoothing` - CPU temperature smoothing factor (range: 0.01 to 1.0, step: 0.01)
 - `temp_smoothing_minutes` - Temperature smoothing window in minutes (range: 0.0 to 60.0, step: 0.1)
+- `pressure_offset` - Pressure offset in hPa (range: -10.0 to 10.0, step: 0.01)
+- `elevation_meters` - Elevation in meters above sea level for sea-level pressure correction (range: 0.0 to 8848.0, step: 0.1)
 
 **QoS**: 1
 **Retained**: Yes
@@ -246,6 +248,8 @@ Settings are exposed as number entities for easy adjustment in Home Assistant:
 - `cpu_temp_factor` - CPU temperature compensation factor (range: 0.5 to 5.0, step: 0.1)
 - `cpu_temp_smoothing` - CPU temperature smoothing factor (range: 0.01 to 1.0, step: 0.01)
 - `temp_smoothing_minutes` - Temperature smoothing window in minutes (range: 0.0 to 60.0, step: 0.1)
+- `pressure_offset` - Pressure offset in hPa (range: -10.0 to 10.0, step: 0.01)
+- `elevation_meters` - Elevation in meters above sea level for sea-level pressure correction (range: 0.0 to 8848.0, step: 0.1)
 
 ## Device Information
 
@@ -322,7 +326,9 @@ enviro_1234567890abcdef/
 │   ├── hum_offset                  # Humidity offset setting
 │   ├── cpu_temp_factor             # CPU temp factor setting
 │   ├── cpu_temp_smoothing          # CPU temp smoothing setting
-│   └── temp_smoothing_minutes      # Temperature smoothing window setting
+│   ├── temp_smoothing_minutes      # Temperature smoothing window setting
+│   ├── pressure_offset             # Pressure offset setting (hPa)
+│   └── elevation_meters             # Elevation for sea-level pressure correction (m)
 └── device/
     └── attributes                  # Device metadata
 ```

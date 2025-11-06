@@ -30,6 +30,8 @@ class Config:
     cpu_temp_factor: float = 1.8
     cpu_temp_smoothing: float = 0.1
     temp_smoothing_minutes: float = 5.0
+    pressure_offset: float = 0.0  # hPa
+    elevation_meters: float = 0.0  # meters above sea level
 
     # Display Configuration
     display_enabled: bool = True
@@ -68,6 +70,8 @@ class Config:
             cpu_temp_factor=float(_get("CPU_TEMP_FACTOR", "1.8")),
             cpu_temp_smoothing=float(_get("CPU_TEMP_SMOOTHING", "0.1")),
             temp_smoothing_minutes=float(_get("TEMP_SMOOTHING_MINUTES", "5.0")),
+            pressure_offset=float(_get("PRESSURE_OFFSET", "0.0")),
+            elevation_meters=float(_get("ELEVATION_METERS", "0.0")),
             # Display
             display_enabled=int(_get("DISPLAY_ENABLED", "1")) == 1,
             sensor_warmup_sec=float(_get("SENSOR_WARMUP_SEC", "2")),

@@ -44,6 +44,8 @@ class EnviroPlusSensors:
         cpu_temp_factor: float = 1.8,
         cpu_temp_smoothing: float = 0.1,
         temp_smoothing_minutes: float = 5.0,
+        pressure_offset: float = 0.0,
+        elevation_meters: float = 0.0,
         logger: Optional[logging.Logger] = None,
     ):
         """
@@ -55,6 +57,8 @@ class EnviroPlusSensors:
             cpu_temp_factor: CPU temperature compensation factor (higher=less compensation, lower=more compensation)
             cpu_temp_smoothing: CPU temperature smoothing factor (0.0-1.0, lower=more smoothing)
             temp_smoothing_minutes: Temperature smoothing window in minutes (0.0 = no smoothing)
+            pressure_offset: Pressure calibration offset in hPa
+            elevation_meters: Elevation in meters for sea-level pressure calculation (0.0 = no correction)
             logger: Optional logger instance
         """
         self.temp_offset = temp_offset
@@ -62,6 +66,8 @@ class EnviroPlusSensors:
         self.cpu_temp_factor = cpu_temp_factor
         self.cpu_temp_smoothing = cpu_temp_smoothing
         self.temp_smoothing_minutes = temp_smoothing_minutes
+        self.pressure_offset = pressure_offset
+        self.elevation_meters = elevation_meters
         self.logger = logger or logging.getLogger(__name__)
 
         # CPU temperature smoothing state
@@ -494,18 +500,99 @@ class EnviroPlusSensors:
             return 0.0
 
     # Pressure accessors
-    def pressure(self) -> float:
+    def _calculate_sea_level_pressure(
+        self, station_pressure_hpa: float, elevation_m: float, temp_c: float
+    ) -> float:
         """
-        Get pressure reading (no calibration applied).
+        Calculate sea-level pressure from station pressure using hypsometric equation.
+
+        Args:
+            station_pressure_hpa: Station pressure in hPa
+            elevation_m: Elevation in meters above sea level
+            temp_c: Temperature in Celsius (for altitude correction)
 
         Returns:
-            Pressure in hPa
+            Sea-level pressure in hPa
+        """
+        if elevation_m <= 0.0:
+            return station_pressure_hpa
+
+        # Convert temperature to Kelvin
+        temp_k = temp_c + 273.15
+
+        # Standard atmospheric constants
+        # L = temperature lapse rate (K/m)
+        L = 0.0065  # K/m
+        # g = standard gravity (m/s²)
+        g = 9.80665  # m/s²
+        # M = molar mass of dry air (kg/mol)
+        M = 0.0289644  # kg/mol
+        # R = universal gas constant (J/(mol·K))
+        R = 8.31447  # J/(mol·K)
+
+        # Hypsometric equation: P_sea = P_station * (T / (T - L * h))^(g * M / (R * L))
+        # where h is elevation, T is temperature in Kelvin
+        # This formula converts station pressure at elevation to sea-level equivalent
+        exponent = (g * M) / (R * L)
+        denominator = temp_k - (L * elevation_m)
+
+        if denominator <= 0.0:
+            self.logger.warning(
+                "Invalid temperature-elevation combination (%s K, %s m), using station pressure",
+                temp_k,
+                elevation_m,
+            )
+            return station_pressure_hpa
+
+        pressure_ratio = temp_k / denominator
+        sea_level_pressure = station_pressure_hpa * (pressure_ratio**exponent)
+
+        self.logger.debug(
+            "Sea-level pressure: %.2f hPa (station: %.2f hPa, elevation: %.1f m, temp: %.1f°C)",
+            sea_level_pressure,
+            station_pressure_hpa,
+            elevation_m,
+            temp_c,
+        )
+
+        return sea_level_pressure
+
+    def pressure(self) -> float:
+        """
+        Get pressure reading with elevation correction and calibration offset applied.
+
+        Returns:
+            Pressure in hPa (sea-level pressure if elevation is set, plus offset)
         """
         if self.bme280 is None:
             self.logger.debug("Pressure unavailable: BME280 not initialized")
             return 0.0
         try:
-            return round(float(self.bme280.get_pressure()), Constants.PRESSURE_ROUND_PRECISION)
+            raw_pressure = float(self.bme280.get_pressure())
+
+            # Apply elevation correction to get sea-level pressure
+            if self.elevation_meters > 0.0:
+                # Use current temperature for accurate sea-level calculation
+                current_temp = self.temp()  # This uses all calibrations
+                sea_level_pressure = self._calculate_sea_level_pressure(
+                    raw_pressure, self.elevation_meters, current_temp
+                )
+            else:
+                sea_level_pressure = raw_pressure
+
+            # Apply user offset
+            calibrated_pressure = sea_level_pressure + self.pressure_offset
+
+            self.logger.debug(
+                "Final pressure: %.2f hPa (raw=%.2f, sea-level=%.2f, offset=%.2f, elevation=%.1f m)",
+                calibrated_pressure,
+                raw_pressure,
+                sea_level_pressure,
+                self.pressure_offset,
+                self.elevation_meters,
+            )
+
+            return round(calibrated_pressure, Constants.PRESSURE_ROUND_PRECISION)
         except Exception as e:
             self.logger.error("Failed to read pressure: %s", e)
             self.logger.info("Pressure will be reported as 0.0 hPa")
@@ -683,6 +770,8 @@ class EnviroPlusSensors:
         cpu_temp_factor: Optional[float] = None,
         cpu_temp_smoothing: Optional[float] = None,
         temp_smoothing_minutes: Optional[float] = None,
+        pressure_offset: Optional[float] = None,
+        elevation_meters: Optional[float] = None,
     ) -> None:
         """
         Update calibration parameters.
@@ -693,6 +782,8 @@ class EnviroPlusSensors:
             cpu_temp_factor: New CPU temperature compensation factor (higher=less compensation, lower=more compensation)
             cpu_temp_smoothing: New CPU temperature smoothing factor (0.0-1.0, lower=more smoothing)
             temp_smoothing_minutes: New temperature smoothing window in minutes (0.0 = no smoothing)
+            pressure_offset: New pressure offset in hPa
+            elevation_meters: New elevation in meters for sea-level pressure calculation
         """
         if temp_offset is not None:
             self.temp_offset = temp_offset
@@ -717,6 +808,17 @@ class EnviroPlusSensors:
             self.logger.info(
                 "Updated temperature smoothing window to %s minutes", temp_smoothing_minutes
             )
+
+        if pressure_offset is not None:
+            self.pressure_offset = pressure_offset
+            self.logger.info("Updated pressure offset to %s hPa", pressure_offset)
+
+        if elevation_meters is not None:
+            if elevation_meters < 0.0:
+                self.logger.warning("Elevation cannot be negative, setting to 0.0")
+                elevation_meters = 0.0
+            self.elevation_meters = elevation_meters
+            self.logger.info("Updated elevation to %s meters", elevation_meters)
 
     def get_all_sensor_data(self) -> Dict[str, Any]:
         """
