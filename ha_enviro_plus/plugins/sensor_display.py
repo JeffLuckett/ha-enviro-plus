@@ -791,9 +791,9 @@ class SensorDisplayPlugin(DisplayPlugin):
 
             if units == "imperial":
                 pressure_value = hpa_to_inhg(pressure_hpa)
-                pressure_str = f"{pressure_value:.1f} inHg"
+                pressure_str = f"{pressure_value:.2f} inHg"
             else:
-                pressure_str = f"{pressure_hpa:.0f} hPa"
+                pressure_str = f"{pressure_hpa:.2f} hPa"
 
             y_pressure = y + self.ROW_SPACING
             self._draw_icon_and_text(

@@ -50,13 +50,18 @@ load_defaults() {
   DEFAULT_HUM_OFFSET="0"
   DEFAULT_CPU_TEMP_FACTOR="1.8"
   DEFAULT_CPU_TEMP_SMOOTHING="0.1"
+  DEFAULT_TEMP_SMOOTHING_MINUTES="5.0"
+  DEFAULT_PRESSURE_OFFSET="0.0"
+  DEFAULT_ELEVATION_METERS="0.0"
   DEFAULT_DISPLAY_ENABLED="1"
   DEFAULT_UNITS="metric"
 
   # Try to source from configuration file if it exists
+  # Use set +u temporarily to allow unset variables during sourcing
+  set +u
   if [ -f "${DEFAULTS_FILE}" ]; then
     # shellcheck source=config/install-defaults.conf
-    source "${DEFAULTS_FILE}"
+    source "${DEFAULTS_FILE}" || true  # Continue even if sourcing fails
     echo "==> Loaded defaults from ${DEFAULTS_FILE}"
   else
     # If file doesn't exist (e.g., during remote installation or PyPI install),
@@ -64,11 +69,18 @@ load_defaults() {
     if [ -d "${APP_DIR}/.git" ] || [ -f "${APP_DIR}/config/install-defaults.conf" ]; then
       local repo_defaults="${APP_DIR}/config/install-defaults.conf"
       if [ -f "${repo_defaults}" ]; then
-        source "${repo_defaults}"
+        source "${repo_defaults}" || true  # Continue even if sourcing fails
         echo "==> Loaded defaults from ${repo_defaults}"
       fi
     fi
   fi
+  set -u  # Re-enable unbound variable checking
+
+  # Ensure critical defaults are always set (even if config file didn't define them)
+  # This prevents "unbound variable" errors with set -u
+  : "${DEFAULT_TEMP_SMOOTHING_MINUTES:=5.0}"
+  : "${DEFAULT_PRESSURE_OFFSET:=0.0}"
+  : "${DEFAULT_ELEVATION_METERS:=0.0}"
 }
 
 ensure_git() {
@@ -381,6 +393,10 @@ check_new_config_options() {
     new_options+=("CPU_TEMP_SMOOTHING")
   fi
 
+  if [ -z "${TEMP_SMOOTHING_MINUTES:-}" ]; then
+    new_options+=("TEMP_SMOOTHING_MINUTES")
+  fi
+
   if [ -z "${UNITS:-}" ]; then
     new_options+=("UNITS")
   fi
@@ -400,6 +416,15 @@ write_config() {
   # Load default values from configuration file
   load_defaults
 
+  # Ensure critical defaults are always set (defensive programming)
+  # This prevents "unbound variable" errors even if config file doesn't define them
+  : "${DEFAULT_TEMP_SMOOTHING_MINUTES:=5.0}"
+  : "${DEFAULT_PRESSURE_OFFSET:=0.0}"
+  : "${DEFAULT_ELEVATION_METERS:=0.0}"
+  : "${DEFAULT_CPU_TEMP_FACTOR:=1.8}"
+  : "${DEFAULT_CPU_TEMP_SMOOTHING:=0.1}"
+  : "${DEFAULT_UNITS:=metric}"
+
   # Check if UNITS exists in config file with a valid value before loading
   local units_in_config=false
   if [ -f "${CFG}" ]; then
@@ -417,6 +442,11 @@ write_config() {
   # Try to load existing config
   if load_existing_config; then
     echo "==> Found existing configuration, preserving current settings..."
+
+    # Set defaults for new variables that might not be in old config files
+    # This must happen before any variable expansion to prevent "unbound variable" errors
+    : "${PRESSURE_OFFSET:=${DEFAULT_PRESSURE_OFFSET}}"
+    : "${ELEVATION_METERS:=${DEFAULT_ELEVATION_METERS}}"
 
     # Re-check UNITS after loading config - it might be empty or invalid
     # This is critical because load_existing_config might set UNITS="" if it exists but is empty
@@ -447,6 +477,21 @@ write_config() {
           CPU_TEMP_SMOOTHING="${CPU_TEMP_SMOOTHING_INPUT:-${DEFAULT_CPU_TEMP_SMOOTHING}}"
         fi
 
+        if [ -z "${TEMP_SMOOTHING_MINUTES:-}" ]; then
+          read -rp "Temperature smoothing window (minutes) [${DEFAULT_TEMP_SMOOTHING_MINUTES}]: " TEMP_SMOOTHING_MINUTES_INPUT
+          TEMP_SMOOTHING_MINUTES="${TEMP_SMOOTHING_MINUTES_INPUT:-${DEFAULT_TEMP_SMOOTHING_MINUTES}}"
+        fi
+
+        if [ -z "${PRESSURE_OFFSET:-}" ]; then
+          read -rp "Pressure offset (hPa, e.g. 0.14 for ~1 mmHg correction) [${DEFAULT_PRESSURE_OFFSET}]: " PRESSURE_OFFSET_INPUT
+          PRESSURE_OFFSET="${PRESSURE_OFFSET_INPUT:-${DEFAULT_PRESSURE_OFFSET}}"
+        fi
+
+        if [ -z "${ELEVATION_METERS:-}" ]; then
+          read -rp "Elevation in meters above sea level (for sea-level pressure correction, 0 to disable) [${DEFAULT_ELEVATION_METERS}]: " ELEVATION_METERS_INPUT
+          ELEVATION_METERS="${ELEVATION_METERS_INPUT:-${DEFAULT_ELEVATION_METERS}}"
+        fi
+
         if [ -z "${UNITS:-}" ] || ([ "${UNITS:-}" != "metric" ] && [ "${UNITS:-}" != "imperial" ]); then
           read -rp "Display units (metric/imperial) [${DEFAULT_UNITS}]: " UNITS_INPUT
           UNITS="${UNITS_INPUT:-${DEFAULT_UNITS}}"
@@ -462,6 +507,9 @@ write_config() {
         echo "==> Using defaults for new options (non-interactive mode)"
         : "${CPU_TEMP_FACTOR:=${DEFAULT_CPU_TEMP_FACTOR}}"
         : "${CPU_TEMP_SMOOTHING:=${DEFAULT_CPU_TEMP_SMOOTHING}}"
+        : "${TEMP_SMOOTHING_MINUTES:=${DEFAULT_TEMP_SMOOTHING_MINUTES}}"
+        : "${PRESSURE_OFFSET:=${DEFAULT_PRESSURE_OFFSET}}"
+        : "${ELEVATION_METERS:=${DEFAULT_ELEVATION_METERS}}"
         # Only set UNITS default if it wasn't in the config file with a valid value
         if [ "$units_in_config" = "false" ]; then
           : "${UNITS:=${DEFAULT_UNITS}}"
@@ -471,6 +519,9 @@ write_config() {
       # Use defaults for new options if not interactive
       : "${CPU_TEMP_FACTOR:=${DEFAULT_CPU_TEMP_FACTOR}}"
       : "${CPU_TEMP_SMOOTHING:=${DEFAULT_CPU_TEMP_SMOOTHING}}"
+      : "${TEMP_SMOOTHING_MINUTES:=${DEFAULT_TEMP_SMOOTHING_MINUTES}}"
+      : "${PRESSURE_OFFSET:=${DEFAULT_PRESSURE_OFFSET}}"
+      : "${ELEVATION_METERS:=${DEFAULT_ELEVATION_METERS}}"
       # Only set UNITS default if it wasn't in the config file with a valid value
       if [ "$units_in_config" = "false" ]; then
         : "${UNITS:=${DEFAULT_UNITS}}"
@@ -529,6 +580,9 @@ write_config() {
       read -rp "Humidity offset % [${DEFAULT_HUM_OFFSET}]: " HUM_OFFSET
       read -rp "CPU temperature compensation factor (higher=less compensation, lower=more compensation) [${DEFAULT_CPU_TEMP_FACTOR}]: " CPU_TEMP_FACTOR
       read -rp "CPU temperature smoothing factor [${DEFAULT_CPU_TEMP_SMOOTHING}]: " CPU_TEMP_SMOOTHING
+      read -rp "Temperature smoothing window (minutes) [${DEFAULT_TEMP_SMOOTHING_MINUTES}]: " TEMP_SMOOTHING_MINUTES
+      read -rp "Pressure offset (hPa, e.g. 0.14 for ~1 mmHg correction) [${DEFAULT_PRESSURE_OFFSET}]: " PRESSURE_OFFSET
+      read -rp "Elevation in meters above sea level (for sea-level pressure correction, 0 to disable) [${DEFAULT_ELEVATION_METERS}]: " ELEVATION_METERS
       read -rp "Display units (metric/imperial) [${DEFAULT_UNITS}]: " UNITS
       # Validate units
       if [ "$UNITS" != "metric" ] && [ "$UNITS" != "imperial" ]; then
@@ -555,6 +609,9 @@ write_config() {
   : "${HUM_OFFSET:=${DEFAULT_HUM_OFFSET}}"
   : "${CPU_TEMP_FACTOR:=${DEFAULT_CPU_TEMP_FACTOR}}"
   : "${CPU_TEMP_SMOOTHING:=${DEFAULT_CPU_TEMP_SMOOTHING}}"
+  : "${TEMP_SMOOTHING_MINUTES:=${DEFAULT_TEMP_SMOOTHING_MINUTES}}"
+  : "${PRESSURE_OFFSET:=${DEFAULT_PRESSURE_OFFSET}}"
+  : "${ELEVATION_METERS:=${DEFAULT_ELEVATION_METERS}}"
   : "${DISPLAY_ENABLED:=${DEFAULT_DISPLAY_ENABLED}}"
   # Only set UNITS default if it wasn't already set above
   if [ -z "${UNITS:-}" ]; then
@@ -573,6 +630,9 @@ TEMP_OFFSET="${TEMP_OFFSET}"
 HUM_OFFSET="${HUM_OFFSET}"
 CPU_TEMP_FACTOR="${CPU_TEMP_FACTOR}"
 CPU_TEMP_SMOOTHING="${CPU_TEMP_SMOOTHING}"
+TEMP_SMOOTHING_MINUTES="${TEMP_SMOOTHING_MINUTES}"
+PRESSURE_OFFSET="${PRESSURE_OFFSET}"
+ELEVATION_METERS="${ELEVATION_METERS}"
 DISPLAY_ENABLED="${DISPLAY_ENABLED}"
 UNITS="${UNITS}"
 EOF

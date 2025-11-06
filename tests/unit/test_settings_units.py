@@ -1,15 +1,8 @@
-#!/usr/bin/env python3
-"""
-Unit tests for units setting in settings.py module
-"""
+"""Unit tests for units setting in settings.py module."""
 
-import os
-import sys
-from unittest.mock import Mock, patch, mock_open
 import pytest
-
-# Add the project root to the path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+from pathlib import Path
+from unittest.mock import patch
 
 from ha_enviro_plus.settings import SettingsManager
 
@@ -17,106 +10,52 @@ from ha_enviro_plus.settings import SettingsManager
 class TestUnitsSetting:
     """Test units setting functionality."""
 
-    def test_default_units(self):
+    def test_default_units(self, tmp_settings_dir):
         """Test that default units is metric."""
-        with patch("ha_enviro_plus.settings.Path") as mock_path_class:
-            with patch("os.chmod"):
-                with patch("builtins.open", mock_open()):
-                    mock_path_instance = Mock()
-                    mock_path_instance.mkdir = Mock()
-                    mock_path_instance.exists.return_value = False
-                    mock_path_instance.__truediv__ = Mock(return_value=mock_path_instance)
-                    mock_path_instance.with_suffix.return_value = mock_path_instance
-                    mock_path_class.return_value = mock_path_instance
+        with patch("ha_enviro_plus.settings.Constants.SETTINGS_DIR", tmp_settings_dir):
+            manager = SettingsManager()
+            assert manager.get_units() == "metric"
 
-                    manager = SettingsManager()
-                    assert manager.get_units() == "metric"
-
-    def test_set_units_metric(self):
+    def test_set_units_metric(self, tmp_settings_dir):
         """Test setting units to metric."""
-        with patch("ha_enviro_plus.settings.Path") as mock_path_class:
-            with patch("os.chmod"):
-                with patch("builtins.open", mock_open()):
-                    mock_path_instance = Mock()
-                    mock_path_instance.mkdir = Mock()
-                    mock_path_instance.exists.return_value = False
-                    mock_path_instance.__truediv__ = Mock(return_value=mock_path_instance)
-                    mock_path_instance.with_suffix.return_value = mock_path_instance
-                    mock_path_class.return_value = mock_path_instance
+        with patch("ha_enviro_plus.settings.Constants.SETTINGS_DIR", tmp_settings_dir):
+            manager = SettingsManager()
+            manager.set_units("metric")
+            assert manager.get_units() == "metric"
 
-                    manager = SettingsManager()
-                    manager.set_units("metric")
-                    assert manager.get_units() == "metric"
-
-    def test_set_units_imperial(self):
+    def test_set_units_imperial(self, tmp_settings_dir):
         """Test setting units to imperial."""
-        with patch("ha_enviro_plus.settings.Path") as mock_path_class:
-            with patch("os.chmod"):
-                with patch("builtins.open", mock_open()):
-                    mock_path_instance = Mock()
-                    mock_path_instance.mkdir = Mock()
-                    mock_path_instance.exists.return_value = False
-                    mock_path_instance.__truediv__ = Mock(return_value=mock_path_instance)
-                    mock_path_instance.with_suffix.return_value = mock_path_instance
-                    mock_path_class.return_value = mock_path_instance
+        with patch("ha_enviro_plus.settings.Constants.SETTINGS_DIR", tmp_settings_dir):
+            manager = SettingsManager()
+            manager.set_units("imperial")
+            assert manager.get_units() == "imperial"
 
-                    manager = SettingsManager()
-                    manager.set_units("imperial")
-                    assert manager.get_units() == "imperial"
-
-    def test_set_units_invalid(self):
+    def test_set_units_invalid(self, tmp_settings_dir):
         """Test setting invalid units value."""
-        with patch("ha_enviro_plus.settings.Path") as mock_path_class:
-            with patch("os.chmod"):
-                with patch("builtins.open", mock_open()):
-                    mock_path_instance = Mock()
-                    mock_path_instance.mkdir = Mock()
-                    mock_path_instance.exists.return_value = False
-                    mock_path_instance.__truediv__ = Mock(return_value=mock_path_instance)
-                    mock_path_instance.with_suffix.return_value = mock_path_instance
-                    mock_path_class.return_value = mock_path_instance
+        with patch("ha_enviro_plus.settings.Constants.SETTINGS_DIR", tmp_settings_dir):
+            manager = SettingsManager()
+            original_units = manager.get_units()
 
-                    manager = SettingsManager()
-                    original_units = manager.get_units()
+            # Try to set invalid units
+            manager.set_units("invalid")
+            # Should remain unchanged
+            assert manager.get_units() == original_units
 
-                    # Try to set invalid units
-                    manager.set_units("invalid")
-                    # Should remain unchanged
-                    assert manager.get_units() == original_units
-
-    def test_units_in_get_all_settings(self):
+    def test_units_in_get_all_settings(self, tmp_settings_dir):
         """Test that units is included in get_all_settings."""
-        with patch("ha_enviro_plus.settings.Path") as mock_path_class:
-            with patch("os.chmod"):
-                with patch("builtins.open", mock_open()):
-                    mock_path_instance = Mock()
-                    mock_path_instance.mkdir = Mock()
-                    mock_path_instance.exists.return_value = False
-                    mock_path_instance.__truediv__ = Mock(return_value=mock_path_instance)
-                    mock_path_instance.with_suffix.return_value = mock_path_instance
-                    mock_path_class.return_value = mock_path_instance
+        with patch("ha_enviro_plus.settings.Constants.SETTINGS_DIR", tmp_settings_dir):
+            manager = SettingsManager()
+            settings = manager.get_all_settings()
 
-                    manager = SettingsManager()
-                    settings = manager.get_all_settings()
+            assert "units" in settings
+            assert settings["units"] == "metric"
 
-                    assert "units" in settings
-                    assert settings["units"] == "metric"
-
-    def test_reset_to_defaults_includes_units(self):
+    def test_reset_to_defaults_includes_units(self, tmp_settings_dir):
         """Test that reset_to_defaults includes units."""
-        with patch("ha_enviro_plus.settings.Path") as mock_path_class:
-            with patch("os.chmod"):
-                with patch("builtins.open", mock_open()):
-                    mock_path_instance = Mock()
-                    mock_path_instance.mkdir = Mock()
-                    mock_path_instance.exists.return_value = False
-                    mock_path_instance.__truediv__ = Mock(return_value=mock_path_instance)
-                    mock_path_instance.with_suffix.return_value = mock_path_instance
-                    mock_path_class.return_value = mock_path_instance
+        with patch("ha_enviro_plus.settings.Constants.SETTINGS_DIR", tmp_settings_dir):
+            manager = SettingsManager()
+            manager.set_units("imperial")
+            assert manager.get_units() == "imperial"
 
-                    manager = SettingsManager()
-                    manager.set_units("imperial")
-                    assert manager.get_units() == "imperial"
-
-                    manager.reset_to_defaults()
-                    assert manager.get_units() == "metric"
+            manager.reset_to_defaults()
+            assert manager.get_units() == "metric"

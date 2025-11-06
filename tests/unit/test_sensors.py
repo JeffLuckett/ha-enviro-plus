@@ -18,6 +18,9 @@ class TestEnviroPlusSensorsInit:
         assert sensors.hum_offset == 0.0
         assert sensors.cpu_temp_factor == 1.8
         assert sensors.cpu_temp_smoothing == 0.1
+        assert sensors.temp_smoothing_minutes == 5.0
+        assert sensors.pressure_offset == 0.0
+        assert sensors.elevation_meters == 0.0
         assert sensors.logger is not None
         assert sensors.bme280 is not None
         assert sensors.ltr559 is not None
@@ -30,6 +33,7 @@ class TestEnviroPlusSensorsInit:
             hum_offset=-5.0,
             cpu_temp_factor=2.0,
             cpu_temp_smoothing=0.3,
+            temp_smoothing_minutes=10.0,
             logger=logger,
         )
 
@@ -37,7 +41,22 @@ class TestEnviroPlusSensorsInit:
         assert sensors.hum_offset == -5.0
         assert sensors.cpu_temp_factor == 2.0
         assert sensors.cpu_temp_smoothing == 0.3
+        assert sensors.temp_smoothing_minutes == 10.0
+        assert sensors.pressure_offset == 0.0
+        assert sensors.elevation_meters == 0.0
         assert sensors.logger == logger
+
+    def test_init_with_pressure_calibration(
+        self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_logger
+    ):
+        """Test initialization with pressure calibration values."""
+        sensors = EnviroPlusSensors(
+            pressure_offset=0.14,
+            elevation_meters=100.0,
+        )
+
+        assert sensors.pressure_offset == 0.14
+        assert sensors.elevation_meters == 100.0
 
     def test_init_sensor_failure_graceful(self, mock_logger):
         """Test initialization gracefully handles sensor failures."""
@@ -293,7 +312,10 @@ class TestTemperatureReadings:
         mock_bme280.get_temperature.return_value = 25.0
         mock_subprocess.return_value = "temp=50.0'C\n"
 
-        sensors = EnviroPlusSensors(temp_offset=2.0, cpu_temp_factor=2.0)
+        # Disable smoothing for this test
+        sensors = EnviroPlusSensors(
+            temp_offset=2.0, cpu_temp_factor=2.0, temp_smoothing_minutes=0.0
+        )
         temp = sensors.temp()
 
         # Raw: 25.0, Compensated: 25.0 - ((50.0 - 25.0) / 2.0) = 12.5, Final: 12.5 + 2.0 = 14.5
@@ -333,11 +355,98 @@ class TestTemperatureReadings:
         """Test temperature with various offset values."""
         mock_bme280.get_temperature.return_value = 25.5
         mock_subprocess.return_value = "temp=25.5'C\n"  # Same as raw temp
-
-        sensors = EnviroPlusSensors(temp_offset=offset)
+        # Disable smoothing for this test
+        sensors = EnviroPlusSensors(temp_offset=offset, temp_smoothing_minutes=0.0)
         temp = sensors.temp()
 
         assert temp == expected
+
+
+class TestTemperatureSmoothing:
+    """Test temperature smoothing functionality."""
+
+    def test_temp_smoothing_disabled(
+        self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess
+    ):
+        """Test temperature smoothing when disabled (0 minutes)."""
+        mock_bme280.get_temperature.return_value = 25.0
+        mock_subprocess.return_value = "temp=25.0'C\n"
+
+        sensors = EnviroPlusSensors(temp_smoothing_minutes=0.0)
+        temp1 = sensors.temp()
+        temp2 = sensors.temp()
+
+        # Without smoothing, should return the same value
+        assert temp1 == pytest.approx(temp2, abs=0.01)
+
+    def test_temp_smoothing_enabled(
+        self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess
+    ):
+        """Test temperature smoothing with time-based window."""
+        import time
+        from unittest.mock import patch
+
+        mock_bme280.get_temperature.return_value = 25.0
+        mock_subprocess.return_value = "temp=25.0'C\n"
+
+        # Use a very short window (0.001 minutes = ~0.06 seconds) for testing
+        sensors = EnviroPlusSensors(temp_smoothing_minutes=0.001)
+
+        # First reading should be the actual value (no history yet)
+        temp1 = sensors.temp()
+        assert temp1 == pytest.approx(25.0, abs=0.1)
+
+        # Second reading should be averaged with first
+        temp2 = sensors.temp()
+        assert temp2 == pytest.approx(25.0, abs=0.1)
+
+        # Change the temperature significantly
+        mock_bme280.get_temperature.return_value = 30.0
+
+        # With a very short window, the average should shift toward new value quickly
+        # But it will still be averaged with previous readings in the window
+        temp3 = sensors.temp()
+        # Should be between 25.0 and 30.0 (average of readings in window)
+        assert 25.0 <= temp3 <= 30.0
+
+    def test_temp_smoothing_history_cleanup(
+        self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess
+    ):
+        """Test that old readings are removed from smoothing history."""
+        import time
+
+        mock_bme280.get_temperature.return_value = 25.0
+        mock_subprocess.return_value = "temp=25.0'C\n"
+
+        # Use a very short window for testing (0.001 minutes = ~0.06 seconds)
+        sensors = EnviroPlusSensors(temp_smoothing_minutes=0.001)
+
+        # Take a reading
+        sensors.temp()
+
+        # Wait for window to expire (0.1 seconds > 0.06 seconds)
+        time.sleep(0.1)
+
+        # Change temperature
+        mock_bme280.get_temperature.return_value = 30.0
+        mock_subprocess.return_value = "temp=30.0'C\n"
+
+        # New reading should be closer to 30.0 since old reading expired
+        # Note: Temperature compensation may affect the result, so we check it's
+        # at least closer to 30.0 than 25.0
+        temp = sensors.temp()
+        # Should be significantly closer to 30.0 than 25.0
+        assert abs(temp - 30.0) < abs(temp - 25.0)
+
+    def test_temp_smoothing_init_default(self, mock_bme280, mock_ltr559, mock_gas_sensor):
+        """Test that temp_smoothing_minutes defaults to 5.0."""
+        sensors = EnviroPlusSensors()
+        assert sensors.temp_smoothing_minutes == 5.0
+
+    def test_temp_smoothing_custom_value(self, mock_bme280, mock_ltr559, mock_gas_sensor):
+        """Test setting custom temp_smoothing_minutes value."""
+        sensors = EnviroPlusSensors(temp_smoothing_minutes=10.0)
+        assert sensors.temp_smoothing_minutes == 10.0
 
 
 class TestHumidityReadings:
@@ -442,14 +551,76 @@ class TestPressureReadings:
                 assert sensors.pressure() == 0.0
                 assert sensors.pressure_raw() == 0.0
 
-    def test_pressure(self, mock_bme280, mock_ltr559, mock_gas_sensor):
+    def test_pressure(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess):
         """Test pressure reading."""
         mock_bme280.get_pressure.return_value = 1013.123456
+        mock_bme280.get_temperature.return_value = 25.0
+        mock_subprocess.return_value = "temp=25.0'C\n"
 
         sensors = EnviroPlusSensors()
         pressure = sensors.pressure()
 
+        # Should return raw pressure when no calibration
         assert pressure == 1013.12  # Rounded to 2 decimal places
+
+    def test_pressure_with_offset(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess):
+        """Test pressure reading with offset."""
+        mock_bme280.get_pressure.return_value = 1013.25
+        mock_bme280.get_temperature.return_value = 25.0
+        mock_subprocess.return_value = "temp=25.0'C\n"
+
+        sensors = EnviroPlusSensors(pressure_offset=0.14)
+        pressure = sensors.pressure()
+
+        # Should apply offset: 1013.25 + 0.14 = 1013.39
+        assert pressure == pytest.approx(1013.39, abs=0.01)
+
+    def test_pressure_with_elevation(
+        self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess
+    ):
+        """Test pressure reading with elevation correction."""
+        mock_bme280.get_pressure.return_value = 1000.0  # Station pressure at elevation
+        mock_bme280.get_temperature.return_value = 25.0
+        mock_subprocess.return_value = "temp=25.0'C\n"
+
+        sensors = EnviroPlusSensors(elevation_meters=100.0)
+        pressure = sensors.pressure()
+
+        # Should apply sea-level correction (increases pressure)
+        # At 100m elevation, sea-level pressure should be higher than station pressure
+        assert pressure > 1000.0
+        # Approximate calculation: at 100m, sea-level should be ~11-12 hPa higher
+        assert pressure == pytest.approx(1011.0, abs=2.0)
+
+    def test_pressure_with_elevation_and_offset(
+        self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess
+    ):
+        """Test pressure reading with both elevation correction and offset."""
+        mock_bme280.get_pressure.return_value = 1000.0
+        mock_bme280.get_temperature.return_value = 25.0
+        mock_subprocess.return_value = "temp=25.0'C\n"
+
+        sensors = EnviroPlusSensors(elevation_meters=100.0, pressure_offset=0.14)
+        pressure = sensors.pressure()
+
+        # Should apply elevation correction first, then offset
+        sea_level_pressure = sensors._calculate_sea_level_pressure(1000.0, 100.0, 25.0)
+        expected = sea_level_pressure + 0.14
+        assert pressure == pytest.approx(expected, abs=0.01)
+
+    def test_pressure_elevation_zero(
+        self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess
+    ):
+        """Test that elevation=0 does not apply correction."""
+        mock_bme280.get_pressure.return_value = 1013.25
+        mock_bme280.get_temperature.return_value = 25.0
+        mock_subprocess.return_value = "temp=25.0'C\n"
+
+        sensors = EnviroPlusSensors(elevation_meters=0.0, pressure_offset=0.14)
+        pressure = sensors.pressure()
+
+        # Should only apply offset, no elevation correction
+        assert pressure == pytest.approx(1013.39, abs=0.01)
 
     def test_pressure_raw(self, mock_bme280, mock_ltr559, mock_gas_sensor):
         """Test raw pressure reading."""
@@ -509,47 +680,47 @@ class TestGasReadings:
             assert sensors.gas_nh3() == 0.0
             assert sensors.gas_nh3_raw() == 0.0
 
-    def test_gas_oxidising(self, mock_bme280, mock_ltr559, mock_gas_sensor):
-        """Test oxidising gas reading in kΩ."""
+    @pytest.mark.parametrize(
+        "gas_type,method_name,raw_method_name,raw_value,expected_value",
+        [
+            ("oxidising", "gas_oxidising", "gas_oxidising_raw", 50000.0, 50.0),
+            ("reducing", "gas_reducing", "gas_reducing_raw", 30000.0, 30.0),
+            ("nh3", "gas_nh3", "gas_nh3_raw", 40000.0, 40.0),
+        ],
+    )
+    def test_gas_reading(
+        self,
+        mock_bme280,
+        mock_ltr559,
+        mock_gas_sensor,
+        gas_type,
+        method_name,
+        raw_method_name,
+        raw_value,
+        expected_value,
+    ):
+        """Test gas reading in kΩ for all gas types."""
         sensors = EnviroPlusSensors()
-        gas_value = sensors.gas_oxidising()
+        gas_value = getattr(sensors, method_name)()
 
-        assert gas_value == 50.0  # Converted to kΩ
+        assert gas_value == expected_value, f"{gas_type} should be {expected_value} kΩ"
 
-    def test_gas_oxidising_raw(self, mock_bme280, mock_ltr559, mock_gas_sensor):
-        """Test raw oxidising gas reading in Ω."""
+    @pytest.mark.parametrize(
+        "gas_type,raw_method_name,raw_value",
+        [
+            ("oxidising", "gas_oxidising_raw", 50000.0),
+            ("reducing", "gas_reducing_raw", 30000.0),
+            ("nh3", "gas_nh3_raw", 40000.0),
+        ],
+    )
+    def test_gas_reading_raw(
+        self, mock_bme280, mock_ltr559, mock_gas_sensor, gas_type, raw_method_name, raw_value
+    ):
+        """Test raw gas reading in Ω for all gas types."""
         sensors = EnviroPlusSensors()
-        gas_value = sensors.gas_oxidising_raw()
+        gas_value = getattr(sensors, raw_method_name)()
 
-        assert gas_value == 50000.0  # Raw value in Ω
-
-    def test_gas_reducing(self, mock_bme280, mock_ltr559, mock_gas_sensor):
-        """Test reducing gas reading in kΩ."""
-        sensors = EnviroPlusSensors()
-        gas_value = sensors.gas_reducing()
-
-        assert gas_value == 30.0  # Converted to kΩ
-
-    def test_gas_reducing_raw(self, mock_bme280, mock_ltr559, mock_gas_sensor):
-        """Test raw reducing gas reading in Ω."""
-        sensors = EnviroPlusSensors()
-        gas_value = sensors.gas_reducing_raw()
-
-        assert gas_value == 30000.0  # Raw value in Ω
-
-    def test_gas_nh3(self, mock_bme280, mock_ltr559, mock_gas_sensor):
-        """Test NH3 gas reading in kΩ."""
-        sensors = EnviroPlusSensors()
-        gas_value = sensors.gas_nh3()
-
-        assert gas_value == 40.0  # Converted to kΩ
-
-    def test_gas_nh3_raw(self, mock_bme280, mock_ltr559, mock_gas_sensor):
-        """Test raw NH3 gas reading in Ω."""
-        sensors = EnviroPlusSensors()
-        gas_value = sensors.gas_nh3_raw()
-
-        assert gas_value == 40000.0  # Raw value in Ω
+        assert gas_value == raw_value, f"{gas_type} raw should be {raw_value} Ω"
 
 
 class TestCalibration:
@@ -617,6 +788,44 @@ class TestCalibration:
         # Should log initialization (sensor availability) + each update
         # Now includes sensor initialization logs (BME280, LTR559, gas, summary)
         assert mock_logger.info.call_count >= 5
+
+    def test_update_calibration_pressure_offset(
+        self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_logger
+    ):
+        """Test updating pressure offset."""
+        sensors = EnviroPlusSensors()
+        sensors.update_calibration(pressure_offset=0.14)
+
+        assert sensors.pressure_offset == 0.14
+
+    def test_update_calibration_elevation(
+        self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_logger
+    ):
+        """Test updating elevation."""
+        sensors = EnviroPlusSensors()
+        sensors.update_calibration(elevation_meters=100.0)
+
+        assert sensors.elevation_meters == 100.0
+
+    def test_update_calibration_elevation_negative(
+        self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_logger
+    ):
+        """Test that negative elevation is clamped to 0."""
+        sensors = EnviroPlusSensors()
+        sensors.update_calibration(elevation_meters=-50.0)
+
+        # Should be clamped to 0.0
+        assert sensors.elevation_meters == 0.0
+
+    def test_update_calibration_pressure_both(
+        self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_logger
+    ):
+        """Test updating both pressure offset and elevation."""
+        sensors = EnviroPlusSensors()
+        sensors.update_calibration(pressure_offset=0.14, elevation_meters=150.0)
+
+        assert sensors.pressure_offset == 0.14
+        assert sensors.elevation_meters == 150.0
 
 
 class TestGetAllSensorData:

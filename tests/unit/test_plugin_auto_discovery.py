@@ -1,18 +1,13 @@
-#!/usr/bin/env python3
-"""
-Unit tests for plugin auto-discovery from plugins directory
-"""
+"""Unit tests for plugin auto-discovery functionality."""
 
+import importlib
 import os
-import sys
 import tempfile
 import shutil
 from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
-import pytest
 
-# Add the project root to the path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+import pytest
 
 
 class TestPluginAutoDiscovery:
@@ -123,7 +118,7 @@ class TestAutoPlugin(DisplayPlugin):
         init_file = plugins_dir / "__init__.py"
         init_file.write_text("")
 
-        # Temporarily add the plugins directory to sys.path
+        # Temporarily add the plugins directory to sys.path for plugin discovery
         import sys
 
         sys.path.insert(0, str(tmp_path))

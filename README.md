@@ -35,16 +35,20 @@ Additional system telemetry is included:
 
 - Plug-and-play Home Assistant discovery (no YAML setup)
 - Fast, configurable polling (default 2 s)
-- On-device temperature / humidity calibration offsets
+- On-device temperature / humidity / pressure calibration offsets
 - CPU temperature compensation for accurate readings (adjustable factor: higher=less compensation, lower=more compensation)
+- Temperature smoothing window to reduce sensitivity to transient air currents (configurable, default: 5 minutes)
+- Pressure elevation correction for sea-level pressure (adjustable elevation in meters)
 - Host metrics: uptime, CPU temp, load, RAM, disk
 - MQTT availability and discovery payloads
 - Home Assistant controls:
     - Reboot device
     - Restart service
     - Shutdown
-    - Apply calibration offsets
+    - Apply calibration offsets (temperature, humidity, pressure)
     - Adjust CPU temperature compensation factor
+    - Adjust temperature smoothing window
+    - Set pressure offset and elevation for sea-level pressure correction
 - Structured logging (rotation-friendly)
 - Graceful shutdown handling (SIGTERM/SIGINT)
 - Startup configuration validation
@@ -80,7 +84,7 @@ The installer automatically:
 - **Falls back to GitHub** for development branches or specific versions
 - Creates `/opt/ha-enviro-plus` and installs dependencies
 - Prompts for MQTT host, username, and password
-- Prompts for poll interval and temperature / humidity offsets
+- Prompts for poll interval, temperature / humidity / pressure offsets, and elevation
 - Installs and starts the systemd service
 
 ### Alternative: Direct PyPI Install
@@ -116,6 +120,8 @@ Edit values safely, then restart the service:
     TEMP_OFFSET=0.0
     HUM_OFFSET=0.0
     CPU_TEMP_FACTOR=1.8
+    PRESSURE_OFFSET=0.0
+    ELEVATION_METERS=0.0
     DISPLAY_ENABLED=1  # 1=ON, 0=OFF
 
 ---
@@ -137,6 +143,8 @@ If you installed via `pip install ha-enviro-plus`, you'll need to manually confi
     TEMP_OFFSET=0.0
     HUM_OFFSET=0.0
     CPU_TEMP_FACTOR=1.8
+    PRESSURE_OFFSET=0.0
+    ELEVATION_METERS=0.0
     EOF
 
 ### 2. Create Settings Directory
@@ -256,7 +264,7 @@ pytest tests/ -m "not hardware"
 ---
 
 - **Temperature Compensation**: The temperature sensor runs warm due to CPU proximity. The agent includes automatic CPU temperature compensation using a configurable factor (default 1.8, range 0.5-5.0). Higher factor values reduce the compensation effect (output closer to raw sensor reading), while lower values increase compensation. Adjust via Home Assistant or config file for optimal accuracy.
-- **Calibration**: Use `TEMP_OFFSET` for fine-tuning individual installations. Adjust `CPU_TEMP_FACTOR` to control how much CPU heating is compensated for (higher=less compensation, lower=more compensation). Humidity calibration should be performed after temperature calibration, as humidity readings are affected by CPU heating and the sensor's internal temperature compensation. **See [Temperature Calibration Guide](docs/TEMPERATURE_CALIBRATION.md) for detailed calibration instructions.**
+- **Calibration**: Use `TEMP_OFFSET` for fine-tuning individual installations. Adjust `CPU_TEMP_FACTOR` to control how much CPU heating is compensated for (higher=less compensation, lower=more compensation). Humidity calibration should be performed after temperature calibration, as humidity readings are affected by CPU heating and the sensor's internal temperature compensation. Pressure calibration includes `PRESSURE_OFFSET` (hPa) for fine-tuning and `ELEVATION_METERS` for automatic sea-level pressure correction (matches weather station readings). **See [Temperature Calibration Guide](docs/TEMPERATURE_CALIBRATION.md) for detailed calibration instructions.**
 - Sound and particulate sensors are planned for v0.2.0; the agent functions fully without them.
 
 ---

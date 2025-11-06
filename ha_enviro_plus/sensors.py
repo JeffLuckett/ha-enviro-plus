@@ -11,6 +11,8 @@ import logging
 import time
 from typing import Dict, Any, Optional
 
+from .constants import Constants
+
 # Hardware imports with fallback for testing
 try:
     from bme280 import BME280
@@ -41,6 +43,9 @@ class EnviroPlusSensors:
         hum_offset: float = 0.0,
         cpu_temp_factor: float = 1.8,
         cpu_temp_smoothing: float = 0.1,
+        temp_smoothing_minutes: float = 5.0,
+        pressure_offset: float = 0.0,
+        elevation_meters: float = 0.0,
         logger: Optional[logging.Logger] = None,
     ):
         """
@@ -51,18 +56,27 @@ class EnviroPlusSensors:
             hum_offset: Humidity calibration offset in %
             cpu_temp_factor: CPU temperature compensation factor (higher=less compensation, lower=more compensation)
             cpu_temp_smoothing: CPU temperature smoothing factor (0.0-1.0, lower=more smoothing)
+            temp_smoothing_minutes: Temperature smoothing window in minutes (0.0 = no smoothing)
+            pressure_offset: Pressure calibration offset in hPa
+            elevation_meters: Elevation in meters for sea-level pressure calculation (0.0 = no correction)
             logger: Optional logger instance
         """
         self.temp_offset = temp_offset
         self.hum_offset = hum_offset
         self.cpu_temp_factor = cpu_temp_factor
         self.cpu_temp_smoothing = cpu_temp_smoothing
+        self.temp_smoothing_minutes = temp_smoothing_minutes
+        self.pressure_offset = pressure_offset
+        self.elevation_meters = elevation_meters
         self.logger = logger or logging.getLogger(__name__)
 
         # CPU temperature smoothing state
-        # Initialize with typical Pi Zero CPU temperature (105°F = 40.6°C)
-        self._cpu_temp_smoothed = 40.6
+        # Initialize with typical Pi Zero CPU temperature
+        self._cpu_temp_smoothed = Constants.DEFAULT_CPU_TEMP_CELSIUS
         self._cpu_temp_last_update = 0.0
+
+        # Temperature smoothing history (list of (timestamp, temperature) tuples)
+        self._temp_history: list[tuple[float, float]] = []
 
         # Humidity compensation temperature error smoothing state
         # Initialize to 0 (no error expected initially)
@@ -76,7 +90,7 @@ class EnviroPlusSensors:
         if HARDWARE_AVAILABLE:
             # Initialize BME280 (temperature, humidity, pressure)
             try:
-                self.bme280 = BME280(i2c_addr=0x76)
+                self.bme280 = BME280(i2c_addr=Constants.BME280_I2C_ADDR)
                 self.logger.info("BME280 sensor initialized successfully")
             except Exception as e:
                 self.logger.warning("Failed to initialize BME280 sensor: %s", e)
@@ -117,6 +131,25 @@ class EnviroPlusSensors:
         else:
             # Create mock sensors for testing environments
             self.logger.info("Enviro+ sensors initialized in test mode (no hardware)")
+
+    def has_sensor(self, sensor_name: str) -> bool:
+        """
+        Check if a sensor is available.
+
+        Args:
+            sensor_name: Name of the sensor ("bme280", "ltr559", or "gas")
+
+        Returns:
+            True if sensor is available, False otherwise
+        """
+        if sensor_name == "bme280":
+            return self.bme280 is not None
+        elif sensor_name == "ltr559":
+            return self.ltr559 is not None
+        elif sensor_name == "gas":
+            return self._gas_available
+        else:
+            return False
 
     def _read_cpu_temp(self) -> float:
         """
@@ -169,7 +202,7 @@ class EnviroPlusSensors:
                 self.logger.debug(
                     "CPU temperature smoothing initialized: %.1f°C (was %.1f°C)",
                     raw_cpu_temp,
-                    40.6,
+                    Constants.DEFAULT_CPU_TEMP_CELSIUS,
                 )
                 return raw_cpu_temp
 
@@ -251,13 +284,65 @@ class EnviroPlusSensors:
             self.logger.info("Using raw temperature reading: %.1f°C", raw_temp)
             return raw_temp
 
+    def _get_smoothed_temp(self, compensated_temp: float) -> float:
+        """
+        Get smoothed temperature using time-based moving average.
+
+        Args:
+            compensated_temp: Compensated temperature reading (after CPU compensation and offset)
+
+        Returns:
+            Smoothed temperature in °C, or compensated_temp if smoothing disabled or insufficient history
+        """
+        # If smoothing is disabled (0 minutes), return the value as-is
+        if self.temp_smoothing_minutes <= 0.0:
+            return compensated_temp
+
+        try:
+            current_time = time.time()
+            window_seconds = self.temp_smoothing_minutes * 60.0
+
+            # Add current reading to history
+            self._temp_history.append((current_time, compensated_temp))
+
+            # Remove readings outside the time window
+            cutoff_time = current_time - window_seconds
+            self._temp_history = [
+                (ts, temp) for ts, temp in self._temp_history if ts >= cutoff_time
+            ]
+
+            # If we don't have enough history, return the current value
+            if len(self._temp_history) == 0:
+                self.logger.debug(
+                    "Temperature smoothing: insufficient history, using current value: %.2f°C",
+                    compensated_temp,
+                )
+                return compensated_temp
+
+            # Calculate average of readings within the window
+            avg_temp = sum(temp for _, temp in self._temp_history) / len(self._temp_history)
+
+            self.logger.debug(
+                "Temperature smoothing: current=%.2f°C, smoothed=%.2f°C (window=%.1f min, samples=%d)",
+                compensated_temp,
+                avg_temp,
+                self.temp_smoothing_minutes,
+                len(self._temp_history),
+            )
+
+            return round(avg_temp, 2)
+        except Exception as e:
+            self.logger.error("Failed to get smoothed temperature: %s", e)
+            self.logger.info("Using uncompensated temperature: %.2f°C", compensated_temp)
+            return compensated_temp
+
     # Temperature accessors
     def temp(self) -> float:
         """
-        Get compensated and calibrated temperature.
+        Get compensated, calibrated, and smoothed temperature.
 
         Returns:
-            Temperature in °C (compensated + offset)
+            Temperature in °C (compensated + offset + smoothed)
 
         Raises:
             Never raises - always returns a fallback value
@@ -268,14 +353,17 @@ class EnviroPlusSensors:
         try:
             raw_temp = self.bme280.get_temperature()
             compensated_temp = self._apply_temp_compensation(raw_temp)
-            final_temp = round(compensated_temp + self.temp_offset, 2)
+            final_temp = compensated_temp + self.temp_offset
+            smoothed_temp = self._get_smoothed_temp(final_temp)
             self.logger.debug(
-                "Final temperature: %.2f°C (raw=%.2f, offset=%.2f)",
-                final_temp,
+                "Final temperature: %.2f°C (raw=%.2f, compensated=%.2f, offset=%.2f, pre-smoothed=%.2f)",
+                smoothed_temp,
                 raw_temp,
+                compensated_temp,
                 self.temp_offset,
+                final_temp,
             )
-            return final_temp
+            return smoothed_temp
         except Exception as e:
             self.logger.error("Failed to read temperature: %s", e)
             self.logger.info("Temperature will be reported as 0.0°C")
@@ -296,7 +384,7 @@ class EnviroPlusSensors:
             return 0.0
         try:
             raw_temp = self.bme280.get_temperature()
-            return round(float(raw_temp), 2)
+            return round(float(raw_temp), Constants.TEMP_ROUND_PRECISION)
         except Exception as e:
             self.logger.error("Failed to read raw temperature: %s", e)
             self.logger.info("Raw temperature will be reported as 0.0°C")
@@ -405,25 +493,106 @@ class EnviroPlusSensors:
             self.logger.debug("Raw humidity unavailable: BME280 not initialized")
             return 0.0
         try:
-            return round(float(self.bme280.get_humidity()), 2)
+            return round(float(self.bme280.get_humidity()), Constants.HUMIDITY_ROUND_PRECISION)
         except Exception as e:
             self.logger.error("Failed to read raw humidity: %s", e)
             self.logger.info("Raw humidity will be reported as 0.0%")
             return 0.0
 
     # Pressure accessors
-    def pressure(self) -> float:
+    def _calculate_sea_level_pressure(
+        self, station_pressure_hpa: float, elevation_m: float, temp_c: float
+    ) -> float:
         """
-        Get pressure reading (no calibration applied).
+        Calculate sea-level pressure from station pressure using hypsometric equation.
+
+        Args:
+            station_pressure_hpa: Station pressure in hPa
+            elevation_m: Elevation in meters above sea level
+            temp_c: Temperature in Celsius (for altitude correction)
 
         Returns:
-            Pressure in hPa
+            Sea-level pressure in hPa
+        """
+        if elevation_m <= 0.0:
+            return station_pressure_hpa
+
+        # Convert temperature to Kelvin
+        temp_k = temp_c + 273.15
+
+        # Standard atmospheric constants
+        # L = temperature lapse rate (K/m)
+        L = 0.0065  # K/m
+        # g = standard gravity (m/s²)
+        g = 9.80665  # m/s²
+        # M = molar mass of dry air (kg/mol)
+        M = 0.0289644  # kg/mol
+        # R = universal gas constant (J/(mol·K))
+        R = 8.31447  # J/(mol·K)
+
+        # Hypsometric equation: P_sea = P_station * (T / (T - L * h))^(g * M / (R * L))
+        # where h is elevation, T is temperature in Kelvin
+        # This formula converts station pressure at elevation to sea-level equivalent
+        exponent = (g * M) / (R * L)
+        denominator = temp_k - (L * elevation_m)
+
+        if denominator <= 0.0:
+            self.logger.warning(
+                "Invalid temperature-elevation combination (%s K, %s m), using station pressure",
+                temp_k,
+                elevation_m,
+            )
+            return station_pressure_hpa
+
+        pressure_ratio = temp_k / denominator
+        sea_level_pressure = float(station_pressure_hpa * (pressure_ratio**exponent))
+
+        self.logger.debug(
+            "Sea-level pressure: %.2f hPa (station: %.2f hPa, elevation: %.1f m, temp: %.1f°C)",
+            sea_level_pressure,
+            station_pressure_hpa,
+            elevation_m,
+            temp_c,
+        )
+
+        return sea_level_pressure
+
+    def pressure(self) -> float:
+        """
+        Get pressure reading with elevation correction and calibration offset applied.
+
+        Returns:
+            Pressure in hPa (sea-level pressure if elevation is set, plus offset)
         """
         if self.bme280 is None:
             self.logger.debug("Pressure unavailable: BME280 not initialized")
             return 0.0
         try:
-            return round(float(self.bme280.get_pressure()), 2)
+            raw_pressure = float(self.bme280.get_pressure())
+
+            # Apply elevation correction to get sea-level pressure
+            if self.elevation_meters > 0.0:
+                # Use current temperature for accurate sea-level calculation
+                current_temp = self.temp()  # This uses all calibrations
+                sea_level_pressure = self._calculate_sea_level_pressure(
+                    raw_pressure, self.elevation_meters, current_temp
+                )
+            else:
+                sea_level_pressure = raw_pressure
+
+            # Apply user offset
+            calibrated_pressure = sea_level_pressure + self.pressure_offset
+
+            self.logger.debug(
+                "Final pressure: %.2f hPa (raw=%.2f, sea-level=%.2f, offset=%.2f, elevation=%.1f m)",
+                calibrated_pressure,
+                raw_pressure,
+                sea_level_pressure,
+                self.pressure_offset,
+                self.elevation_meters,
+            )
+
+            return round(calibrated_pressure, Constants.PRESSURE_ROUND_PRECISION)
         except Exception as e:
             self.logger.error("Failed to read pressure: %s", e)
             self.logger.info("Pressure will be reported as 0.0 hPa")
@@ -440,7 +609,7 @@ class EnviroPlusSensors:
             self.logger.debug("Raw pressure unavailable: BME280 not initialized")
             return 0.0
         try:
-            return round(float(self.bme280.get_pressure()), 2)
+            return round(float(self.bme280.get_pressure()), Constants.PRESSURE_ROUND_PRECISION)
         except Exception as e:
             self.logger.error("Failed to read raw pressure: %s", e)
             self.logger.info("Raw pressure will be reported as 0.0 hPa")
@@ -458,7 +627,7 @@ class EnviroPlusSensors:
             self.logger.debug("Lux unavailable: LTR559 not initialized")
             return 0.0
         try:
-            return round(float(self.ltr559.get_lux()), 2)
+            return round(float(self.ltr559.get_lux()), Constants.TEMP_ROUND_PRECISION)
         except Exception as e:
             self.logger.error("Failed to read lux: %s", e)
             self.logger.info("Lux will be reported as 0.0 lux")
@@ -475,7 +644,7 @@ class EnviroPlusSensors:
             self.logger.debug("Raw lux unavailable: LTR559 not initialized")
             return 0.0
         try:
-            return round(float(self.ltr559.get_lux()), 2)
+            return round(float(self.ltr559.get_lux()), Constants.TEMP_ROUND_PRECISION)
         except Exception as e:
             self.logger.error("Failed to read raw lux: %s", e)
             self.logger.info("Raw lux will be reported as 0.0 lux")
@@ -514,7 +683,7 @@ class EnviroPlusSensors:
             return 0.0
         try:
             gas_data = gas.read_all()
-            return round(float(gas_data.oxidising), 2)
+            return round(float(gas_data.oxidising), Constants.TEMP_ROUND_PRECISION)
         except Exception as e:
             self.logger.error("Failed to read raw oxidising gas: %s", e)
             self.logger.info("Raw oxidising gas will be reported as 0.0 Ω")
@@ -552,7 +721,7 @@ class EnviroPlusSensors:
             return 0.0
         try:
             gas_data = gas.read_all()
-            return round(float(gas_data.reducing), 2)
+            return round(float(gas_data.reducing), Constants.TEMP_ROUND_PRECISION)
         except Exception as e:
             self.logger.error("Failed to read raw reducing gas: %s", e)
             self.logger.info("Raw reducing gas will be reported as 0.0 Ω")
@@ -588,7 +757,7 @@ class EnviroPlusSensors:
             return 0.0
         try:
             gas_data = gas.read_all()
-            return round(float(gas_data.nh3), 2)
+            return round(float(gas_data.nh3), Constants.TEMP_ROUND_PRECISION)
         except Exception as e:
             self.logger.error("Failed to read raw NH3 gas: %s", e)
             self.logger.info("Raw NH3 gas will be reported as 0.0 Ω")
@@ -600,6 +769,9 @@ class EnviroPlusSensors:
         hum_offset: Optional[float] = None,
         cpu_temp_factor: Optional[float] = None,
         cpu_temp_smoothing: Optional[float] = None,
+        temp_smoothing_minutes: Optional[float] = None,
+        pressure_offset: Optional[float] = None,
+        elevation_meters: Optional[float] = None,
     ) -> None:
         """
         Update calibration parameters.
@@ -609,6 +781,9 @@ class EnviroPlusSensors:
             hum_offset: New humidity offset in %
             cpu_temp_factor: New CPU temperature compensation factor (higher=less compensation, lower=more compensation)
             cpu_temp_smoothing: New CPU temperature smoothing factor (0.0-1.0, lower=more smoothing)
+            temp_smoothing_minutes: New temperature smoothing window in minutes (0.0 = no smoothing)
+            pressure_offset: New pressure offset in hPa
+            elevation_meters: New elevation in meters for sea-level pressure calculation
         """
         if temp_offset is not None:
             self.temp_offset = temp_offset
@@ -626,23 +801,24 @@ class EnviroPlusSensors:
             self.cpu_temp_smoothing = cpu_temp_smoothing
             self.logger.info("Updated CPU temperature smoothing to %s", cpu_temp_smoothing)
 
-    def has_sensor(self, sensor_type: str) -> bool:
-        """
-        Check if a specific sensor type is available.
+        if temp_smoothing_minutes is not None:
+            self.temp_smoothing_minutes = temp_smoothing_minutes
+            # Clear history when smoothing window changes
+            self._temp_history.clear()
+            self.logger.info(
+                "Updated temperature smoothing window to %s minutes", temp_smoothing_minutes
+            )
 
-        Args:
-            sensor_type: Sensor type to check ('bme280', 'ltr559', 'gas')
+        if pressure_offset is not None:
+            self.pressure_offset = pressure_offset
+            self.logger.info("Updated pressure offset to %s hPa", pressure_offset)
 
-        Returns:
-            True if sensor is available, False otherwise
-        """
-        if sensor_type == "bme280":
-            return self.bme280 is not None
-        elif sensor_type == "ltr559":
-            return self.ltr559 is not None
-        elif sensor_type == "gas":
-            return self._gas_available
-        return False
+        if elevation_meters is not None:
+            if elevation_meters < 0.0:
+                self.logger.warning("Elevation cannot be negative, setting to 0.0")
+                elevation_meters = 0.0
+            self.elevation_meters = elevation_meters
+            self.logger.info("Updated elevation to %s meters", elevation_meters)
 
     def get_all_sensor_data(self) -> Dict[str, Any]:
         """
