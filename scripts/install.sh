@@ -443,6 +443,11 @@ write_config() {
   if load_existing_config; then
     echo "==> Found existing configuration, preserving current settings..."
 
+    # Set defaults for new variables that might not be in old config files
+    # This must happen before any variable expansion to prevent "unbound variable" errors
+    : "${PRESSURE_OFFSET:=${DEFAULT_PRESSURE_OFFSET}}"
+    : "${ELEVATION_METERS:=${DEFAULT_ELEVATION_METERS}}"
+
     # Re-check UNITS after loading config - it might be empty or invalid
     # This is critical because load_existing_config might set UNITS="" if it exists but is empty
     # Check if UNITS is actually empty (not just unset) or invalid
@@ -515,6 +520,8 @@ write_config() {
       : "${CPU_TEMP_FACTOR:=${DEFAULT_CPU_TEMP_FACTOR}}"
       : "${CPU_TEMP_SMOOTHING:=${DEFAULT_CPU_TEMP_SMOOTHING}}"
       : "${TEMP_SMOOTHING_MINUTES:=${DEFAULT_TEMP_SMOOTHING_MINUTES}}"
+      : "${PRESSURE_OFFSET:=${DEFAULT_PRESSURE_OFFSET}}"
+      : "${ELEVATION_METERS:=${DEFAULT_ELEVATION_METERS}}"
       # Only set UNITS default if it wasn't in the config file with a valid value
       if [ "$units_in_config" = "false" ]; then
         : "${UNITS:=${DEFAULT_UNITS}}"
