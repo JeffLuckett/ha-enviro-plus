@@ -422,6 +422,8 @@ class TestSettingsIntegration:
         mock_settings_manager.hum_offset = 2.0
         mock_settings_manager.cpu_temp_factor = 2.5
         mock_settings_manager.cpu_temp_smoothing = 0.3
+        mock_settings_manager.pressure_offset = 0.0
+        mock_settings_manager.elevation_meters = 0.0
         mock_settings_manager.get_temp_offset.return_value = 1.0
         mock_settings_manager.get_hum_offset.return_value = 2.0
         mock_settings_manager.get_cpu_temp_factor.return_value = 2.5
@@ -444,8 +446,8 @@ class TestSettingsIntegration:
             settings_calls = [call for call in publish_calls if "set/" in call[0][0]]
 
             assert (
-                len(settings_calls) == 5
-            )  # temp_offset, hum_offset, cpu_temp_factor, cpu_temp_smoothing, temp_smoothing_minutes
+                len(settings_calls) == 7
+            )  # temp_offset, hum_offset, cpu_temp_factor, cpu_temp_smoothing, temp_smoothing_minutes, pressure_offset, elevation_meters
 
             # Verify each setting was published with correct value
             temp_offset_call = next(call for call in settings_calls if "temp_offset" in call[0][0])
@@ -478,6 +480,8 @@ class TestSettingsIntegration:
         config.cpu_temp_factor = 1.8
         config.cpu_temp_smoothing = 0.1
         config.temp_smoothing_minutes = 5.0
+        config.pressure_offset = 0.0
+        config.elevation_meters = 0.0
         with patch("ha_enviro_plus.agent.publish_discovery"):
             on_connect(client, {"config": config}, None, 0, config=config)
 
@@ -488,8 +492,8 @@ class TestSettingsIntegration:
             settings_calls = [call for call in publish_calls if "set/" in call[0][0]]
 
             assert (
-                len(settings_calls) == 5
-            )  # temp_offset, hum_offset, cpu_temp_factor, cpu_temp_smoothing, temp_smoothing_minutes
+                len(settings_calls) == 7
+            )  # temp_offset, hum_offset, cpu_temp_factor, cpu_temp_smoothing, temp_smoothing_minutes, pressure_offset, elevation_meters
 
             # Verify each setting was published with environment variable value
             temp_offset_call = next(call for call in settings_calls if "temp_offset" in call[0][0])
