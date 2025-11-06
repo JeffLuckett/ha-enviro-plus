@@ -545,7 +545,7 @@ class EnviroPlusSensors:
             return station_pressure_hpa
 
         pressure_ratio = temp_k / denominator
-        sea_level_pressure = station_pressure_hpa * (pressure_ratio**exponent)
+        sea_level_pressure = float(station_pressure_hpa * (pressure_ratio**exponent))
 
         self.logger.debug(
             "Sea-level pressure: %.2f hPa (station: %.2f hPa, elevation: %.1f m, temp: %.1f°C)",
