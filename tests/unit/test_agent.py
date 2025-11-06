@@ -147,11 +147,17 @@ class TestReadAll:
                         assert vals["ltr559/lux"] == pytest.approx(150.0, abs=0.1)
                         # Gas sensor data may not be available if gas sensor is not initialized
                         if "gas/oxidising" in vals:
-                            assert vals["gas/oxidising"] == pytest.approx(50.0, abs=0.1), "Gas oxidising value should match expected"
+                            assert vals["gas/oxidising"] == pytest.approx(
+                                50.0, abs=0.1
+                            ), "Gas oxidising value should match expected"
                         if "gas/reducing" in vals:
-                            assert vals["gas/reducing"] == pytest.approx(30.0, abs=0.1), "Gas reducing value should match expected"
+                            assert vals["gas/reducing"] == pytest.approx(
+                                30.0, abs=0.1
+                            ), "Gas reducing value should match expected"
                         if "gas/nh3" in vals:
-                            assert vals["gas/nh3"] == pytest.approx(40.0, abs=0.1), "Gas NH3 value should match expected"
+                            assert vals["gas/nh3"] == pytest.approx(
+                                40.0, abs=0.1
+                            ), "Gas NH3 value should match expected"
 
                         # Verify system data
                         assert vals["host/cpu_temp"] == 42.0
@@ -292,7 +298,11 @@ class TestSettingsIntegration:
         mock_enviro_sensors = Mock()
 
         _handle_calibration_setting(
-            client, "enviro_raspberrypi/set/temp_offset", "2.5", mock_enviro_sensors, mock_settings_manager
+            client,
+            "enviro_raspberrypi/set/temp_offset",
+            "2.5",
+            mock_enviro_sensors,
+            mock_settings_manager,
         )
 
         # Verify settings manager was called
@@ -433,7 +443,9 @@ class TestSettingsIntegration:
             # Find the settings publish calls
             settings_calls = [call for call in publish_calls if "set/" in call[0][0]]
 
-            assert len(settings_calls) == 5  # temp_offset, hum_offset, cpu_temp_factor, cpu_temp_smoothing, temp_smoothing_minutes
+            assert (
+                len(settings_calls) == 5
+            )  # temp_offset, hum_offset, cpu_temp_factor, cpu_temp_smoothing, temp_smoothing_minutes
 
             # Verify each setting was published with correct value
             temp_offset_call = next(call for call in settings_calls if "temp_offset" in call[0][0])
@@ -475,7 +487,9 @@ class TestSettingsIntegration:
             # Find the settings publish calls
             settings_calls = [call for call in publish_calls if "set/" in call[0][0]]
 
-            assert len(settings_calls) == 5  # temp_offset, hum_offset, cpu_temp_factor, cpu_temp_smoothing, temp_smoothing_minutes
+            assert (
+                len(settings_calls) == 5
+            )  # temp_offset, hum_offset, cpu_temp_factor, cpu_temp_smoothing, temp_smoothing_minutes
 
             # Verify each setting was published with environment variable value
             temp_offset_call = next(call for call in settings_calls if "temp_offset" in call[0][0])

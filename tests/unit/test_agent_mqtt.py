@@ -408,4 +408,3 @@ class TestOnMessage:
 
         # Should not call any methods
         assert not sensors.update_calibration.called
-

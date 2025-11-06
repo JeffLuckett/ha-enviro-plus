@@ -138,4 +138,3 @@ class TestPublishDiscovery:
         assert config["min"] == -10
         assert config["max"] == 10
         assert config["step"] == 0.1
-

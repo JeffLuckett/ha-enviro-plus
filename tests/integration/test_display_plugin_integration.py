@@ -68,8 +68,12 @@ class TestDisplayPluginIntegration:
                 break
 
         if mock_sensors.has_sensor("bme280"):
-            assert sensor_plugin is not None, "SensorDisplayPlugin should be found when BME280 is available"
-            assert sensor_plugin.is_available(mock_sensors, mock_settings) is True, "Plugin should be available when BME280 is present"
+            assert (
+                sensor_plugin is not None
+            ), "SensorDisplayPlugin should be found when BME280 is available"
+            assert (
+                sensor_plugin.is_available(mock_sensors, mock_settings) is True
+            ), "Plugin should be available when BME280 is present"
 
     @patch("ha_enviro_plus.display.ST7735_AVAILABLE", True)
     @patch("ha_enviro_plus.display.PIL_AVAILABLE", True)

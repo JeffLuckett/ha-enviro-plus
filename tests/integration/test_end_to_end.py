@@ -105,6 +105,7 @@ class TestEndToEndWorkflows:
                     ):
                         # Create a real config instance with test values
                         from ha_enviro_plus.config import Config
+
                         mock_config = Config.from_env()
                         mock_config.display_enabled = False
                         mock_config.sensor_warmup_sec = 0.0
@@ -341,7 +342,9 @@ class TestEndToEndWorkflows:
 
         # Collect all data with mocked hostname and network
         with patch("ha_enviro_plus.system_info.get_hostname", return_value="raspberrypi"):
-            with patch("ha_enviro_plus.system_info.get_ipv4_prefer_wlan0", return_value="192.168.1.100"):
+            with patch(
+                "ha_enviro_plus.system_info.get_ipv4_prefer_wlan0", return_value="192.168.1.100"
+            ):
                 vals = read_all(sensors)
 
         # Verify all expected data is present
@@ -380,7 +383,9 @@ class TestEndToEndWorkflows:
         gas_keys_found = [k for k in optional_keys if k in vals]
         if gas_keys_found:
             for key in gas_keys_found:
-                assert isinstance(vals[key], (int, float)), f"Gas sensor value for {key} should be numeric"
+                assert isinstance(
+                    vals[key], (int, float)
+                ), f"Gas sensor value for {key} should be numeric"
 
         # Verify sensor data values
         # Temperature: 25.5 raw, compensated to ~16.33, + 1.0 offset = ~17.33

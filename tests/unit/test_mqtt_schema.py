@@ -30,7 +30,9 @@ class TestDeviceIdentification:
     def test_device_id_uses_serial_when_available(self, mocker):
         """Test that device_id uses serial number when available."""
         # Mock get_device_id directly to test the behavior
-        mocker.patch("ha_enviro_plus.system_info.get_device_id", return_value="enviro_1234567890abcdef")
+        mocker.patch(
+            "ha_enviro_plus.system_info.get_device_id", return_value="enviro_1234567890abcdef"
+        )
 
         from ha_enviro_plus.system_info import get_device_id
 
@@ -51,7 +53,9 @@ class TestDeviceIdentification:
 
         dev_id = get_device_id()
 
-        assert dev_id == "enviro_raspberrypi", "Device ID should use hostname when serial unavailable (hyphens removed)"
+        assert (
+            dev_id == "enviro_raspberrypi"
+        ), "Device ID should use hostname when serial unavailable (hyphens removed)"
         assert dev_id.startswith("enviro_"), "Device ID should start with 'enviro_' prefix"
 
     def test_device_id_format(self, mocker):
@@ -386,7 +390,9 @@ class TestPublishDiscoverySchema:
         config = json.loads(number_calls[0][0][1])
         assert config["uniq_id"] == "enviro_1234567890abcdef_num_temp_offset"
 
-    def test_number_discovery_temp_smoothing_minutes(self, mock_mqtt_client, mocker, mock_device_id):
+    def test_number_discovery_temp_smoothing_minutes(
+        self, mock_mqtt_client, mocker, mock_device_id
+    ):
         """Test that temp_smoothing_minutes number entity is published."""
         from ha_enviro_plus.config import Config
 

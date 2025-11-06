@@ -192,4 +192,3 @@ VERSION_ID="12"
 
         os_release = get_os_release()
         assert os_release == "unknown"
-

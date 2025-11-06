@@ -46,7 +46,9 @@ class TestEnviroPlusSensorsInit:
         assert sensors.elevation_meters == 0.0
         assert sensors.logger == logger
 
-    def test_init_with_pressure_calibration(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_logger):
+    def test_init_with_pressure_calibration(
+        self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_logger
+    ):
         """Test initialization with pressure calibration values."""
         sensors = EnviroPlusSensors(
             pressure_offset=0.14,
@@ -573,7 +575,9 @@ class TestPressureReadings:
         # Should apply offset: 1013.25 + 0.14 = 1013.39
         assert pressure == pytest.approx(1013.39, abs=0.01)
 
-    def test_pressure_with_elevation(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess):
+    def test_pressure_with_elevation(
+        self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess
+    ):
         """Test pressure reading with elevation correction."""
         mock_bme280.get_pressure.return_value = 1000.0  # Station pressure at elevation
         mock_bme280.get_temperature.return_value = 25.0
@@ -588,7 +592,9 @@ class TestPressureReadings:
         # Approximate calculation: at 100m, sea-level should be ~11-12 hPa higher
         assert pressure == pytest.approx(1011.0, abs=2.0)
 
-    def test_pressure_with_elevation_and_offset(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess):
+    def test_pressure_with_elevation_and_offset(
+        self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess
+    ):
         """Test pressure reading with both elevation correction and offset."""
         mock_bme280.get_pressure.return_value = 1000.0
         mock_bme280.get_temperature.return_value = 25.0
@@ -602,7 +608,9 @@ class TestPressureReadings:
         expected = sea_level_pressure + 0.14
         assert pressure == pytest.approx(expected, abs=0.01)
 
-    def test_pressure_elevation_zero(self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess):
+    def test_pressure_elevation_zero(
+        self, mock_bme280, mock_ltr559, mock_gas_sensor, mock_subprocess
+    ):
         """Test that elevation=0 does not apply correction."""
         mock_bme280.get_pressure.return_value = 1013.25
         mock_bme280.get_temperature.return_value = 25.0
