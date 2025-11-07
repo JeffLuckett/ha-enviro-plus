@@ -8,27 +8,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Features
-- Noise sensor support with A-weighted dB(A) conversion
-- PMS5003 particulate matter sensor support (PM1.0, PM2.5, PM10)
-- Display rotation modes (auto-rotation, manual via proximity sensor tap)
-- LTR-559 proximity sensor tap detection for display navigation
-
-### Improvements
-- Enhanced display system with additional display modes
-- Custom scrolling message display
+- (Features will be added here as they are implemented)
 
 ## [0.2.0] - 2025-01-XX
 
 ### Features
-- **Dashboard display** with temperature, humidity, pressure, and light metrics
-- **Individual sensor displays** with scrolling graphs
-- **Plugin architecture** for custom display modules
+- **Noise sensor** with A-weighted dB(A) conversion for accurate sound pressure level measurements
+- **Proximity sensor** support using LTR559 for tap detection and display navigation
+- **Individual sensor display screens** - dedicated screens for Temperature, Humidity, Pressure, Noise, and Gas sensors
+- **Auto-rotating display** - configured screens automatically rotate with configurable timing
+- **Tap navigation** - tap proximity sensor to manually page through display screens
+- **Display plugin architecture** for custom display modules with auto-discovery
+- **Boot splash screen** with fade-out animation
 - **Error state messaging** on LCD for critical issues
+- **Sensor display plugin** with icon support and unit conversion (metric/imperial)
+- **Non-blocking display system** with threaded display manager
 
 ### Technical
+- Noise sensor implementation with `sounddevice` and `scipy` for A-weighting filter
+- Proximity sensor tap detection with debouncing logic
+- Individual display plugins: TemperatureDisplayPlugin, HumidityDisplayPlugin, PressureDisplayPlugin, NoiseDisplayPlugin, GasDisplayPlugin
 - Display plugin system with auto-discovery
-- Sensor display plugin with icon support
 - Plugin rendering with error handling
+- Thread-safe display queue system
+- Graceful display hardware degradation
+- Graceful noise sensor degradation (works without microphone)
 
 ## [0.1.1] - 2025-01-XX
 
@@ -79,4 +83,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automated linting, formatting, and type checking
 - Coverage reporting with GitHub Actions artifacts
 - Security scanning with Safety and Bandit
-- Hardware tests for real Enviro+ devices

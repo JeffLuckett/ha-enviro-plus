@@ -230,3 +230,103 @@ class TestDisplayManager:
         # Should raise RuntimeError when PIL is not available
         with pytest.raises(RuntimeError, match="PIL/Pillow not available"):
             display._create_error_image("Test error message")
+
+    def test_check_proximity_tap_no_cycle(self):
+        """Test tap detection when plugin cycle is not active."""
+        from ha_enviro_plus.display import DisplayManager
+
+        display = DisplayManager(enabled=False)
+        display._plugin_cycle_active = False
+
+        # Should return False when cycle is not active
+        result = display.check_proximity_tap(100.0)
+        assert result is False
+
+    def test_check_proximity_tap_detection(self):
+        """Test proximity tap detection logic."""
+        import time
+        from ha_enviro_plus.display import DisplayManager
+
+        display = DisplayManager(enabled=False)
+        display._plugin_cycle_active = True
+        display._proximity_threshold = 50.0
+        display._proximity_last_value = 0.0
+        display._proximity_last_change_time = 0.0
+
+        # Simulate tap: proximity goes high then low
+        # Low value
+        result1 = display.check_proximity_tap(10.0)
+        assert result1 is False
+
+        # High value (above threshold)
+        result2 = display.check_proximity_tap(75.0)
+        assert result2 is False  # Not yet detected
+
+        # Wait a bit (simulate time passing)
+        time.sleep(0.15)
+
+        # Low value again (tap complete)
+        result3 = display.check_proximity_tap(10.0)
+        assert result3 is True  # Tap detected!
+
+    def test_check_proximity_tap_debounce(self):
+        """Test that tap detection respects debounce time."""
+        import time
+        from ha_enviro_plus.display import DisplayManager
+
+        display = DisplayManager(enabled=False)
+        display._plugin_cycle_active = True
+        display._proximity_threshold = 50.0
+        display._proximity_last_value = 0.0
+        display._proximity_last_change_time = 0.0
+        display._tap_debounce_time = 0.3
+
+        # First tap
+        display.check_proximity_tap(10.0)  # Low
+        display.check_proximity_tap(75.0)  # High
+        time.sleep(0.15)
+        result1 = display.check_proximity_tap(10.0)  # Low - tap detected
+        assert result1 is True
+
+        # Second tap too soon (within debounce time)
+        display.check_proximity_tap(75.0)  # High
+        time.sleep(0.15)
+        result2 = display.check_proximity_tap(10.0)  # Low - should be ignored
+        assert result2 is False  # Debounced
+
+    def test_handle_tap(self):
+        """Test handle_tap method."""
+        from ha_enviro_plus.display import DisplayManager
+
+        display = DisplayManager(enabled=False)
+        display._plugin_cycle_active = True
+
+        # Create mock plugins
+        mock_plugin1 = Mock()
+        mock_plugin1.name.return_value = "Plugin 1"
+        mock_plugin1.duration.return_value = 5.0
+
+        mock_plugin2 = Mock()
+        mock_plugin2.name.return_value = "Plugin 2"
+        mock_plugin2.duration.return_value = 3.0
+
+        display._plugin_cycle_plugins = [mock_plugin1, mock_plugin2]
+        display._plugin_cycle_index = 0
+
+        # Handle tap
+        display.handle_tap()
+
+        # Should advance to next plugin
+        assert display._plugin_cycle_index == 1
+
+    def test_handle_tap_no_cycle(self):
+        """Test handle_tap when cycle is not active."""
+        from ha_enviro_plus.display import DisplayManager
+
+        display = DisplayManager(enabled=False)
+        display._plugin_cycle_active = False
+
+        # Should not raise exception
+        display.handle_tap()
+        # Index should remain unchanged
+        assert display._plugin_cycle_index == 0

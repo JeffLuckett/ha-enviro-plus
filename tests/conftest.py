@@ -14,6 +14,51 @@ sys.modules["enviroplus"] = MagicMock()
 sys.modules["enviroplus.gas"] = MagicMock()
 sys.modules["gpiod"] = MagicMock()
 sys.modules["spidev"] = MagicMock()
+sys.modules["sounddevice"] = MagicMock()
+
+# Mock scipy.signal.butter to return proper filter coefficients
+scipy_mock = MagicMock()
+scipy_signal_mock = MagicMock()
+
+
+def mock_butter(*args, **kwargs):
+    """Mock butter filter that returns (b, a) coefficients."""
+    # Return a simple mock filter coefficients tuple
+    return ([1.0, 2.0, 1.0], [1.0, -0.5, 0.3])
+
+
+scipy_signal_mock.butter = mock_butter
+scipy_mock.signal = scipy_signal_mock
+sys.modules["scipy"] = scipy_mock
+sys.modules["scipy.signal"] = scipy_signal_mock
+
+# Mock numpy properly to avoid isinstance issues
+# Try to import numpy, if it fails, create a proper mock
+try:
+    import numpy
+
+    # If numpy is available, use it (but still register it in sys.modules for consistency)
+    sys.modules["numpy"] = numpy
+except ImportError:
+    # Create a simple class that mimics numpy for isinstance checks
+    class NumpyMock:
+        """Mock numpy module that works with isinstance checks."""
+
+        bool_ = bool  # Use Python's bool type
+
+        def array(self, *args, **kwargs):
+            return MagicMock()
+
+        def isscalar(self, obj):
+            """Check if object is a scalar."""
+            return isinstance(obj, (int, float, bool, str, bytes))
+
+        def __getattr__(self, name):
+            """Return MagicMock for any other attribute."""
+            return MagicMock()
+
+    numpy_mock = NumpyMock()
+    sys.modules["numpy"] = numpy_mock
 
 
 @pytest.fixture
@@ -34,6 +79,7 @@ def mock_ltr559(mocker):
     mock = mocker.patch("ha_enviro_plus.sensors.LTR559")
     instance = Mock()
     instance.get_lux.return_value = 150.0
+    instance.get_proximity.return_value = 50.0
     mock.return_value = instance
     return instance
 
@@ -242,23 +288,6 @@ def sample_system_data():
         "network": "192.168.1.100",
         "os_release": "Raspberry Pi OS Lite (64-bit)",
     }
-
-
-def hardware_available():
-    """Check if hardware is available for testing."""
-    try:
-        from bme280 import BME280
-
-        BME280(i2c_addr=0x76)
-        return True
-    except Exception:
-        return False
-
-
-@pytest.fixture
-def hardware_skipif():
-    """Skipif marker for hardware tests."""
-    return pytest.mark.skipif(not hardware_available(), reason="Hardware not detected")
 
 
 @pytest.fixture

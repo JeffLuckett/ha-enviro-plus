@@ -27,78 +27,61 @@ This document outlines the planned development roadmap for ha-enviro-plus, inclu
 - ✅ Automated dependency updates (Dependabot)
 - ✅ Cross-platform compatibility fixes
 
-## Version 0.2.0 (Next Major Release)
+## Version 0.2.0 (Current Release)
 
-**Status**: 🚧 In Planning
+**Status**: ✅ Released
 
-### Display System Enhancements
-- Additional display modes and customization options
-- Display rotation and navigation features
+### Core Features
+- ✅ Enviro+ sensor support (BME280, LTR559, Gas sensors)
+- ✅ MQTT integration with Home Assistant discovery
+- ✅ System telemetry (CPU temperature, load, memory, disk)
+- ✅ Home Assistant control entities (reboot, restart, shutdown)
+- ✅ Configurable polling intervals and calibration offsets
+- ✅ CPU temperature compensation for accurate readings
+- ✅ Comprehensive test suite
+- ✅ Graceful sensor degradation (hardware failures don't crash the app)
+- ✅ Graceful shutdown handling (SIGTERM/SIGINT)
+- ✅ Configuration validation on startup
 
 ### New Sensor Support
 
 #### Noise Sensor (Microphone)
-- **Reference**: [Northcliff SPL Monitor](https://github.com/roscoe81/northcliff_spl_monitor)
-- **Features**:
-  - A-weighted dB calculation for accurate sound pressure levels
-  - Calibration parameters for microphone sensitivity
-  - Streaming approach to handle microphone startup "plop"
-  - Configurable sampling rate and averaging window
-  - Graceful degradation if microphone hardware not available
-- **Sensors**:
-  - `noise/spl_db` - Sound Pressure Level in dB(A)
-  - `noise/spl_raw` - Raw sound level
-  - Possibly frequency band analysis
+- ✅ A-weighted dB calculation for accurate sound pressure levels
+- ✅ Streaming approach to handle microphone startup "plop"
+- ✅ Configurable sampling rate and averaging window
+- ✅ Graceful degradation if microphone hardware not available
+- ✅ Sensors: `noise/spl_db` (dB(A)) and `noise/spl_raw` (raw RMS)
 
-#### PMS5003 Particulate Sensor
-- **Features**:
-  - PM1.0, PM2.5, and PM10 readings
-  - Serial communication with error handling
-  - Optional sensor detection (add-on device)
-  - Graceful fallback if sensor not present
-- **Sensors**:
-  - `particulate/pm1` - PM1.0 (µg/m³)
-  - `particulate/pm25` - PM2.5 (µg/m³)
-  - `particulate/pm10` - PM10 (µg/m³)
+#### Proximity Sensor
+- ✅ LTR559 proximity sensor support
+- ✅ Tap detection for display navigation
+- ✅ Debouncing logic for reliable tap detection
 
 ### LCD Display System
 
-#### Hardware Support
-- **Display**: 0.96" IPS Color LCD (160x80 pixels)
-- **Control**: LTR-559 proximity sensor for tap detection
-
-#### Display Modes
-- `off` - Display disabled
-- `splash` - Boot splash screen with .gif animation
-- `dashboard` - Multi-sensor summary layout
-- `temp` - Temperature scrolling graph
-- `humidity` - Humidity scrolling graph
-- `pressure` - Pressure scrolling graph
-- `lux` - Light level scrolling graph
-- `gas` - Gas sensor readings
-- `noise` - Sound level graph (if available)
-- `particulate` - PM readings (if available)
-- `message` - Scrolling custom message
-- `auto` - Rotate through all enabled displays
-- `custom_*` - User-provided plugins
+#### Display Features
+- ✅ Boot splash screen with fade-out animation
+- ✅ Individual sensor display screens (Temperature, Humidity, Pressure, Noise, Gas)
+- ✅ Auto-rotating display with configurable timing
+- ✅ Tap navigation using proximity sensor for manual screen paging
+- ✅ Display plugin architecture with auto-discovery
+- ✅ Error state messaging on LCD for critical issues
+- ✅ Non-blocking display system with threaded display manager
 
 #### Plugin Architecture
-- **Base Class**: `BaseDisplay` abstract class
-- **Plugin Directory**: `/opt/ha-enviro-plus/displays/custom/`
-- **Auto-discovery**: Automatic plugin loading
-- **Interface**: Simple render() method returning PIL Image
+- ✅ Base Class: `DisplayPlugin` abstract class
+- ✅ Auto-discovery: Automatic plugin loading from `ha_enviro_plus/plugins/`
+- ✅ Individual plugins: TemperatureDisplayPlugin, HumidityDisplayPlugin, PressureDisplayPlugin, NoiseDisplayPlugin, GasDisplayPlugin
+- ✅ Sensor display plugin with icon support and unit conversion (metric/imperial)
 
-#### MQTT Controls
-- `display/mode` - Set specific display mode
-- `display/rotation` - Enable/disable auto-rotation
-- `display/interval` - Set rotation interval (seconds)
-- `display/message` - Set custom message text
-- `display/message_colors` - Set text/background colors
-
-#### Error State Messaging
-- **Critical Errors**: Take over display for important issues
-- **Error Types**: WiFi loss, MQTT connection failure, misconfiguration
-- **Access Method**: Double-tap proximity sensor for error state access
+### Documentation & Process
+- ✅ Complete README with installation and configuration instructions
+- ✅ Contributing guidelines and development setup
+- ✅ API documentation with comprehensive docstrings
+- ✅ Security policy and responsible disclosure guidelines
+- ✅ Code of conduct
+- ✅ Automated dependency updates (Dependabot)
+- ✅ Cross-platform compatibility fixes
 
 ## Version 0.3.0 (Future)
 
@@ -110,6 +93,19 @@ This document outlines the planned development roadmap for ha-enviro-plus, inclu
 - Custom display themes and layouts
 - Historical data visualization
 - Alert thresholds and notifications
+
+### New Sensor Support
+
+#### PMS5003 Particulate Sensor
+- **Features**:
+  - PM1.0, PM2.5, and PM10 readings
+  - Serial communication with error handling
+  - Optional sensor detection (add-on device)
+  - Graceful fallback if sensor not present
+- **Sensors**:
+  - `particulate/pm1` - PM1.0 (µg/m³)
+  - `particulate/pm25` - PM2.5 (µg/m³)
+  - `particulate/pm10` - PM10 (µg/m³)
 
 ### Advanced Sensor Features
 - Sensor health monitoring and alerts
@@ -129,7 +125,6 @@ This document outlines the planned development roadmap for ha-enviro-plus, inclu
 - Plugin development tools and templates
 - Enhanced debugging and diagnostics
 - Performance profiling tools
-- Automated testing with real hardware
 - Docker support for development
 
 ## Version 1.0.0 (Stable Release)
@@ -162,16 +157,14 @@ We welcome community input on the roadmap! Please:
 ## Dependencies & Requirements
 
 ### v0.2.0 Dependencies
-- `sounddevice==0.3.15` (for noise sensor)
-- `scipy` (for A-weighted filtering)
-- `waveform_analysis` (for advanced audio processing)
-- PIL/Pillow (for display rendering)
-- Additional hardware: Microphone, PMS5003 sensor, LCD display
+- ✅ `sounddevice>=0.4.6` (for noise sensor)
+- ✅ `scipy>=1.9.0` (for A-weighted filtering)
+- ✅ `pillow>=10.0.0` (for display rendering)
+- Additional hardware: Microphone (optional), LCD display (optional)
 
 ### Hardware Compatibility
 - **Primary**: Raspberry Pi Zero 2 W + Enviro+ HAT
 - **Secondary**: Any Raspberry Pi with Enviro+ compatibility
-- **Optional**: PMS5003 particulate sensor
 
 ## Success Metrics
 
@@ -184,8 +177,7 @@ We welcome community input on the roadmap! Please:
 
 ### v0.2.0 Success Criteria
 - ✅ Noise sensor provides believable dB(A) readings (within realistic range, with calibration options for accuracy)
-- ✅ PM sensor works when present, gracefully disabled when absent
-- ✅ Display system supports all planned modes
+- ✅ Display system supports all planned modes (individual sensor screens, auto-rotation, tap navigation)
 - ✅ Plugin system allows user extensions
 - ✅ All new features have >=75% test coverage
 - ✅ Documentation includes setup guides and examples

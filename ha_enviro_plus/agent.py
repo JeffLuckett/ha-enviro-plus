@@ -64,6 +64,8 @@ SENSORS = {
     "gas/oxidising": ("Gas Oxidising (kΩ)", "kΩ", None),
     "gas/reducing": ("Gas Reducing (kΩ)", "kΩ", None),
     "gas/nh3": ("Gas NH3 (kΩ)", "kΩ", None),
+    "noise/spl_db": ("Noise Level", "dB(A)", None),
+    "noise/spl_raw": ("Noise Level Raw", None, None),
     "host/cpu_temp": ("CPU Temp", "°C", "temperature"),
     "host/cpu_usage": ("CPU Usage", "%", None),
     "host/mem_usage": ("Mem Usage", "%", None),
@@ -164,6 +166,9 @@ def publish_discovery(
                 continue
             # Skip LTR559 sensors if not available
             if tail.startswith("ltr559/") and not enviro_sensors.has_sensor("ltr559"):
+                continue
+            # Skip noise sensors if not available
+            if tail.startswith("noise/") and not enviro_sensors.has_sensor("noise"):
                 continue
 
         obj = tail.replace("/", "_")
@@ -291,6 +296,10 @@ def read_all(enviro_sensors: EnviroPlusSensors) -> Dict[str, Any]:
             "sensor_key": "gas",
             "fields": ["oxidising", "reducing", "nh3"],
         },
+        "noise": {
+            "sensor_key": "noise",
+            "fields": ["spl_db", "spl_raw"],
+        },
     }
 
     # Build values dictionary with system metrics
@@ -314,7 +323,14 @@ def read_all(enviro_sensors: EnviroPlusSensors) -> Dict[str, Any]:
             for field in mapping["fields"]:
                 # For gas sensors, map topic field name to sensor data key
                 # Topic: gas/oxidising -> Sensor data key: gas_oxidising
-                sensor_data_key = f"{prefix}_{field}" if sensor_type == "gas" else field
+                # For noise sensors, map topic field name to sensor data key
+                # Topic: noise/spl_db -> Sensor data key: noise_spl_db
+                if sensor_type == "gas":
+                    sensor_data_key = f"{prefix}_{field}"
+                elif sensor_type == "noise":
+                    sensor_data_key = f"{prefix}_{field}"
+                else:
+                    sensor_data_key = field
                 vals[f"{prefix}/{field}"] = sensor_data[sensor_data_key]
         else:
             for field in mapping["fields"]:
@@ -902,6 +918,15 @@ def main() -> None:
             if display and display.display_available:
                 try:
                     display.update_plugin_data(enviro_sensors, settings_manager)
+
+                    # Check for proximity tap detection
+                    if enviro_sensors.has_sensor("ltr559"):
+                        try:
+                            proximity_value = enviro_sensors.proximity()
+                            if display.check_proximity_tap(proximity_value):
+                                display.handle_tap()
+                        except Exception as e:
+                            logger.debug("Failed to check proximity tap: %s", e)
                 except Exception as e:
                     logger.warning("Failed to update display plugin data: %s", e)
 

@@ -44,7 +44,6 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 markers = [
-    "hardware: tests requiring physical hardware",
     "slow: slow running tests",
 ]
 addopts = [

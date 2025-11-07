@@ -138,3 +138,64 @@ class TestPublishDiscovery:
         assert config["min"] == -10
         assert config["max"] == 10
         assert config["step"] == 0.1
+
+    def test_publish_discovery_noise_sensor(self, mock_mqtt_client, mock_device_id, mocker):
+        """Test publishing noise sensor discovery."""
+        from ha_enviro_plus.config import Config
+        from ha_enviro_plus.sensors import EnviroPlusSensors
+
+        client = mock_mqtt_client.return_value
+        config = Config.from_env()
+        mocker.patch("ha_enviro_plus.agent.Config.from_env", return_value=config)
+
+        # Mock sensors with noise sensor available
+        with patch("ha_enviro_plus.sensors.NOISE_SENSOR_AVAILABLE", True):
+            with patch("ha_enviro_plus.sensors.sd") as mock_sd:
+                mock_sd.query_devices.return_value = [{"name": "Microphone"}]
+                sensors = EnviroPlusSensors()
+
+                publish_discovery(client, config, enviro_sensors=sensors)
+
+                calls = client.publish.call_args_list
+
+                # Find noise sensor configs
+                noise_db_config = None
+                noise_raw_config = None
+                for call in calls:
+                    topic = call[0][0]
+                    if "noise_spl_db" in topic:
+                        noise_db_config = json.loads(call[0][1])
+                    elif "noise_spl_raw" in topic:
+                        noise_raw_config = json.loads(call[0][1])
+
+                # Noise sensor should be discovered if available
+                if sensors.has_sensor("noise"):
+                    assert noise_db_config is not None
+                    assert noise_db_config["name"] == "Noise Level"
+                    assert noise_db_config["unit_of_measurement"] == "dB(A)"
+
+    def test_publish_discovery_noise_sensor_not_available(
+        self, mock_mqtt_client, mock_device_id, mocker
+    ):
+        """Test that noise sensor discovery is skipped when not available."""
+        from ha_enviro_plus.config import Config
+        from ha_enviro_plus.sensors import EnviroPlusSensors
+
+        client = mock_mqtt_client.return_value
+        config = Config.from_env()
+        mocker.patch("ha_enviro_plus.agent.Config.from_env", return_value=config)
+
+        # Sensors without noise sensor - ensure noise sensor is not available
+        sensors = EnviroPlusSensors()
+        # Set noise sensor as unavailable
+        sensors._noise_available = False
+
+        publish_discovery(client, config, enviro_sensors=sensors)
+
+        calls = client.publish.call_args_list
+
+        # Noise sensor configs should not be published
+        noise_configs = [call for call in calls if "noise" in call[0][0] and "config" in call[0][0]]
+
+        # Should not have noise sensor discovery if not available
+        assert len(noise_configs) == 0

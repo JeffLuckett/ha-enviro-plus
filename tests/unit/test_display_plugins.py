@@ -484,3 +484,251 @@ class TestSensorDisplayPlugin:
 
         # Verify text was drawn (should include converted pressure)
         assert mock_draw_instance.text.called
+
+
+class TestIndividualDisplayPlugins:
+    """Test individual sensor display plugins."""
+
+    @pytest.fixture
+    def mock_sensors_bme280(self):
+        """Create mock sensors with BME280."""
+        sensors = Mock()
+        sensors.has_sensor.return_value = True
+        sensors.temp.return_value = 25.5
+        sensors.humidity.return_value = 45.0
+        sensors.pressure.return_value = 1013.25
+        return sensors
+
+    @pytest.fixture
+    def mock_sensors_noise(self):
+        """Create mock sensors with noise sensor."""
+        sensors = Mock()
+        sensors.has_sensor.return_value = True
+        sensors.noise_spl_db.return_value = 65.5
+        return sensors
+
+    @pytest.fixture
+    def mock_sensors_gas(self):
+        """Create mock sensors with gas sensor."""
+        sensors = Mock()
+        sensors.has_sensor.return_value = True
+        sensors.gas_oxidising.return_value = 50.0
+        sensors.gas_reducing.return_value = 30.0
+        sensors.gas_nh3.return_value = 40.0
+        return sensors
+
+    @pytest.fixture
+    def mock_settings(self):
+        """Create mock settings."""
+        settings = Mock()
+        settings.get_units.return_value = "metric"
+        return settings
+
+    @patch("ha_enviro_plus.plugins.temperature_display.PIL_AVAILABLE", True)
+    def test_temperature_display_plugin(self, mock_sensors_bme280, mock_settings):
+        """Test TemperatureDisplayPlugin."""
+        import ha_enviro_plus.plugins.temperature_display as temp_module
+        from unittest.mock import MagicMock
+
+        # Setup PIL mocks
+        mock_image = MagicMock()
+        mock_draw = MagicMock()
+        mock_font = MagicMock()
+
+        mock_img_instance = Mock()
+        mock_image.new = Mock(return_value=mock_img_instance)
+        mock_draw_instance = Mock()
+        mock_draw_instance.textbbox = Mock(
+            return_value=(0, 0, 50, 20)
+        )  # (left, top, right, bottom)
+        mock_draw.Draw = Mock(return_value=mock_draw_instance)
+        mock_font_instance = Mock()
+        mock_font.truetype = Mock(side_effect=OSError("Font not found"))
+        mock_font.load_default = Mock(return_value=mock_font_instance)
+
+        temp_module.Image = mock_image
+        temp_module.ImageDraw = mock_draw
+        temp_module.ImageFont = mock_font
+
+        from ha_enviro_plus.plugins.temperature_display import TemperatureDisplayPlugin
+
+        plugin = TemperatureDisplayPlugin()
+        assert plugin.name() == "Temperature"
+        assert plugin.duration() == 5.0
+        assert plugin.is_available(mock_sensors_bme280, mock_settings) is True
+
+        result = plugin.render(mock_sensors_bme280, mock_settings)
+        assert result == mock_img_instance
+        mock_sensors_bme280.temp.assert_called()
+
+    @patch("ha_enviro_plus.plugins.humidity_display.PIL_AVAILABLE", True)
+    def test_humidity_display_plugin(self, mock_sensors_bme280, mock_settings):
+        """Test HumidityDisplayPlugin."""
+        import ha_enviro_plus.plugins.humidity_display as hum_module
+        from unittest.mock import MagicMock
+
+        # Setup PIL mocks
+        mock_image = MagicMock()
+        mock_draw = MagicMock()
+        mock_font = MagicMock()
+
+        mock_img_instance = Mock()
+        mock_image.new = Mock(return_value=mock_img_instance)
+        mock_draw_instance = Mock()
+        mock_draw_instance.textbbox = Mock(
+            return_value=(0, 0, 50, 20)
+        )  # (left, top, right, bottom)
+        mock_draw.Draw = Mock(return_value=mock_draw_instance)
+        mock_font_instance = Mock()
+        mock_font.truetype = Mock(side_effect=OSError("Font not found"))
+        mock_font.load_default = Mock(return_value=mock_font_instance)
+
+        hum_module.Image = mock_image
+        hum_module.ImageDraw = mock_draw
+        hum_module.ImageFont = mock_font
+
+        from ha_enviro_plus.plugins.humidity_display import HumidityDisplayPlugin
+
+        plugin = HumidityDisplayPlugin()
+        assert plugin.name() == "Humidity"
+        assert plugin.is_available(mock_sensors_bme280, mock_settings) is True
+
+        result = plugin.render(mock_sensors_bme280, mock_settings)
+        assert result == mock_img_instance
+        mock_sensors_bme280.humidity.assert_called()
+
+    @patch("ha_enviro_plus.plugins.pressure_display.PIL_AVAILABLE", True)
+    def test_pressure_display_plugin(self, mock_sensors_bme280, mock_settings):
+        """Test PressureDisplayPlugin."""
+        import ha_enviro_plus.plugins.pressure_display as press_module
+        from unittest.mock import MagicMock
+
+        # Setup PIL mocks
+        mock_image = MagicMock()
+        mock_draw = MagicMock()
+        mock_font = MagicMock()
+
+        mock_img_instance = Mock()
+        mock_image.new = Mock(return_value=mock_img_instance)
+        mock_draw_instance = Mock()
+        mock_draw_instance.textbbox = Mock(
+            return_value=(0, 0, 50, 20)
+        )  # (left, top, right, bottom)
+        mock_draw.Draw = Mock(return_value=mock_draw_instance)
+        mock_font_instance = Mock()
+        mock_font.truetype = Mock(side_effect=OSError("Font not found"))
+        mock_font.load_default = Mock(return_value=mock_font_instance)
+
+        press_module.Image = mock_image
+        press_module.ImageDraw = mock_draw
+        press_module.ImageFont = mock_font
+
+        from ha_enviro_plus.plugins.pressure_display import PressureDisplayPlugin
+
+        plugin = PressureDisplayPlugin()
+        assert plugin.name() == "Pressure"
+        assert plugin.is_available(mock_sensors_bme280, mock_settings) is True
+
+        result = plugin.render(mock_sensors_bme280, mock_settings)
+        assert result == mock_img_instance
+        mock_sensors_bme280.pressure.assert_called()
+
+    @patch("ha_enviro_plus.plugins.noise_display.PIL_AVAILABLE", True)
+    def test_noise_display_plugin(self, mock_sensors_noise, mock_settings):
+        """Test NoiseDisplayPlugin."""
+        import ha_enviro_plus.plugins.noise_display as noise_module
+        from unittest.mock import MagicMock
+
+        # Setup PIL mocks
+        mock_image = MagicMock()
+        mock_draw = MagicMock()
+        mock_font = MagicMock()
+
+        mock_img_instance = Mock()
+        mock_image.new = Mock(return_value=mock_img_instance)
+        mock_draw_instance = Mock()
+        mock_draw_instance.textbbox = Mock(
+            return_value=(0, 0, 50, 20)
+        )  # (left, top, right, bottom)
+        mock_draw.Draw = Mock(return_value=mock_draw_instance)
+        mock_font_instance = Mock()
+        mock_font.truetype = Mock(side_effect=OSError("Font not found"))
+        mock_font.load_default = Mock(return_value=mock_font_instance)
+
+        noise_module.Image = mock_image
+        noise_module.ImageDraw = mock_draw
+        noise_module.ImageFont = mock_font
+
+        from ha_enviro_plus.plugins.noise_display import NoiseDisplayPlugin
+
+        plugin = NoiseDisplayPlugin()
+        assert plugin.name() == "Noise"
+        assert plugin.is_available(mock_sensors_noise, mock_settings) is True
+
+        result = plugin.render(mock_sensors_noise, mock_settings)
+        assert result == mock_img_instance
+        mock_sensors_noise.noise_spl_db.assert_called()
+
+    @patch("ha_enviro_plus.plugins.gas_display.PIL_AVAILABLE", True)
+    def test_gas_display_plugin(self, mock_sensors_gas, mock_settings):
+        """Test GasDisplayPlugin."""
+        import ha_enviro_plus.plugins.gas_display as gas_module
+        from unittest.mock import MagicMock
+
+        # Setup PIL mocks
+        mock_image = MagicMock()
+        mock_draw = MagicMock()
+        mock_font = MagicMock()
+
+        mock_img_instance = Mock()
+        mock_image.new = Mock(return_value=mock_img_instance)
+        mock_draw_instance = Mock()
+        mock_draw_instance.textbbox = Mock(
+            return_value=(0, 0, 50, 20)
+        )  # (left, top, right, bottom)
+        mock_draw.Draw = Mock(return_value=mock_draw_instance)
+        mock_font_instance = Mock()
+        mock_font.truetype = Mock(side_effect=OSError("Font not found"))
+        mock_font.load_default = Mock(return_value=mock_font_instance)
+
+        gas_module.Image = mock_image
+        gas_module.ImageDraw = mock_draw
+        gas_module.ImageFont = mock_font
+
+        from ha_enviro_plus.plugins.gas_display import GasDisplayPlugin
+
+        plugin = GasDisplayPlugin()
+        assert plugin.name() == "Gas"
+        assert plugin.is_available(mock_sensors_gas, mock_settings) is True
+
+        result = plugin.render(mock_sensors_gas, mock_settings)
+        assert result == mock_img_instance
+        mock_sensors_gas.gas_oxidising.assert_called()
+        mock_sensors_gas.gas_reducing.assert_called()
+        mock_sensors_gas.gas_nh3.assert_called()
+
+    def test_individual_plugins_not_available(self, mock_settings):
+        """Test that plugins return False when sensors are not available."""
+        from ha_enviro_plus.plugins.temperature_display import TemperatureDisplayPlugin
+        from ha_enviro_plus.plugins.humidity_display import HumidityDisplayPlugin
+        from ha_enviro_plus.plugins.pressure_display import PressureDisplayPlugin
+        from ha_enviro_plus.plugins.noise_display import NoiseDisplayPlugin
+        from ha_enviro_plus.plugins.gas_display import GasDisplayPlugin
+
+        mock_sensors = Mock()
+        mock_sensors.has_sensor.return_value = False
+
+        temp_plugin = TemperatureDisplayPlugin()
+        assert temp_plugin.is_available(mock_sensors, mock_settings) is False
+
+        hum_plugin = HumidityDisplayPlugin()
+        assert hum_plugin.is_available(mock_sensors, mock_settings) is False
+
+        press_plugin = PressureDisplayPlugin()
+        assert press_plugin.is_available(mock_sensors, mock_settings) is False
+
+        noise_plugin = NoiseDisplayPlugin()
+        assert noise_plugin.is_available(mock_sensors, mock_settings) is False
+
+        gas_plugin = GasDisplayPlugin()
+        assert gas_plugin.is_available(mock_sensors, mock_settings) is False

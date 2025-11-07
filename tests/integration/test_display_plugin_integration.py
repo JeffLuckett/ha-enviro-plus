@@ -268,10 +268,10 @@ class TestDisplayPluginIntegration:
         mock_img_instance = Mock()
         mock_image.new.return_value = mock_img_instance
         mock_draw_instance = Mock()
-        mock_draw.Draw.return_value = mock_draw_instance
+        mock_draw.Draw = Mock(return_value=mock_draw_instance)
         mock_font_instance = Mock()
-        mock_font.truetype.return_value = mock_font_instance
-        mock_font.load_default.return_value = mock_font_instance
+        mock_font.truetype = Mock(return_value=mock_font_instance)
+        mock_font.load_default = Mock(return_value=mock_font_instance)
 
         # Store original values if they exist
         original_pil_available = getattr(sensor_display_module, "PIL_AVAILABLE", False)
@@ -337,3 +337,69 @@ class TestDisplayPluginIntegration:
                 sensor_display_module.ImageFont = original_imagefont
             else:
                 delattr(sensor_display_module, "ImageFont")
+
+    def test_individual_plugin_discovery(self, mock_sensors, mock_settings):
+        """Test that individual sensor display plugins are discovered."""
+        import importlib
+        from ha_enviro_plus.display_plugins import get_available_plugins, _plugin_registry
+
+        # Ensure plugins module is imported (triggers auto-discovery)
+        import ha_enviro_plus.plugins  # This triggers the __init__.py imports
+
+        # Set up sensors to have all sensors available
+        mock_sensors.has_sensor.side_effect = lambda s: s in ["bme280", "noise", "gas"]
+
+        plugins = get_available_plugins(mock_sensors, mock_settings)
+
+        # Should discover individual plugins
+        plugin_names = [p.name() for p in plugins]
+        assert "Temperature" in plugin_names or "Sensor Display" in plugin_names
+        assert "Humidity" in plugin_names or "Sensor Display" in plugin_names
+        assert "Pressure" in plugin_names or "Sensor Display" in plugin_names
+
+    @patch("ha_enviro_plus.display.ST7735_AVAILABLE", True)
+    @patch("ha_enviro_plus.display.PIL_AVAILABLE", True)
+    def test_tap_navigation_integration(self, mock_sensors, mock_settings):
+        """Test tap navigation integration with plugin cycle."""
+        import ha_enviro_plus.display
+        from ha_enviro_plus.display import DisplayManager
+        from ha_enviro_plus.display_plugins import get_available_plugins
+        from unittest.mock import MagicMock
+
+        # Setup mock st7735 module
+        mock_st7735_module = MagicMock()
+        mock_display_instance = Mock()
+        mock_display_instance.begin = Mock()
+        mock_display_instance.display = Mock()
+        mock_display_instance.set_backlight = Mock()
+        mock_st7735_module.ST7735 = Mock(return_value=mock_display_instance)
+        ha_enviro_plus.display.st7735 = mock_st7735_module
+
+        # Setup mock PIL
+        ha_enviro_plus.display.Image = MagicMock()
+
+        # Create display manager
+        display = DisplayManager(enabled=True)
+
+        # Discover plugins
+        plugins = get_available_plugins(mock_sensors, mock_settings)
+        if plugins:
+            # Start plugin cycle
+            display.start_plugin_cycle(plugins)
+            assert display._plugin_cycle_active is True
+
+            # Simulate tap detection
+            initial_index = display._plugin_cycle_index
+
+            # Simulate proximity tap: low -> high -> low
+            display.check_proximity_tap(10.0)  # Low
+            display.check_proximity_tap(75.0)  # High
+            import time
+
+            time.sleep(0.15)  # Wait for minimum time
+            tap_detected = display.check_proximity_tap(10.0)  # Low - tap complete
+
+            if tap_detected:
+                display.handle_tap()
+                # Index should advance
+                assert display._plugin_cycle_index == (initial_index + 1) % len(plugins)

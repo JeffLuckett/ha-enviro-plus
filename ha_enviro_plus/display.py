@@ -90,6 +90,14 @@ class DisplayManager:
         self._plugin_cycle_sensors: Optional[Any] = None
         self._plugin_cycle_settings: Optional[Any] = None
 
+        # Tap detection state
+        self._proximity_threshold = 50  # Threshold for tap detection (0-255)
+        self._proximity_last_value = 0.0
+        self._proximity_last_change_time = 0.0
+        self._tap_debounce_time = 0.3  # seconds between taps
+        self._proximity_high_time = 0.0
+        self._proximity_high_threshold_time = 0.1  # minimum time proximity must be high
+
         if not enabled:
             self.logger.debug("Display disabled by configuration")
             return
@@ -639,3 +647,79 @@ class DisplayManager:
 
         # Queue next plugin (outside lock to avoid reentrant lock issue)
         self._queue_next_plugin()
+
+    def check_proximity_tap(self, proximity_value: float) -> bool:
+        """
+        Check if proximity sensor indicates a tap gesture.
+
+        Tap detection logic:
+        - Proximity value rises above threshold (object detected)
+        - Proximity value stays high for minimum time
+        - Proximity value falls below threshold (object removed)
+        - Debounce: ignore taps within debounce time window
+
+        Args:
+            proximity_value: Current proximity reading (0-255)
+
+        Returns:
+            True if tap detected, False otherwise
+        """
+        if not self._plugin_cycle_active:
+            return False
+
+        current_time = time.time()
+        proximity_high = proximity_value > self._proximity_threshold
+        proximity_low = proximity_value <= self._proximity_threshold
+
+        # Track when proximity goes high
+        if proximity_high and self._proximity_last_value <= self._proximity_threshold:
+            # Proximity just went high
+            self._proximity_high_time = current_time
+            self.logger.debug(
+                "Proximity high detected: %.0f (threshold: %.0f)",
+                proximity_value,
+                self._proximity_threshold,
+            )
+
+        # Check if proximity has been high long enough and then goes low
+        if (
+            self._proximity_high_time > 0
+            and proximity_low
+            and self._proximity_last_value > self._proximity_threshold
+        ):
+            # Proximity just went low after being high
+            high_duration = current_time - self._proximity_high_time
+
+            # Check debounce: ignore taps too close together
+            time_since_last_change = current_time - self._proximity_last_change_time
+
+            if (
+                high_duration >= self._proximity_high_threshold_time
+                and time_since_last_change >= self._tap_debounce_time
+            ):
+                # Valid tap detected
+                self._proximity_last_change_time = current_time
+                self._proximity_high_time = 0.0
+                self.logger.info(
+                    "Tap detected! (proximity high for %.2fs)",
+                    high_duration,
+                )
+                return True
+
+        # Update last value
+        self._proximity_last_value = proximity_value
+
+        return False
+
+    def handle_tap(self) -> None:
+        """
+        Handle tap gesture by advancing to next plugin in cycle.
+
+        This method should be called when a tap is detected.
+        """
+        if not self._plugin_cycle_active:
+            self.logger.debug("Tap ignored: plugin cycle not active")
+            return
+
+        self.logger.info("Handling tap: advancing to next plugin")
+        self._advance_plugin_cycle()

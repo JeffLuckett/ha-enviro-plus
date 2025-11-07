@@ -82,6 +82,8 @@ class TestEndToEndWorkflows:
                         "gas_reducing_raw": 30000.0,
                         "gas_nh3": 40.0,
                         "gas_nh3_raw": 40000.0,
+                        "noise_spl_db": 65.5,
+                        "noise_spl_raw": 0.001,
                     }
                     mock_sensors._read_cpu_temp.return_value = 42.0
                     mock_sensors.cpu_temp.return_value = 42.0

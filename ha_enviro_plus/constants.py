@@ -42,3 +42,10 @@ class Constants:
     TEMP_ROUND_PRECISION = 2
     HUMIDITY_ROUND_PRECISION = 2
     PRESSURE_ROUND_PRECISION = 2
+    NOISE_ROUND_PRECISION = 1
+
+    # Noise sensor
+    NOISE_SAMPLE_RATE = 44100  # Hz
+    NOISE_CHUNK_SIZE = 1024  # samples
+    NOISE_AVERAGE_WINDOW = 10  # number of chunks to average
+    NOISE_STARTUP_DISCARD_CHUNKS = 5  # discard first N chunks to avoid "plop"

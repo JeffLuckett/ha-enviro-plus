@@ -19,8 +19,9 @@ A lightweight Python agent for publishing Pimoroni Enviro+ sensor data (temperat
 
 It reads data from:
 - **BME280** (temperature, humidity, pressure)
-- **LTR559** (ambient light)
+- **LTR559** (ambient light, proximity)
 - **Gas sensor** (oxidising, reducing, NH₃)
+- **Noise sensor** (microphone with A-weighted dB(A) conversion)
 and publishes them to Home Assistant over MQTT using native **HA Discovery**.
 
 Additional system telemetry is included:
@@ -56,6 +57,10 @@ Additional system telemetry is included:
 - Versioned installation support (`--release`, `--branch` flags)
 - **Boot splash screen** with sensor warm-up period
 - **LCD display support** (160x80 IPS color, configurable on/off)
+- **Individual sensor display screens** (Temperature, Humidity, Pressure, Noise, Gas)
+- **Auto-rotating display** with configurable timing
+- **Tap navigation** using proximity sensor for manual screen paging
+- **Display plugin architecture** for custom display modes
 - Designed and tested with a Raspberry Pi Zero 2 W + Enviro+ HAT. Also supports the original Enviro HAT (fewer sensors) and runs on any hardware that supports these devices and the necessary libraries. (Testers welcome!)
 
 ### ⚠️ Important: Temperature Sensor Placement
@@ -204,7 +209,6 @@ This project includes comprehensive tests to ensure reliability and maintainabil
 
 - **Unit Tests**: Test individual components with mocked hardware
 - **Integration Tests**: Test MQTT functionality and end-to-end workflows
-- **Hardware Tests**: Test with real Enviro+ sensors (optional, requires hardware)
 
 ### Running Tests
 
@@ -212,17 +216,14 @@ This project includes comprehensive tests to ensure reliability and maintainabil
 # Install development dependencies
 pip install -r requirements-dev.txt
 
-# Run all tests (excluding hardware)
-pytest tests/ -m "not hardware"
+# Run all tests
+pytest tests/
 
 # Run only unit tests
 pytest tests/unit/
 
 # Run only integration tests
 pytest tests/integration/
-
-# Run hardware tests (requires Enviro+ hardware)
-pytest tests/hardware/
 
 # Run with coverage
 pytest tests/ --cov=ha_enviro_plus --cov-report=html
@@ -258,23 +259,25 @@ pip install ha-enviro-plus
 pip install -r requirements-dev.txt
 
 # Run tests
-pytest tests/ -m "not hardware"
+pytest tests/
 ```
 
 ---
 
 - **Temperature Compensation**: The temperature sensor runs warm due to CPU proximity. The agent includes automatic CPU temperature compensation using a configurable factor (default 1.8, range 0.5-5.0). Higher factor values reduce the compensation effect (output closer to raw sensor reading), while lower values increase compensation. Adjust via Home Assistant or config file for optimal accuracy.
 - **Calibration**: Use `TEMP_OFFSET` for fine-tuning individual installations. Adjust `CPU_TEMP_FACTOR` to control how much CPU heating is compensated for (higher=less compensation, lower=more compensation). Humidity calibration should be performed after temperature calibration, as humidity readings are affected by CPU heating and the sensor's internal temperature compensation. Pressure calibration includes `PRESSURE_OFFSET` (hPa) for fine-tuning and `ELEVATION_METERS` for automatic sea-level pressure correction (matches weather station readings). **See [Temperature Calibration Guide](docs/TEMPERATURE_CALIBRATION.md) for detailed calibration instructions.**
-- Sound and particulate sensors are planned for v0.2.0; the agent functions fully without them.
+- Particulate sensors (PMS5003) are planned for v0.3.0; the agent functions fully without them.
 
 ---
 
 ## 🧪 Version
 
-**v0.1.1 — Stable Release**
+**v0.2.0 — Current Release**
 
 This version includes:
 - Complete Enviro+ sensor support (BME280, LTR559, Gas sensors)
+- **Noise sensor** with A-weighted dB(A) conversion
+- **Proximity sensor** support for tap detection
 - MQTT integration with Home Assistant discovery
 - System telemetry (CPU temperature, load, memory, disk)
 - Home Assistant control entities (reboot, restart, shutdown)
@@ -285,16 +288,15 @@ This version includes:
 - **Enhanced install script** with PyPI-first approach
 - **Test mode** for safe installation validation
 - Comprehensive test suite with >=75% coverage
+- **LCD display system** with plugin architecture
+- **Boot splash screen** with fade-out animation
+- **Individual sensor display screens** (Temperature, Humidity, Pressure, Noise, Gas)
+- **Auto-rotating display** with configurable timing
+- **Tap navigation** using proximity sensor for manual screen paging
 
-**Current version (v0.1.1) includes:**
-- LCD display system with plugin architecture
-- Boot splash screen
-- Sensor display plugin with temperature, humidity, and pressure
-
-**Next milestone (v0.2.0):**
-- Noise sensor (microphone to dB conversion)
+**Next milestone (v0.3.0):**
 - PMS5003 particulate sensor support
-- Additional display modes and customization
+- Additional display customization options
 
 ---
 

@@ -859,6 +859,8 @@ class TestGetAllSensorData:
             "gas_reducing_raw",
             "gas_nh3",
             "gas_nh3_raw",
+            "noise_spl_db",
+            "noise_spl_raw",
         }
 
         assert set(data.keys()) == expected_keys
@@ -917,3 +919,106 @@ class TestEdgeCases:
         # Should handle division by zero gracefully by returning raw temp
         compensated = sensors._apply_temp_compensation(25.0)
         assert compensated == 25.0
+
+
+class TestProximitySensor:
+    """Test proximity sensor reading methods."""
+
+    def test_proximity_without_ltr559(self, mock_logger):
+        """Test proximity reading when LTR559 is not available."""
+        with patch("ha_enviro_plus.sensors.LTR559") as mock_ltr559:
+            mock_ltr559.side_effect = Exception("LTR559 not found")
+            with patch("ha_enviro_plus.sensors.BME280"):
+                sensors = EnviroPlusSensors()
+                assert sensors.proximity() == 0.0
+
+    def test_proximity(self, mock_bme280, mock_ltr559, mock_gas_sensor):
+        """Test proximity reading."""
+        mock_ltr559.get_proximity.return_value = 75.5
+
+        sensors = EnviroPlusSensors()
+        proximity = sensors.proximity()
+
+        assert proximity == 76.0  # Rounded to nearest integer
+
+    def test_proximity_zero(self, mock_bme280, mock_ltr559, mock_gas_sensor):
+        """Test proximity reading at zero."""
+        mock_ltr559.get_proximity.return_value = 0.0
+
+        sensors = EnviroPlusSensors()
+        proximity = sensors.proximity()
+
+        assert proximity == 0.0
+
+    def test_proximity_max(self, mock_bme280, mock_ltr559, mock_gas_sensor):
+        """Test proximity reading at maximum."""
+        mock_ltr559.get_proximity.return_value = 255.0
+
+        sensors = EnviroPlusSensors()
+        proximity = sensors.proximity()
+
+        assert proximity == 255.0
+
+
+class TestNoiseSensor:
+    """Test noise sensor reading methods."""
+
+    def test_noise_sensor_not_available(self, mock_bme280, mock_ltr559, mock_gas_sensor):
+        """Test noise sensor when microphone is not available."""
+        with patch("ha_enviro_plus.sensors.NOISE_SENSOR_AVAILABLE", False):
+            sensors = EnviroPlusSensors()
+            assert not sensors.has_sensor("noise")
+            assert sensors.noise_spl_db() == 0.0
+            assert sensors.noise_spl_raw() == 0.0
+
+    def test_noise_sensor_available_detection(self, mock_bme280, mock_ltr559, mock_gas_sensor):
+        """Test noise sensor availability detection."""
+        with patch("ha_enviro_plus.sensors.NOISE_SENSOR_AVAILABLE", True):
+            with patch("ha_enviro_plus.sensors.sd") as mock_sd:
+                mock_sd.query_devices.return_value = [{"name": "Microphone"}]
+                sensors = EnviroPlusSensors()
+                assert sensors.has_sensor("noise") is True
+
+    def test_noise_spl_db_not_available(self, mock_bme280, mock_ltr559, mock_gas_sensor):
+        """Test noise SPL dB when microphone is not available."""
+        sensors = EnviroPlusSensors()
+        # Noise sensor not available by default in test environment
+        assert sensors.noise_spl_db() == 0.0
+
+    def test_noise_spl_raw_not_available(self, mock_bme280, mock_ltr559, mock_gas_sensor):
+        """Test noise SPL raw when microphone is not available."""
+        sensors = EnviroPlusSensors()
+        # Noise sensor not available by default in test environment
+        assert sensors.noise_spl_raw() == 0.0
+
+    def test_noise_sensor_startup_discard(self, mock_bme280, mock_ltr559, mock_gas_sensor):
+        """Test that initial noise chunks are discarded."""
+        with patch("ha_enviro_plus.sensors.NOISE_SENSOR_AVAILABLE", True):
+            with patch("ha_enviro_plus.sensors.sd") as mock_sd:
+                import numpy as np
+
+                mock_sd.query_devices.return_value = [{"name": "Microphone"}]
+                mock_sd.rec.return_value = np.array([0.1] * 1024, dtype=np.float32)
+                mock_sd.wait.return_value = None
+
+                # Mock A-weighting filter
+                with patch("ha_enviro_plus.sensors.butter") as mock_butter:
+                    mock_butter.return_value = ([1.0], [1.0])
+                    sensors = EnviroPlusSensors()
+
+                    # First few calls should return 0.0 (discarded)
+                    for _ in range(5):
+                        result = sensors.noise_spl_db()
+                        assert result == 0.0
+
+    def test_noise_sensor_in_get_all_sensor_data(self, mock_bme280, mock_ltr559, mock_gas_sensor):
+        """Test that noise sensor data is included in get_all_sensor_data."""
+        sensors = EnviroPlusSensors()
+        data = sensors.get_all_sensor_data()
+
+        # Should include noise sensor keys even if unavailable
+        assert "noise_spl_db" in data
+        assert "noise_spl_raw" in data
+        # Should be 0.0 when unavailable
+        assert data["noise_spl_db"] == 0.0
+        assert data["noise_spl_raw"] == 0.0
