@@ -83,16 +83,34 @@ load_defaults() {
   : "${DEFAULT_ELEVATION_METERS:=0.0}"
 }
 
+# Helper function to safely run apt-get update
+# On resource-constrained systems, this can be killed by OOM killer
+safe_apt_update() {
+  if command -v timeout >/dev/null 2>&1; then
+    nice -n 19 timeout 60 sudo apt-get update -y >/dev/null 2>&1 || true
+  else
+    nice -n 19 sudo apt-get update -y >/dev/null 2>&1 || true
+  fi
+}
+
 ensure_git() {
   if ! command -v git >/dev/null 2>&1; then
-    sudo apt-get update -y
-    sudo apt-get install -y git
+    safe_apt_update
+    sudo apt-get install -y git || {
+      echo "==> Warning: Failed to install git"
+      echo "==> Please install manually: sudo apt-get install git"
+      exit 1
+    }
   fi
 }
 
 ensure_python() {
-  sudo apt-get update -y
-  sudo apt-get install -y python3 python3-venv python3-pip
+  safe_apt_update
+  sudo apt-get install -y python3 python3-venv python3-pip || {
+    echo "==> Warning: Failed to install Python packages"
+    echo "==> Please install manually: sudo apt-get install python3 python3-venv python3-pip"
+    exit 1
+  }
 }
 
 ensure_fonts() {
@@ -129,8 +147,8 @@ ensure_fonts() {
   echo "==> DejaVu fonts not found, installing..."
   echo "==> Installing DejaVu fonts and fontconfig for display..."
 
-  # Update package list
-  sudo apt-get update -y >/dev/null 2>&1
+  # Update package list (non-fatal if killed)
+  safe_apt_update
 
   # Install fonts
   if sudo apt-get install -y fonts-dejavu-core fonts-dejavu-extra fontconfig 2>&1; then
@@ -262,8 +280,11 @@ enable_hardware_interfaces() {
   # Check if raspi-config is available
   if ! command -v raspi-config >/dev/null 2>&1; then
     echo "==> raspi-config not found, installing..."
-    sudo apt-get update -y
-    sudo apt-get install -y raspi-config
+    safe_apt_update
+    sudo apt-get install -y raspi-config || {
+      echo "==> Warning: Failed to install raspi-config"
+      echo "==> Hardware interfaces may not be enabled automatically"
+    }
   fi
 
   local reboot_needed=false
