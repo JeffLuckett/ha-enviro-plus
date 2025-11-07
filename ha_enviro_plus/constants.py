@@ -55,7 +55,8 @@ class Constants:
     # Formula: dB(A) = 20 * log10(raw_rms) + NOISE_CALIBRATION_OFFSET
     # Using raw RMS instead of filtered RMS because A-weighting reduces signal too much
     # Calibrated to match phone SPL meter readings:
-    # - Quiet room (30 dB) with raw RMS ~0.049: 30 = 20*log10(0.049) + offset = -26 + offset → offset ≈ 56 dB
-    # - Loud music (80 dB) with raw RMS ~0.01: 80 = 20*log10(0.01) + offset = -40 + offset → offset = 120 dB
-    # Using 120 dB as default to match phone meter readings (users can adjust via MQTT)
-    NOISE_CALIBRATION_OFFSET = 120.0  # dB offset for I2S microphone calibration
+    # - Phone shows 75 dB, device shows 35 dB → need 40 dB more offset
+    # - With 120 dB offset: 35 = 20*log10(raw_rms) + 120 → raw_rms ≈ 0.000056
+    # - For 75 dB with raw_rms = 0.000056: 75 = 20*log10(0.000056) + offset → offset = 160 dB
+    # Using 160 dB as default to match phone meter readings (users can adjust via MQTT)
+    NOISE_CALIBRATION_OFFSET = 160.0  # dB offset for I2S microphone calibration

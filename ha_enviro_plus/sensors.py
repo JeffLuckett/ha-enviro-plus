@@ -60,7 +60,7 @@ class EnviroPlusSensors:
         temp_smoothing_minutes: float = 5.0,
         pressure_offset: float = 0.0,
         elevation_meters: float = 0.0,
-        noise_calibration_offset: float = 120.0,
+        noise_calibration_offset: float = 160.0,
         logger: Optional[logging.Logger] = None,
     ):
         """
@@ -74,7 +74,7 @@ class EnviroPlusSensors:
             temp_smoothing_minutes: Temperature smoothing window in minutes (0.0 = no smoothing)
             pressure_offset: Pressure calibration offset in hPa
             elevation_meters: Elevation in meters for sea-level pressure calculation (0.0 = no correction)
-            noise_calibration_offset: Noise sensor calibration offset in dB (default: 120.0)
+            noise_calibration_offset: Noise sensor calibration offset in dB (default: 160.0)
             logger: Optional logger instance
         """
         self.temp_offset = temp_offset
@@ -1189,12 +1189,13 @@ class EnviroPlusSensors:
                 # Cache successful reading
                 self._last_noise_db = spl_db_float
 
-                self.logger.debug(
-                    "Noise SPL: %.2f dB(A) (raw rms=%.6f, filtered rms=%.6f, max=%.6f)",
+                self.logger.info(
+                    "Noise SPL: %.2f dB(A) (raw rms=%.6f, filtered rms=%.6f, max=%.6f, offset=%.1f)",
                     spl_db_float,
                     raw_rms,
                     filtered_rms,
                     max_val,
+                    self.noise_calibration_offset,
                 )
                 return spl_db_float
             else:
