@@ -266,9 +266,9 @@ class DisplayManager:
                         if self._current_display is not None:
                             # Interrupt current continuous display for new item
                             pass
-                        self._current_display = self._display_queue.pop(0)
-                        display_start_time = time.time()
-                        fade_out_start_time = None
+                            self._current_display = self._display_queue.pop(0)
+                            display_start_time = time.time()
+                            fade_out_start_time = None
                         # Track plugin start time for rotation interval
                         if self._plugin_cycle_active:
                             self._plugin_start_time = time.time()

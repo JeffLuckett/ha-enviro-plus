@@ -52,11 +52,11 @@ class Constants:
     # Calibration: maps RMS value to dB(A)
     # For I2S microphone (adau7002), calibrated based on typical quiet room (30 dB)
     # This is an empirical calibration - adjust based on reference SPL meter
-    # Formula: dB(A) = 20 * log10(raw_rms) + NOISE_CALIBRATION_OFFSET
-    # Using raw RMS instead of filtered RMS because A-weighting reduces signal too much
+    # Formula: dB(A) = 20 * log10(filtered_rms) + NOISE_CALIBRATION_OFFSET
+    # Using filtered RMS because raw RMS doesn't increase much during loud sounds
+    # From logs: quiet filtered_rms ≈ 0.010, loud filtered_rms ≈ 0.030 (3x higher)
     # Calibrated to match phone SPL meter readings:
-    # - Phone shows 75 dB, device shows 35 dB → need 40 dB more offset
-    # - With 120 dB offset: 35 = 20*log10(raw_rms) + 120 → raw_rms ≈ 0.000056
-    # - For 75 dB with raw_rms = 0.000056: 75 = 20*log10(0.000056) + offset → offset = 160 dB
-    # Using 160 dB as default to match phone meter readings (users can adjust via MQTT)
-    NOISE_CALIBRATION_OFFSET = 160.0  # dB offset for I2S microphone calibration
+    # - Quiet room (30 dB) with filtered_rms ≈ 0.010: 30 = 20*log10(0.010) + offset → offset ≈ 70 dB
+    # - Loud music (77 dB) with filtered_rms ≈ 0.030: 77 = 20*log10(0.030) + offset → offset ≈ 107 dB
+    # Using 90 dB as default (middle ground) - users can adjust via MQTT
+    NOISE_CALIBRATION_OFFSET = 90.0  # dB offset for I2S microphone calibration

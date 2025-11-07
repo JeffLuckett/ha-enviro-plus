@@ -60,7 +60,7 @@ class EnviroPlusSensors:
         temp_smoothing_minutes: float = 5.0,
         pressure_offset: float = 0.0,
         elevation_meters: float = 0.0,
-        noise_calibration_offset: float = 160.0,
+        noise_calibration_offset: float = 90.0,
         logger: Optional[logging.Logger] = None,
     ):
         """
@@ -74,7 +74,7 @@ class EnviroPlusSensors:
             temp_smoothing_minutes: Temperature smoothing window in minutes (0.0 = no smoothing)
             pressure_offset: Pressure calibration offset in hPa
             elevation_meters: Elevation in meters for sea-level pressure calculation (0.0 = no correction)
-            noise_calibration_offset: Noise sensor calibration offset in dB (default: 160.0)
+            noise_calibration_offset: Noise sensor calibration offset in dB (default: 90.0)
             logger: Optional logger instance
         """
         self.temp_offset = temp_offset
@@ -1171,11 +1171,13 @@ class EnviroPlusSensors:
             filtered_rms = np.sqrt(np.mean(filtered_audio**2))
             max_val = np.max(np.abs(raw_audio))
 
-            # Convert to dB(A) using raw RMS with calibration offset
-            # Formula: dB(A) = 20 * log10(raw_rms) + calibration_offset
-            # Calibrated for quiet room (30 dB) with raw RMS ~0.049
-            if raw_rms > 0:
-                spl_db = 20.0 * np.log10(raw_rms + 1e-10)
+            # Convert to dB(A) using filtered RMS with calibration offset
+            # Formula: dB(A) = 20 * log10(filtered_rms) + calibration_offset
+            # Using filtered RMS because raw RMS doesn't increase much during loud sounds
+            # From logs: quiet filtered_rms ≈ 0.010, loud filtered_rms ≈ 0.030 (3x higher)
+            # Calibrated for quiet room (30 dB) with filtered RMS ~0.010
+            if filtered_rms > 0:
+                spl_db = 20.0 * np.log10(filtered_rms + 1e-10)
                 spl_db_calibrated = spl_db + self.noise_calibration_offset
                 spl_db_final = min(100.0, spl_db_calibrated)
 
