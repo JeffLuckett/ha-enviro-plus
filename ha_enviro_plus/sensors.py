@@ -9,6 +9,7 @@ Pimoroni Enviro+ sensors with proper separation of concerns.
 import subprocess
 import logging
 import time
+import threading
 import numpy as np
 from typing import Dict, Any, Optional, Tuple, List
 
@@ -104,6 +105,11 @@ class EnviroPlusSensors:
         # Noise sensor state
         self._noise_chunks_discarded = 0
         self._a_weight_filter: Optional[Tuple[List[float], List[float]]] = None
+        self._last_noise_rms: Optional[float] = None  # Cache last successful RMS reading
+        self._last_noise_db: Optional[float] = None  # Cache last successful dB reading
+        self._noise_lock = threading.Lock()  # Lock to prevent concurrent microphone access
+        self._cached_audio: Optional[Tuple[np.ndarray, float]] = None  # (audio_data, timestamp)
+        self._audio_cache_timeout = 0.5  # Cache audio for 0.5 seconds
         if NOISE_SENSOR_AVAILABLE:
             try:
                 # Initialize A-weighting filter coefficients
@@ -937,106 +943,134 @@ class EnviroPlusSensors:
         if not self._noise_available:
             return None
 
-        try:
-            import tempfile
-            import os
-            from scipy.io import wavfile
+        # Check cache first - if we have recent audio data, reuse it
+        current_time = time.time()
+        if self._cached_audio is not None:
+            cached_data, cache_time = self._cached_audio
+            if current_time - cache_time < self._audio_cache_timeout:
+                self.logger.debug(
+                    "Reusing cached audio data (age: %.3fs)", current_time - cache_time
+                )
+                return cached_data.copy()
 
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
-                tmp_wav = tmp_file.name
+        # Acquire lock to prevent concurrent microphone access
+        with self._noise_lock:
+            # Check cache again after acquiring lock (another thread might have updated it)
+            if self._cached_audio is not None:
+                cached_data, cache_time = self._cached_audio
+                if current_time - cache_time < self._audio_cache_timeout:
+                    self.logger.debug(
+                        "Reusing cached audio data (age: %.3fs)", current_time - cache_time
+                    )
+                    return cached_data.copy()
 
             try:
-                # Calculate duration - arecord only accepts integer seconds
-                duration_sec = max(1.0, Constants.NOISE_CHUNK_SIZE / Constants.NOISE_SAMPLE_RATE)
-                duration_str = str(int(duration_sec))
+                import tempfile
+                import os
+                from scipy.io import wavfile
 
-                # Build arecord command
-                arecord_cmd = [
-                    "arecord",
-                    "-D",
-                    "dmic_sv",
-                    "-c",
-                    "2",  # Stereo (required by I2S microphone)
-                    "-r",
-                    str(Constants.NOISE_SAMPLE_RATE),
-                    "-f",
-                    "S32_LE",  # 32-bit signed little-endian
-                    "-t",
-                    "wav",
-                    "-d",
-                    duration_str,
-                    tmp_wav,
-                ]
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
+                    tmp_wav = tmp_file.name
 
-                # Record with retry logic for busy device
-                max_retries = 3
-                result = None
-                for attempt in range(max_retries):
-                    result = subprocess.run(
-                        arecord_cmd,
-                        capture_output=True,
-                        timeout=duration_sec + 1.0,
-                        check=False,
-                    )
-
-                    if result.returncode == 0:
-                        break
-
-                    stderr_msg = (
-                        result.stderr.decode("utf-8", errors="ignore") if result.stderr else ""
-                    )
-                    if "busy" in stderr_msg.lower() or "resource busy" in stderr_msg.lower():
-                        if attempt < max_retries - 1:
-                            delay = 0.2 * (attempt + 1)
-                            self.logger.debug(
-                                "Device busy, waiting %.1fs and retrying (attempt %d/%d)...",
-                                delay,
-                                attempt + 1,
-                                max_retries,
-                            )
-                            time.sleep(delay)
-                            continue
-
-                    # Non-busy error or all retries exhausted
-                    if attempt == max_retries - 1:
-                        self.logger.warning(
-                            "arecord failed after %d attempts (exit code %d): %s",
-                            max_retries,
-                            result.returncode,
-                            stderr_msg,
-                        )
-                    return None
-
-                # Read WAV file
-                sample_rate, audio_data = wavfile.read(tmp_wav)
-
-                # Convert to float32 in range [-1.0, 1.0]
-                if audio_data.dtype == np.int16:
-                    audio_data = audio_data.astype(np.float32) / 32768.0
-                elif audio_data.dtype == np.int32:
-                    audio_data = audio_data.astype(np.float32) / 2147483648.0
-                else:
-                    audio_data = audio_data.astype(np.float32)
-
-                # Ensure mono (take first channel if stereo)
-                if len(audio_data.shape) > 1:
-                    audio_data = audio_data[:, 0]
-
-                # Trim to only the samples we need
-                samples_needed = Constants.NOISE_CHUNK_SIZE
-                if len(audio_data) > samples_needed:
-                    audio_data = audio_data[:samples_needed]
-
-                return audio_data
-            finally:
                 try:
-                    if os.path.exists(tmp_wav):
-                        os.unlink(tmp_wav)
-                except Exception:
-                    pass
-        except Exception as e:
-            self.logger.debug("Failed to record audio with arecord: %s", e)
-            return None
+                    # Calculate duration - arecord only accepts integer seconds
+                    duration_sec = max(
+                        1.0, Constants.NOISE_CHUNK_SIZE / Constants.NOISE_SAMPLE_RATE
+                    )
+                    duration_str = str(int(duration_sec))
+
+                    # Build arecord command
+                    arecord_cmd = [
+                        "arecord",
+                        "-D",
+                        "dmic_sv",
+                        "-c",
+                        "2",  # Stereo (required by I2S microphone)
+                        "-r",
+                        str(Constants.NOISE_SAMPLE_RATE),
+                        "-f",
+                        "S32_LE",  # 32-bit signed little-endian
+                        "-t",
+                        "wav",
+                        "-d",
+                        duration_str,
+                        tmp_wav,
+                    ]
+
+                    # Record with retry logic for busy device
+                    max_retries = 5  # Increased retries for busy device
+                    result = None
+                    for attempt in range(max_retries):
+                        result = subprocess.run(
+                            arecord_cmd,
+                            capture_output=True,
+                            timeout=duration_sec + 1.0,
+                            check=False,
+                        )
+
+                        if result.returncode == 0:
+                            break
+
+                        stderr_msg = (
+                            result.stderr.decode("utf-8", errors="ignore") if result.stderr else ""
+                        )
+                        if "busy" in stderr_msg.lower() or "resource busy" in stderr_msg.lower():
+                            if attempt < max_retries - 1:
+                                # Exponential backoff: 0.3s, 0.6s, 1.2s, 2.4s
+                                delay = 0.3 * (2**attempt)
+                                self.logger.debug(
+                                    "Device busy, waiting %.1fs and retrying (attempt %d/%d)...",
+                                    delay,
+                                    attempt + 1,
+                                    max_retries,
+                                )
+                                time.sleep(delay)
+                                continue
+
+                        # Non-busy error or all retries exhausted
+                        if attempt == max_retries - 1:
+                            self.logger.warning(
+                                "arecord failed after %d attempts (exit code %d): %s",
+                                max_retries,
+                                result.returncode,
+                                stderr_msg,
+                            )
+                        # Return None to allow fallback to last known value
+                        return None
+
+                    # Read WAV file
+                    sample_rate, audio_data = wavfile.read(tmp_wav)
+
+                    # Convert to float32 in range [-1.0, 1.0]
+                    if audio_data.dtype == np.int16:
+                        audio_data = audio_data.astype(np.float32) / 32768.0
+                    elif audio_data.dtype == np.int32:
+                        audio_data = audio_data.astype(np.float32) / 2147483648.0
+                    else:
+                        audio_data = audio_data.astype(np.float32)
+
+                    # Ensure mono (take first channel if stereo)
+                    if len(audio_data.shape) > 1:
+                        audio_data = audio_data[:, 0]
+
+                    # Trim to only the samples we need
+                    samples_needed = Constants.NOISE_CHUNK_SIZE
+                    if len(audio_data) > samples_needed:
+                        audio_data = audio_data[:samples_needed]
+
+                    # Cache the audio data for reuse
+                    self._cached_audio = (audio_data.copy(), time.time())
+
+                    return audio_data
+                finally:
+                    try:
+                        if os.path.exists(tmp_wav):
+                            os.unlink(tmp_wav)
+                    except Exception:
+                        pass
+            except Exception as e:
+                self.logger.debug("Failed to record audio with arecord: %s", e)
+                return None
 
     def _read_noise_chunk_raw(self) -> Optional[np.ndarray]:
         """
@@ -1068,14 +1102,17 @@ class EnviroPlusSensors:
 
         # Calculate RMS
         rms = np.sqrt(np.mean(audio_data**2))
+        rms_float = float(rms)
+        # Cache successful reading
+        self._last_noise_rms = rms_float
         self.logger.info(
             "arecord succeeded: RMS=%.6f (max=%.6f, shape=%s, dtype=%s)",
-            rms,
+            rms_float,
             max_val,
             audio_data.shape,
             audio_data.dtype,
         )
-        return float(rms)
+        return rms_float
 
     def noise_spl_db(self) -> float:
         """
@@ -1099,6 +1136,13 @@ class EnviroPlusSensors:
             # Read raw audio for A-weighting
             raw_audio = self._read_noise_chunk_raw()
             if raw_audio is None:
+                # If reading failed, return last known value if available
+                if self._last_noise_db is not None:
+                    self.logger.debug(
+                        "Using cached dB value: %.2f (current reading failed)",
+                        self._last_noise_db,
+                    )
+                    return self._last_noise_db
                 return 0.0
 
             # Discard initial chunks to avoid microphone startup "plop"
@@ -1132,19 +1176,29 @@ class EnviroPlusSensors:
                 spl_db_calibrated = spl_db + Constants.NOISE_CALIBRATION_OFFSET
                 spl_db_final = min(100.0, spl_db_calibrated)
 
+                # Round to 2 decimal places to avoid floating point precision issues
+                spl_db_rounded = round(spl_db_final, Constants.NOISE_ROUND_PRECISION)
+                spl_db_float = float(spl_db_rounded)
+
+                # Cache successful reading
+                self._last_noise_db = spl_db_float
+
                 self.logger.info(
-                    "Noise SPL: %.1f dB(A) (raw rms=%.6f, filtered rms=%.6f, max=%.6f)",
-                    spl_db_final,
+                    "Noise SPL: %.2f dB(A) (raw rms=%.6f, filtered rms=%.6f, max=%.6f)",
+                    spl_db_float,
                     raw_rms,
                     filtered_rms,
                     max_val,
                 )
-                return float(round(spl_db_final, Constants.NOISE_ROUND_PRECISION))
+                return spl_db_float
             else:
                 self.logger.debug("Noise SPL: rms is 0, returning 0.0")
                 return 0.0
         except Exception as e:
             self.logger.error("Failed to read noise SPL: %s", e)
+            # Return last known value if available
+            if self._last_noise_db is not None:
+                return self._last_noise_db
             return 0.0
 
     def noise_spl_raw(self) -> float:
@@ -1166,9 +1220,19 @@ class EnviroPlusSensors:
             rms = self._read_noise_chunk_rms()
             if rms is not None:
                 return round(rms, Constants.NOISE_ROUND_PRECISION)
+            # If reading failed, return last known value if available
+            if self._last_noise_rms is not None:
+                self.logger.debug(
+                    "Using cached RMS value: %.6f (current reading failed)",
+                    self._last_noise_rms,
+                )
+                return round(self._last_noise_rms, Constants.NOISE_ROUND_PRECISION)
             return 0.0
         except Exception as e:
             self.logger.error("Failed to read raw noise SPL: %s", e)
+            # Return last known value if available
+            if self._last_noise_rms is not None:
+                return round(self._last_noise_rms, Constants.NOISE_ROUND_PRECISION)
             return 0.0
 
     def update_calibration(
