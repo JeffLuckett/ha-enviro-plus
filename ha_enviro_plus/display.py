@@ -254,27 +254,39 @@ class DisplayManager:
 
         while not self._stop_event.is_set():
             try:
+                # Always check for new queued items first (for immediate tap response)
+                # This ensures taps switch displays immediately
+                with self._lock:
+                    if self._display_queue and (
+                        self._current_display is None
+                        or self._current_display.duration < 0.5  # Continuous updates
+                    ):
+                        # If we have queued items and either no current display
+                        # or current display is continuous (can be interrupted)
+                        if self._current_display is not None:
+                            # Interrupt current continuous display for new item
+                            self.logger.debug("Interrupting current display for queued item")
+                        self._current_display = self._display_queue.pop(0)
+                        display_start_time = time.time()
+                        fade_out_start_time = None
+                        # Track plugin start time for rotation interval
+                        if self._plugin_cycle_active:
+                            self._plugin_start_time = time.time()
+                        # Render the new display immediately
+                        if self.display:
+                            self.logger.info(
+                                "Display: Starting display (duration=%.1fs, fade_out=%s)",
+                                self._current_display.duration,
+                                self._current_display.fade_out,
+                            )
+                            self._render_display_immediate(self._current_display)
+                        continue  # Skip rest of loop, process next iteration
+
                 # Get next display item if we don't have one
                 if self._current_display is None:
-                    with self._lock:
-                        if self._display_queue:
-                            self._current_display = self._display_queue.pop(0)
-                            display_start_time = time.time()
-                            fade_out_start_time = None
-                            # Track plugin start time for rotation interval
-                            if self._plugin_cycle_active:
-                                self._plugin_start_time = time.time()
-                            # Render the new display
-                            if self.display:
-                                self.logger.info(
-                                    "Display: Starting display (duration=%.1fs, fade_out=%s)",
-                                    self._current_display.duration,
-                                    self._current_display.fade_out,
-                                )
-                                self._render_display_immediate(self._current_display)
-                        else:
-                            # No queued items, just sleep
-                            time.sleep(0.1)
+                    # No queued items, just sleep
+                    time.sleep(0.1)
+                    continue
 
                 # If we have a current display, check if it should end
                 if self._current_display is not None:
