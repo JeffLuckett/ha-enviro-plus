@@ -49,3 +49,13 @@ class Constants:
     NOISE_CHUNK_SIZE = 1024  # samples
     NOISE_AVERAGE_WINDOW = 10  # number of chunks to average
     NOISE_STARTUP_DISCARD_CHUNKS = 5  # discard first N chunks to avoid "plop"
+    # Calibration: maps RMS value to dB(A)
+    # For I2S microphone (adau7002), calibrated based on typical quiet room (30 dB)
+    # This is an empirical calibration - adjust based on reference SPL meter
+    # Formula: dB(A) = 20 * log10(filtered_rms) + NOISE_CALIBRATION_OFFSET
+    # Calibrated for quiet room (30 dB) with raw RMS ~0.049
+    # After A-weighting, filtered RMS is typically 10-20% of raw RMS
+    # If filtered RMS ≈ 0.005 for 30 dB: 30 = 20*log10(0.005) + offset = -46 + offset
+    # Therefore: offset ≈ 76 dB
+    # Using 80 dB as a starting point - adjust based on actual measurements
+    NOISE_CALIBRATION_OFFSET = 80.0  # dB offset for I2S microphone calibration

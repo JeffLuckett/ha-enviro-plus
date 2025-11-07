@@ -1242,38 +1242,29 @@ class EnviroPlusSensors:
             max_val = np.max(np.abs(raw_audio))
 
             # Convert to dB(A)
-            # Reference level: 20 µPa (threshold of human hearing)
-            # dB = 20 * log10(rms / reference)
-            # For normalized audio (range -1 to 1), we use a calibration factor
-            # Typical microphone sensitivity calibration needed for accurate readings
-            # This is a simplified calculation - real calibration requires known reference
+            # For normalized audio (range -1 to 1), we need to account for:
+            # 1. Microphone sensitivity (typically -40 to -60 dBV/Pa for I2S mics)
+            # 2. Preamp gain
+            # 3. ADC normalization (int32 to float32)
+            # 4. A-weighting filter attenuation
+            # We use a calibration offset to map RMS values to dB(A)
+            # This offset is calibrated for I2S microphone (adau7002) based on typical quiet room (30 dB)
+            # Formula: dB(A) = 20 * log10(filtered_rms) + calibration_offset
+            # Calibrated for quiet room (30 dB) with raw RMS ~0.049
+            # After A-weighting, filtered RMS is typically 10-20% of raw RMS
             if rms > 0:
-                # Calibration factor: adjust based on microphone sensitivity
-                # Default assumes typical USB microphone sensitivity
-                calibration_factor = 1.0  # User can calibrate this
-                calibrated_rms = rms * calibration_factor
+                # Convert filtered RMS to dB using logarithmic scale
+                # Add small epsilon to avoid log(0)
+                spl_db = 20.0 * np.log10(rms + 1e-10)
 
-                # Convert to dB (using arbitrary reference for relative measurements)
-                # For absolute dB(A), proper calibration with reference sound source needed
-                # The formula: dB = 20 * log10(rms / reference)
-                # For normalized audio (range -1 to 1), we need to account for:
-                # 1. Microphone sensitivity (typically -40 to -60 dBV/Pa)
-                # 2. Preamp gain
-                # 3. ADC normalization
-                # Using a larger offset to account for I2S microphone characteristics
-                spl_db = 20.0 * np.log10(
-                    calibrated_rms + 1e-10
-                )  # Add small epsilon to avoid log(0)
-
-                # Add offset to bring normalized audio levels into typical dB range
-                # I2S microphones typically need a larger offset (60-70 dB) to account for
-                # their sensitivity and the normalization from int32 to float32
-                # This offset is empirical and may need calibration with a reference SPL meter
-                spl_db_offset = spl_db + 70.0
+                # Add calibration offset to map to actual dB(A) range
+                # This offset accounts for microphone sensitivity, normalization, and A-weighting
+                # Calibrated for quiet room (30 dB) - adjust if needed with reference SPL meter
+                spl_db_calibrated = spl_db + Constants.NOISE_CALIBRATION_OFFSET
 
                 # Only clamp maximum to prevent unrealistic high readings
                 # Don't clamp minimum - report actual quiet readings accurately
-                spl_db_final = min(100.0, spl_db_offset)
+                spl_db_final = min(100.0, spl_db_calibrated)
 
                 self.logger.info(
                     "Noise SPL: %.1f dB(A) (raw rms=%.6f, filtered rms=%.6f, max=%.6f)",
@@ -1307,13 +1298,10 @@ class EnviroPlusSensors:
                 max_val = np.max(np.abs(raw_audio))
 
                 if rms > 0:
-                    calibration_factor = 1.0
-                    calibrated_rms = rms * calibration_factor
-                    spl_db = 20.0 * np.log10(calibrated_rms + 1e-10)
-
-                    # Use same offset as main path (70 dB for I2S microphones)
-                    spl_db_offset = spl_db + 70.0
-                    spl_db_final = min(100.0, spl_db_offset)
+                    # Use same calibration as main path
+                    spl_db = 20.0 * np.log10(rms + 1e-10)
+                    spl_db_calibrated = spl_db + Constants.NOISE_CALIBRATION_OFFSET
+                    spl_db_final = min(100.0, spl_db_calibrated)
                     self.logger.info(
                         "arecord fallback succeeded in noise_spl_db: %.1f dB(A) (raw rms=%.6f, filtered rms=%.6f, max=%.6f)",
                         spl_db_final,
