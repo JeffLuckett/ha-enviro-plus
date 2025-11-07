@@ -1115,7 +1115,12 @@ class EnviroPlusSensors:
                 tmp_wav = tmp_file.name
 
             try:
+                # Calculate duration and round to 2 decimal places (arecord doesn't like very precise floats)
                 duration = Constants.NOISE_CHUNK_SIZE / Constants.NOISE_SAMPLE_RATE
+                duration_str = f"{duration:.2f}"  # Round to 2 decimal places
+                # Ensure minimum duration of 0.01 seconds
+                if float(duration_str) < 0.01:
+                    duration_str = "0.01"
 
                 result = subprocess.run(
                     [
@@ -1131,7 +1136,7 @@ class EnviroPlusSensors:
                         "-t",
                         "wav",
                         "-d",
-                        str(duration),
+                        duration_str,
                         tmp_wav,
                     ],
                     capture_output=True,
@@ -1188,8 +1193,12 @@ class EnviroPlusSensors:
                 tmp_wav = tmp_file.name
 
             try:
-                # Calculate duration in seconds
+                # Calculate duration and round to 2 decimal places (arecord doesn't like very precise floats)
                 duration = Constants.NOISE_CHUNK_SIZE / Constants.NOISE_SAMPLE_RATE
+                duration_str = f"{duration:.2f}"  # Round to 2 decimal places
+                # Ensure minimum duration of 0.01 seconds
+                if float(duration_str) < 0.01:
+                    duration_str = "0.01"
 
                 # Record using arecord with ALSA device
                 # Use mono channel, 16-bit signed LE (compatible with scipy)
@@ -1207,7 +1216,7 @@ class EnviroPlusSensors:
                         "-t",
                         "wav",
                         "-d",
-                        str(duration),
+                        duration_str,
                         tmp_wav,
                     ],
                     capture_output=True,
