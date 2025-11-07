@@ -289,7 +289,7 @@ def read_all(enviro_sensors: EnviroPlusSensors) -> Dict[str, Any]:
         },
         "gas": {
             "sensor_key": "gas",
-            "fields": ["gas_oxidising", "gas_reducing", "gas_nh3"],
+            "fields": ["oxidising", "reducing", "nh3"],
         },
     }
 
@@ -312,7 +312,10 @@ def read_all(enviro_sensors: EnviroPlusSensors) -> Dict[str, Any]:
         prefix = mapping["sensor_key"]
         if enviro_sensors.has_sensor(sensor_type):
             for field in mapping["fields"]:
-                vals[f"{prefix}/{field}"] = sensor_data[field]
+                # For gas sensors, map topic field name to sensor data key
+                # Topic: gas/oxidising -> Sensor data key: gas_oxidising
+                sensor_data_key = f"{prefix}_{field}" if sensor_type == "gas" else field
+                vals[f"{prefix}/{field}"] = sensor_data[sensor_data_key]
         else:
             for field in mapping["fields"]:
                 vals[f"{prefix}/{field}"] = "unavailable"

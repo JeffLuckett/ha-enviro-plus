@@ -8,32 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Features
-- Dashboard display with temperature, humidity, pressure, and light metrics
-- Individual sensor displays with scrolling graphs
-- Custom scrolling message display
-- Display rotation modes (auto-rotation, manual via proximity sensor tap)
-- Plugin architecture for custom display modules
 - Noise sensor support with A-weighted dB(A) conversion
 - PMS5003 particulate matter sensor support (PM1.0, PM2.5, PM10)
+- Display rotation modes (auto-rotation, manual via proximity sensor tap)
+- LTR-559 proximity sensor tap detection for display navigation
 
 ### Improvements
-- Enhanced display system with multiple modes
-- Error state messaging on LCD for critical issues
-- LTR-559 proximity sensor tap detection for display navigation
+- Enhanced display system with additional display modes
+- Custom scrolling message display
 
 ## [0.2.0] - 2025-01-XX
 
 ### Features
-- **Boot splash screen** displaying ha-enviro-plus banner on startup
-- **Sensor warm-up period** (5 seconds) to eliminate spurious readings
-- **ST7735 LCD display integration** with graceful hardware failure handling
-- **Configurable display** via DISPLAY_ENABLED environment variable (1=ON, 0=OFF)
-- **Fade-out animation** (2 seconds) for smooth display transition
+- **Dashboard display** with temperature, humidity, pressure, and light metrics
+- **Individual sensor displays** with scrolling graphs
+- **Plugin architecture** for custom display modules
+- **Error state messaging** on LCD for critical issues
 
 ### Technical
-- PIL/Pillow integration for image loading and manipulation
-- Display hardware abstraction with graceful degradation
-- Non-blocking splash screen that doesn't delay sensor initialization
+- Display plugin system with auto-discovery
+- Sensor display plugin with icon support
+- Plugin rendering with error handling
 
 ## [0.1.1] - 2025-01-XX
 
@@ -42,6 +37,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Enhanced install script** with PyPI-first approach for faster, more reliable installations
 - **Test mode** (`--test` flag) for safe installation validation without system changes
 - **Improved installation methods** - automatic fallback from PyPI to GitHub releases/branches
+- **Boot splash screen** displaying ha-enviro-plus banner on startup
+- **Sensor warm-up period** (2 seconds default, configurable via SENSOR_WARMUP_SEC) to eliminate spurious readings
+- **ST7735 LCD display integration** with graceful hardware failure handling
+- **Configurable display** via DISPLAY_ENABLED environment variable (1=ON, 0=OFF)
+- **Fade-out animation** (2 seconds) for smooth display transition
+- **Display plugin architecture** with auto-discovery and sensor display plugin
 
 ### Improvements
 - **Installation reliability** - PyPI packages are more stable than git clones
@@ -52,6 +53,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Dynamic service configuration** - installer adapts to PyPI vs git installations
 - **Cross-platform compatibility** - improved script compatibility across systems
 - **Release automation** - automated PyPI uploads via GitHub Actions
+- PIL/Pillow integration for image loading and manipulation
+- Display hardware abstraction with graceful degradation
+- Non-blocking splash screen that doesn't delay sensor initialization
 
 ## [0.1.0] - 2025-01-XX
 

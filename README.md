@@ -286,10 +286,15 @@ This version includes:
 - **Test mode** for safe installation validation
 - Comprehensive test suite with >=75% coverage
 
+**Current version (v0.1.1) includes:**
+- LCD display system with plugin architecture
+- Boot splash screen
+- Sensor display plugin with temperature, humidity, and pressure
+
 **Next milestone (v0.2.0):**
 - Noise sensor (microphone to dB conversion)
 - PMS5003 particulate sensor support
-- 0.96" LCD display system with plugin architecture
+- Additional display modes and customization
 
 ---
 

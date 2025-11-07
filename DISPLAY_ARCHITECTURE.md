@@ -85,8 +85,8 @@ except KeyboardInterrupt:
 
 ## Configuration
 
-- **Warmup**: Shortened from 5s to 2s (configurable via `SENSOR_WARMUP_SEC`)
-- **Splash Duration**: Now 8 seconds (configurable in `show_splash()` call)
+- **Warmup**: Default 2 seconds (configurable via `SENSOR_WARMUP_SEC` environment variable)
+- **Splash Duration**: Default 8 seconds (configurable in `show_splash()` call)
 
 ## Benefits
 

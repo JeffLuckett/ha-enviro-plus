@@ -365,14 +365,11 @@ class TestEndToEndWorkflows:
         }
 
         # Gas sensor data may not be available if gas sensor is not initialized
-        # Note: gas sensor keys use format gas/gas_oxidising, gas/gas_reducing, gas/gas_nh3
+        # Gas sensor keys use format gas/oxidising, gas/reducing, gas/nh3
         optional_keys = {
             "gas/oxidising",
             "gas/reducing",
             "gas/nh3",
-            "gas/gas_oxidising",
-            "gas/gas_reducing",
-            "gas/gas_nh3",
         }
 
         # Check that all expected keys are present

@@ -2,18 +2,18 @@
 
 This document outlines the planned development roadmap for ha-enviro-plus, including upcoming features, improvements, and long-term goals.
 
-## Version 0.1.0 (Current Release)
+## Version 0.1.1 (Current Release)
 
-**Status**: ✅ Ready for Release
+**Status**: ✅ Released
 
 ### Core Features
-- ✅ Enviro+ sensor support (BME280, LTR559, Gas sensors)
+- ✅ Enviro+ sensor support (BME280, LTR559, Gas sensors, [PM sensor pending])
 - ✅ MQTT integration with Home Assistant discovery
 - ✅ System telemetry (CPU temperature, load, memory, disk)
 - ✅ Home Assistant control entities (reboot, restart, shutdown)
 - ✅ Configurable polling intervals and calibration offsets
 - ✅ CPU temperature compensation for accurate readings
-- ✅ Comprehensive test suite with >90% coverage
+- ✅ Comprehensive test suite
 - ✅ Graceful sensor degradation (hardware failures don't crash the app)
 - ✅ Graceful shutdown handling (SIGTERM/SIGINT)
 - ✅ Configuration validation on startup
@@ -30,6 +30,10 @@ This document outlines the planned development roadmap for ha-enviro-plus, inclu
 ## Version 0.2.0 (Next Major Release)
 
 **Status**: 🚧 In Planning
+
+### Display System Enhancements
+- Additional display modes and customization options
+- Display rotation and navigation features
 
 ### New Sensor Support
 
@@ -154,14 +158,6 @@ We welcome community input on the roadmap! Please:
 2. **Discussion**: Use [GitHub Discussions](https://github.com/JeffLuckett/ha-enviro-plus/discussions) for broader feature discussions
 3. **Contributions**: Submit pull requests for features you'd like to implement
 
-## Release Schedule
-
-- **v0.1.0**: January 2025 (Ready for release)
-- **v0.2.0**: Q2 2025 (Target: April-June)
-- **v0.3.0**: Q4 2025 (Target: October-December)
-- **v1.0.0**: 2026 (Long-term goal)
-
-*Note: Release dates are estimates and may change based on development progress and community feedback.*
 
 ## Dependencies & Requirements
 
@@ -175,7 +171,7 @@ We welcome community input on the roadmap! Please:
 ### Hardware Compatibility
 - **Primary**: Raspberry Pi Zero 2 W + Enviro+ HAT
 - **Secondary**: Any Raspberry Pi with Enviro+ compatibility
-- **Optional**: PMS5003 particulate sensor, I2S microphone, 0.96" LCD
+- **Optional**: PMS5003 particulate sensor
 
 ## Success Metrics
 
