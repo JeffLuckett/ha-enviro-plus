@@ -155,7 +155,10 @@ class TestPublishDiscovery:
 
             # Mock scipy.io.wavfile module
             mock_wavfile_module = MagicMock()
-            mock_wavfile_module.read.return_value = (44100, np.array([100, 200, 300], dtype=np.int32))
+            mock_wavfile_module.read.return_value = (
+                44100,
+                np.array([100, 200, 300], dtype=np.int32),
+            )
 
             # Mock successful arecord test during initialization
             with (

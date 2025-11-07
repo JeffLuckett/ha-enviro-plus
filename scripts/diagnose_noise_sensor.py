@@ -18,6 +18,7 @@ print()
 print("1. Checking if sounddevice is installed...")
 try:
     import sounddevice as sd
+
     print("   ✓ sounddevice is installed")
     print(f"   Version: {sd.__version__ if hasattr(sd, '__version__') else 'unknown'}")
 except ImportError as e:
@@ -34,6 +35,7 @@ print()
 print("2. Checking if scipy is installed...")
 try:
     from scipy.signal import lfilter, butter
+
     print("   ✓ scipy is installed")
 except ImportError as e:
     print(f"   ✗ scipy is NOT installed: {e}")
@@ -68,7 +70,9 @@ try:
             default_device_info = sd.query_devices(default_input)
             print(f"   ✓ Default device: {default_device_info.get('name', 'unknown')}")
             print(f"      Channels: {default_device_info.get('max_input_channels', 0)}")
-            print(f"      Sample rate: {default_device_info.get('default_samplerate', 'unknown')} Hz")
+            print(
+                f"      Sample rate: {default_device_info.get('default_samplerate', 'unknown')} Hz"
+            )
         except Exception as e:
             print(f"   ✗ Error querying default device: {e}")
     else:
@@ -116,13 +120,14 @@ print()
 # Test 6: Check ALSA configuration (for I2S microphones)
 print("6. Checking ALSA configuration...")
 import os
+
 asoundrc_path = os.path.expanduser("~/.asoundrc")
 if os.path.exists(asoundrc_path):
     print(f"   ✓ Found ~/.asoundrc")
     try:
-        with open(asoundrc_path, 'r') as f:
+        with open(asoundrc_path, "r") as f:
             content = f.read()
-            if 'adau7002' in content or 'dmic' in content.lower():
+            if "adau7002" in content or "dmic" in content.lower():
                 print("   ✓ Contains I2S microphone configuration (adau7002/dmic)")
             else:
                 print("   ⚠ Does not appear to contain I2S microphone configuration")
@@ -131,13 +136,16 @@ if os.path.exists(asoundrc_path):
 else:
     print("   ⚠ ~/.asoundrc not found")
     print("   For I2S microphones (Enviro+), you may need to configure ALSA")
-    print("   See: https://learn.adafruit.com/adafruit-i2s-mems-microphone-breakout/raspberry-pi-wiring-test")
+    print(
+        "   See: https://learn.adafruit.com/adafruit-i2s-mems-microphone-breakout/raspberry-pi-wiring-test"
+    )
 print()
 
 # Test 7: Check system audio devices
 print("7. Checking system audio devices...")
 try:
     import subprocess
+
     result = subprocess.run(
         ["arecord", "-l"],
         capture_output=True,
@@ -146,7 +154,7 @@ try:
     )
     if result.returncode == 0:
         print("   System audio devices (arecord -l):")
-        for line in result.stdout.split('\n'):
+        for line in result.stdout.split("\n"):
             if line.strip():
                 print(f"      {line}")
     else:
@@ -166,4 +174,3 @@ print("  1. For I2S microphones (Enviro+), ensure ALSA is configured")
 print("  2. Check microphone volume: alsamixer (press F6, select I2S mic, F4)")
 print("  3. Test with: arecord -D dmic_sv -c2 -r 48000 -f S32_LE -t wav -V mono test.wav")
 print("  4. Check PortAudio: python3 -c 'import sounddevice; print(sounddevice.query_devices())'")
-

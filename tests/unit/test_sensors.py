@@ -976,8 +976,10 @@ class TestNoiseSensor:
         """Test noise sensor availability detection."""
         with patch("ha_enviro_plus.sensors.NOISE_SENSOR_AVAILABLE", True):
             import numpy as np
+
             # Mock scipy.io.wavfile module
             from unittest.mock import MagicMock
+
             mock_wavfile_module = MagicMock()
             # Return audio data that looks like a real recording (enough samples)
             audio_data = np.array([1000] * 44100, dtype=np.int32)  # 1 second at 44.1kHz
@@ -1012,8 +1014,12 @@ class TestNoiseSensor:
 
             # Mock scipy.io.wavfile module
             from unittest.mock import MagicMock
+
             mock_wavfile_module = MagicMock()
-            mock_wavfile_module.read.return_value = (44100, np.array([100, 200, 300], dtype=np.int32))
+            mock_wavfile_module.read.return_value = (
+                44100,
+                np.array([100, 200, 300], dtype=np.int32),
+            )
 
             # Mock successful arecord test during initialization
             with (
