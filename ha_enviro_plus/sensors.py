@@ -166,7 +166,7 @@ class EnviroPlusSensors:
                                 "-r",
                                 str(Constants.NOISE_SAMPLE_RATE),
                                 "-f",
-                                "S16_LE",
+                                "S32_LE",
                                 "-t",
                                 "wav",
                                 "-d",
@@ -1060,7 +1060,7 @@ class EnviroPlusSensors:
                 duration_str = str(int(duration_sec))  # Use integer seconds
 
                 # Record using arecord with ALSA device
-                # Use mono channel, 16-bit signed LE (compatible with scipy)
+                # Use mono channel, 32-bit signed LE (required by I2S microphone)
                 result = subprocess.run(
                     [
                         "arecord",
@@ -1071,7 +1071,7 @@ class EnviroPlusSensors:
                         "-r",
                         str(Constants.NOISE_SAMPLE_RATE),
                         "-f",
-                        "S16_LE",  # 16-bit signed little-endian
+                        "S32_LE",  # 32-bit signed little-endian
                         "-t",
                         "wav",
                         "-d",
