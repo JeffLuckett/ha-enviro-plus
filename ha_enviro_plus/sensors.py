@@ -1027,6 +1027,8 @@ class EnviroPlusSensors:
             self.logger.warning(
                 "Failed to read noise chunk with PortAudio: %s, trying arecord fallback...", e
             )
+            # Small delay to let PortAudio release the device if it's holding it
+            time.sleep(0.1)
             # Try fallback to arecord
             fallback_result = self._read_noise_chunk_arecord()
             if fallback_result is None:
@@ -1075,6 +1077,8 @@ class EnviroPlusSensors:
             except Exception as wait_error:
                 # PortAudio wait failed, try arecord fallback
                 self.logger.debug("PortAudio wait failed in _read_noise_chunk_raw: %s", wait_error)
+                # Small delay to let PortAudio release the device if it's holding it
+                time.sleep(0.1)
                 return self._read_noise_chunk_raw_arecord()
 
             if not isinstance(audio_data, np.ndarray):
@@ -1086,6 +1090,8 @@ class EnviroPlusSensors:
                 self.logger.debug(
                     "PortAudio returned zeros in _read_noise_chunk_raw, trying arecord fallback"
                 )
+                # Small delay to let PortAudio release the device if it's holding it
+                time.sleep(0.1)
                 return self._read_noise_chunk_raw_arecord()
 
             return audio_data
@@ -1115,12 +1121,10 @@ class EnviroPlusSensors:
                 tmp_wav = tmp_file.name
 
             try:
-                # Calculate duration and round to 2 decimal places (arecord doesn't like very precise floats)
-                duration = Constants.NOISE_CHUNK_SIZE / Constants.NOISE_SAMPLE_RATE
-                duration_str = f"{duration:.2f}"  # Round to 2 decimal places
-                # Ensure minimum duration of 0.01 seconds
-                if float(duration_str) < 0.01:
-                    duration_str = "0.01"
+                # Calculate duration - arecord only accepts integer seconds
+                # Record 1 second minimum and we'll use only the samples we need
+                duration_sec = max(1.0, Constants.NOISE_CHUNK_SIZE / Constants.NOISE_SAMPLE_RATE)
+                duration_str = str(int(duration_sec))  # Use integer seconds
 
                 result = subprocess.run(
                     [
@@ -1140,7 +1144,7 @@ class EnviroPlusSensors:
                         tmp_wav,
                     ],
                     capture_output=True,
-                    timeout=duration + 1.0,
+                    timeout=duration_sec + 1.0,
                     check=False,
                 )
 
@@ -1193,12 +1197,10 @@ class EnviroPlusSensors:
                 tmp_wav = tmp_file.name
 
             try:
-                # Calculate duration and round to 2 decimal places (arecord doesn't like very precise floats)
-                duration = Constants.NOISE_CHUNK_SIZE / Constants.NOISE_SAMPLE_RATE
-                duration_str = f"{duration:.2f}"  # Round to 2 decimal places
-                # Ensure minimum duration of 0.01 seconds
-                if float(duration_str) < 0.01:
-                    duration_str = "0.01"
+                # Calculate duration - arecord only accepts integer seconds
+                # Record 1 second minimum and we'll use only the samples we need
+                duration_sec = max(1.0, Constants.NOISE_CHUNK_SIZE / Constants.NOISE_SAMPLE_RATE)
+                duration_str = str(int(duration_sec))  # Use integer seconds
 
                 # Record using arecord with ALSA device
                 # Use mono channel, 16-bit signed LE (compatible with scipy)
@@ -1220,16 +1222,51 @@ class EnviroPlusSensors:
                         tmp_wav,
                     ],
                     capture_output=True,
-                    timeout=duration + 1.0,  # Add 1 second buffer
+                    timeout=duration_sec + 1.0,  # Add 1 second buffer
                     check=False,  # Don't raise on error
                 )
 
                 if result.returncode != 0:
                     stderr_msg = result.stderr.decode("utf-8", errors="ignore")
-                    self.logger.warning(
-                        "arecord failed (exit code %d): %s", result.returncode, stderr_msg
-                    )
-                    return None
+                    # Check if device is busy - if so, wait a bit and retry once
+                    if "busy" in stderr_msg.lower() or "resource busy" in stderr_msg.lower():
+                        self.logger.debug("Device busy, waiting 0.2s and retrying arecord...")
+                        time.sleep(0.2)
+                        # Retry once
+                        result = subprocess.run(
+                            [
+                                "arecord",
+                                "-D",
+                                "dmic_sv",
+                                "-c",
+                                "1",
+                                "-r",
+                                str(Constants.NOISE_SAMPLE_RATE),
+                                "-f",
+                                "S16_LE",
+                                "-t",
+                                "wav",
+                                "-d",
+                                duration_str,
+                                tmp_wav,
+                            ],
+                            capture_output=True,
+                            timeout=duration_sec + 1.0,
+                            check=False,
+                        )
+                        if result.returncode != 0:
+                            stderr_msg = result.stderr.decode("utf-8", errors="ignore")
+                            self.logger.warning(
+                                "arecord failed after retry (exit code %d): %s",
+                                result.returncode,
+                                stderr_msg,
+                            )
+                            return None
+                    else:
+                        self.logger.warning(
+                            "arecord failed (exit code %d): %s", result.returncode, stderr_msg
+                        )
+                        return None
 
                 # Read WAV file
                 sample_rate, audio_data = wavfile.read(tmp_wav)
@@ -1245,6 +1282,11 @@ class EnviroPlusSensors:
                 # Ensure mono (take first channel if stereo)
                 if len(audio_data.shape) > 1:
                     audio_data = audio_data[:, 0]
+
+                # Trim to only the samples we need (in case we recorded more)
+                samples_needed = Constants.NOISE_CHUNK_SIZE
+                if len(audio_data) > samples_needed:
+                    audio_data = audio_data[:samples_needed]
 
                 # Check if we got actual audio data (not all zeros)
                 max_val = np.max(np.abs(audio_data))
