@@ -1,10 +1,13 @@
 # ha-enviro-plus
 
+<div align="center">
+  <img src="assets/ha-enviro-plus-banner_800x400.png" width="600">
+
 [![Tests](https://github.com/JeffLuckett/ha-enviro-plus/workflows/Tests/badge.svg)](https://github.com/JeffLuckett/ha-enviro-plus/actions)
 [![Python Version](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Latest Release](https://img.shields.io/github/v/release/JeffLuckett/ha-enviro-plus)](https://github.com/JeffLuckett/ha-enviro-plus/releases/latest)
-
+</div>
 **Enviro+ → Home Assistant MQTT Agent**
 A lightweight Python agent for publishing Pimoroni Enviro+ sensor data (temperature, humidity, pressure, light, gas, and system metrics) to Home Assistant via MQTT with automatic discovery.
 
@@ -16,8 +19,9 @@ A lightweight Python agent for publishing Pimoroni Enviro+ sensor data (temperat
 
 It reads data from:
 - **BME280** (temperature, humidity, pressure)
-- **LTR559** (ambient light)
+- **LTR559** (ambient light, proximity)
 - **Gas sensor** (oxidising, reducing, NH₃)
+- **Noise sensor** (microphone with A-weighted dB(A) conversion)
 and publishes them to Home Assistant over MQTT using native **HA Discovery**.
 
 Additional system telemetry is included:
@@ -32,22 +36,36 @@ Additional system telemetry is included:
 
 - Plug-and-play Home Assistant discovery (no YAML setup)
 - Fast, configurable polling (default 2 s)
-- On-device temperature / humidity calibration offsets
-- CPU temperature compensation for accurate readings (higher number lowers temp. output)
+- On-device temperature / humidity / pressure calibration offsets
+- CPU temperature compensation for accurate readings (adjustable factor: higher=less compensation, lower=more compensation)
+- Temperature smoothing window to reduce sensitivity to transient air currents (configurable, default: 5 minutes)
+- Pressure elevation correction for sea-level pressure (adjustable elevation in meters)
 - Host metrics: uptime, CPU temp, load, RAM, disk
 - MQTT availability and discovery payloads
 - Home Assistant controls:
     - Reboot device
     - Restart service
     - Shutdown
-    - Apply calibration offsets
+    - Apply calibration offsets (temperature, humidity, pressure)
     - Adjust CPU temperature compensation factor
+    - Adjust temperature smoothing window
+    - Set pressure offset and elevation for sea-level pressure correction
 - Structured logging (rotation-friendly)
 - Graceful shutdown handling (SIGTERM/SIGINT)
 - Startup configuration validation
 - Safe installer/uninstaller with config preservation
 - Versioned installation support (`--release`, `--branch` flags)
+- **Boot splash screen** with sensor warm-up period
+- **LCD display support** (160x80 IPS color, configurable on/off)
+- **Individual sensor display screens** (Temperature, Humidity, Pressure, Noise, Gas)
+- **Auto-rotating display** with configurable timing
+- **Tap navigation** using proximity sensor for manual screen paging
+- **Display plugin architecture** for custom display modes
 - Designed and tested with a Raspberry Pi Zero 2 W + Enviro+ HAT. Also supports the original Enviro HAT (fewer sensors) and runs on any hardware that supports these devices and the necessary libraries. (Testers welcome!)
+
+### ⚠️ Important: Temperature Sensor Placement
+
+The Enviro+ temperature sensor is **extremely sensitive to air currents and local thermal effects**. For accurate environmental monitoring, place the device in still air or inside a ventilated enclosure. Readings will be heavily influenced by drafts, movement, sunlight, and nearby heat sources without proper placement. See the [Temperature Calibration Guide](docs/TEMPERATURE_CALIBRATION.md) for details.
 
 ---
 
@@ -71,7 +89,7 @@ The installer automatically:
 - **Falls back to GitHub** for development branches or specific versions
 - Creates `/opt/ha-enviro-plus` and installs dependencies
 - Prompts for MQTT host, username, and password
-- Prompts for poll interval and temperature / humidity offsets
+- Prompts for poll interval, temperature / humidity / pressure offsets, and elevation
 - Installs and starts the systemd service
 
 ### Alternative: Direct PyPI Install
@@ -107,6 +125,9 @@ Edit values safely, then restart the service:
     TEMP_OFFSET=0.0
     HUM_OFFSET=0.0
     CPU_TEMP_FACTOR=1.8
+    PRESSURE_OFFSET=0.0
+    ELEVATION_METERS=0.0
+    DISPLAY_ENABLED=1  # 1=ON, 0=OFF
 
 ---
 
@@ -127,6 +148,8 @@ If you installed via `pip install ha-enviro-plus`, you'll need to manually confi
     TEMP_OFFSET=0.0
     HUM_OFFSET=0.0
     CPU_TEMP_FACTOR=1.8
+    PRESSURE_OFFSET=0.0
+    ELEVATION_METERS=0.0
     EOF
 
 ### 2. Create Settings Directory
@@ -186,7 +209,6 @@ This project includes comprehensive tests to ensure reliability and maintainabil
 
 - **Unit Tests**: Test individual components with mocked hardware
 - **Integration Tests**: Test MQTT functionality and end-to-end workflows
-- **Hardware Tests**: Test with real Enviro+ sensors (optional, requires hardware)
 
 ### Running Tests
 
@@ -194,17 +216,14 @@ This project includes comprehensive tests to ensure reliability and maintainabil
 # Install development dependencies
 pip install -r requirements-dev.txt
 
-# Run all tests (excluding hardware)
-pytest tests/ -m "not hardware"
+# Run all tests
+pytest tests/
 
 # Run only unit tests
 pytest tests/unit/
 
 # Run only integration tests
 pytest tests/integration/
-
-# Run hardware tests (requires Enviro+ hardware)
-pytest tests/hardware/
 
 # Run with coverage
 pytest tests/ --cov=ha_enviro_plus --cov-report=html
@@ -240,24 +259,25 @@ pip install ha-enviro-plus
 pip install -r requirements-dev.txt
 
 # Run tests
-pytest tests/ -m "not hardware"
+pytest tests/
 ```
 
 ---
 
-- **Temperature Compensation**: The temperature sensor runs warm due to CPU proximity. The agent now includes automatic CPU temperature compensation using a configurable factor (default 1.8). You can adjust this factor via Home Assistant or the config file for optimal accuracy.
-- **Calibration**: Use the `TEMP_OFFSET` for fine-tuning individual installations, and `CPU_TEMP_FACTOR` to adjust the CPU compensation algorithm.
-- Humidity readings depend on temperature calibration — adjust both together.
-- Sound and particulate sensors are planned for v0.2.0; the agent functions fully without them.
+- **Temperature Compensation**: The temperature sensor runs warm due to CPU proximity. The agent includes automatic CPU temperature compensation using a configurable factor (default 1.8, range 0.5-5.0). Higher factor values reduce the compensation effect (output closer to raw sensor reading), while lower values increase compensation. Adjust via Home Assistant or config file for optimal accuracy.
+- **Calibration**: Use `TEMP_OFFSET` for fine-tuning individual installations. Adjust `CPU_TEMP_FACTOR` to control how much CPU heating is compensated for (higher=less compensation, lower=more compensation). Humidity calibration should be performed after temperature calibration, as humidity readings are affected by CPU heating and the sensor's internal temperature compensation. Pressure calibration includes `PRESSURE_OFFSET` (hPa) for fine-tuning and `ELEVATION_METERS` for automatic sea-level pressure correction (matches weather station readings). **See [Temperature Calibration Guide](docs/TEMPERATURE_CALIBRATION.md) for detailed calibration instructions.**
+- Particulate sensors (PMS5003) are planned for v0.3.0; the agent functions fully without them.
 
 ---
 
 ## 🧪 Version
 
-**v0.1.1 — Stable Release**
+**v0.2.0 — Current Release**
 
 This version includes:
 - Complete Enviro+ sensor support (BME280, LTR559, Gas sensors)
+- **Noise sensor** with A-weighted dB(A) conversion
+- **Proximity sensor** support for tap detection
 - MQTT integration with Home Assistant discovery
 - System telemetry (CPU temperature, load, memory, disk)
 - Home Assistant control entities (reboot, restart, shutdown)
@@ -268,11 +288,15 @@ This version includes:
 - **Enhanced install script** with PyPI-first approach
 - **Test mode** for safe installation validation
 - Comprehensive test suite with >=75% coverage
+- **LCD display system** with plugin architecture
+- **Boot splash screen** with fade-out animation
+- **Individual sensor display screens** (Temperature, Humidity, Pressure, Noise, Gas)
+- **Auto-rotating display** with configurable timing
+- **Tap navigation** using proximity sensor for manual screen paging
 
-**Next milestone (v0.2.0):**
-- Noise sensor (microphone to dB conversion)
+**Next milestone (v0.3.0):**
 - PMS5003 particulate sensor support
-- 0.96" LCD display system with plugin architecture
+- Additional display customization options
 
 ---
 

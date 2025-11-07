@@ -8,7 +8,6 @@ Thank you for your interest in contributing to ha-enviro-plus! This document pro
 
 - Python 3.9 or higher
 - Git
-- Raspberry Pi with Enviro+ (optional, for hardware testing)
 
 ### Setup
 
@@ -40,22 +39,18 @@ Thank you for your interest in contributing to ha-enviro-plus! This document pro
 
 - `tests/unit/` - Unit tests with mocked hardware
 - `tests/integration/` - Integration tests with mock MQTT broker
-- `tests/hardware/` - Hardware tests requiring real Enviro+ sensors
 
 ### Running Tests
 
 ```bash
-# Run all tests (excluding hardware)
-pytest tests/ -m "not hardware"
+# Run all tests
+pytest tests/
 
 # Run only unit tests
 pytest tests/unit/
 
 # Run only integration tests
 pytest tests/integration/
-
-# Run hardware tests (requires Enviro+ hardware)
-pytest tests/hardware/
 
 # Run with coverage
 pytest tests/ --cov=ha_enviro_plus --cov-report=html
@@ -105,7 +100,6 @@ pre-commit install
 1. **Test Structure**: Follow the existing test structure with descriptive class and method names
 2. **Fixtures**: Use shared fixtures from `tests/conftest.py` for common mocks
 3. **Coverage**: Aim for comprehensive coverage of all public methods and edge cases
-4. **Hardware Tests**: Mark hardware tests with `@pytest.mark.hardware` and `@pytest.mark.skipif`
 
 ### Example Test Structure
 
@@ -134,26 +128,13 @@ class TestNewFeature:
         assert input * 2 == expected
 ```
 
-### Hardware Testing
-
-Hardware tests are marked with `@pytest.mark.hardware` and will be skipped if hardware is not available:
-
-```python
-@pytest.mark.hardware
-@pytest.mark.skipif(not hardware_available(), reason="Hardware not detected")
-def test_real_sensor():
-    """Test with real hardware."""
-    sensors = EnviroPlusSensors()
-    assert sensors.temp() > 0
-```
-
 ## Pull Request Process
 
 ### Before Submitting
 
 1. **Run Tests**: Ensure all tests pass
    ```bash
-   pytest tests/ -m "not hardware"
+   pytest tests/
    ```
 
 2. **Check Code Quality**: Run linting and formatting
@@ -199,8 +180,7 @@ ha_enviro_plus/          # Main package
 tests/                  # Test suite
 ├── conftest.py         # Shared fixtures
 ├── unit/               # Unit tests
-├── integration/        # Integration tests
-└── hardware/           # Hardware tests
+└── integration/        # Integration tests
 
 scripts/                # Installation scripts
 ├── install.sh
@@ -287,13 +267,7 @@ git push && git push --tags
 
 ## Hardware Testing
 
-If you have Enviro+ hardware available:
-
-1. **Connect Hardware**: Ensure Enviro+ is properly connected
-2. **Run Hardware Tests**: `pytest tests/hardware/`
-3. **Verify Readings**: Check that sensor readings are reasonable
-
-Hardware tests will be skipped automatically if hardware is not detected.
+Hardware testing is performed manually on physical devices. The test suite uses mocked hardware to ensure code quality and reliability without requiring physical hardware.
 
 ## Getting Help
 

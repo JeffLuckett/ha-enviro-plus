@@ -1,199 +1,47 @@
 #!/usr/bin/env python3
-import os
-import json
-import time
-import socket
-import psutil
-import subprocess
-import logging
-import platform
-import signal
-import sys
-from datetime import datetime, timezone
-from typing import List, Any, Dict, Optional
+"""
+Main MQTT agent for Home Assistant integration.
 
+This module provides the main application loop that reads sensors,
+publishes to MQTT, and handles commands from Home Assistant.
+"""
+
+import json
+import logging
+import os
+import signal
+import subprocess
+import sys
+import time
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+
+import psutil
 import paho.mqtt.client as mqtt
+
+from . import __version__
+from .config import Config
+from .constants import Constants
+from .display import DisplayManager
+from .display_plugins import get_available_plugins
 from .sensors import EnviroPlusSensors
 from .settings import SettingsManager
-from . import __version__
+from .system_info import (
+    get_device_id,
+    get_device_info,
+    get_model,
+    get_serial,
+)
 
 APP_NAME = "ha-enviro-plus"
 VERSION = __version__
 
-# ---------- CONFIG via /etc/default/ha-enviro-plus ----------
-MQTT_HOST = os.getenv("MQTT_HOST", "homeassistant.local")
-MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
-MQTT_USER = os.getenv("MQTT_USER", "")
-MQTT_PASS = os.getenv("MQTT_PASS", "")
-MQTT_DISCOVERY_PREFIX = os.getenv("MQTT_DISCOVERY_PREFIX", "homeassistant")
-POLL_SEC = float(os.getenv("POLL_SEC", "2"))
-TEMP_OFFSET = float(os.getenv("TEMP_OFFSET", "0.0"))
-HUM_OFFSET = float(os.getenv("HUM_OFFSET", "0.0"))
-CPU_TEMP_FACTOR = float(os.getenv("CPU_TEMP_FACTOR", "1.8"))
-CPU_TEMP_SMOOTHING = float(os.getenv("CPU_TEMP_SMOOTHING", "0.1"))
-LOG_TO_FILE = int(os.getenv("LOG_TO_FILE", "0")) == 1
-LOG_PATH = f"/var/log/{APP_NAME}.log"
-# ------------------------------------------------------------
-
-hostname = socket.gethostname()
-device_id = f"enviro_{hostname.replace('-', '')}"
+# Initialize device ID and topic root
+device_id = get_device_id()
 root = device_id  # topic root for states & commands
 avail_t = f"{root}/status"
 cmd_t = f"{root}/cmd"  # expects: reboot|shutdown|restart
 set_t = f"{root}/set/+"  # retained settings, e.g. set/temp_offset
-
-
-def get_ipv4_prefer_wlan0() -> str:
-    """
-    Get IPv4 address with preference for wlan0 interface.
-
-    Returns:
-        IPv4 address string, or "unknown" if unable to determine
-
-    Raises:
-        Never raises - always returns a fallback value
-    """
-    try:
-        addrs = psutil.net_if_addrs()
-        # prefer wlan0, else first non-loopback IPv4
-        if "wlan0" in addrs:
-            for a in addrs["wlan0"]:
-                if a.family.name == "AF_INET" and not a.address.startswith("127."):
-                    logger.debug("Using wlan0 IPv4 address: %s", a.address)
-                    return str(a.address)
-        for iface, lst in addrs.items():
-            for a in lst:
-                if a.family.name == "AF_INET" and not a.address.startswith("127."):
-                    logger.debug("Using %s IPv4 address: %s", iface, a.address)
-                    return str(a.address)
-    except Exception as e:
-        logger.error("Failed to get network address: %s", e)
-        logger.info("Network address will be reported as 'unknown'")
-    return "unknown"
-
-
-def get_uptime_seconds() -> int:
-    """
-    Get system uptime in seconds from /proc/uptime.
-
-    Returns:
-        Uptime in seconds, or 0 if unable to read
-
-    Raises:
-        Never raises - always returns a fallback value
-    """
-    try:
-        with open("/proc/uptime", "r") as f:
-            uptime_str = f.read().split()[0]
-            uptime_seconds = int(float(uptime_str))
-            logger.debug("System uptime: %d seconds", uptime_seconds)
-            return uptime_seconds
-    except (FileNotFoundError, ValueError, IndexError) as e:
-        logger.error("Failed to read system uptime: %s", e)
-        logger.info("Uptime will be reported as 0 seconds")
-        return 0
-    except Exception as e:
-        logger.error("Unexpected error reading uptime: %s", e)
-        logger.info("Uptime will be reported as 0 seconds")
-        return 0
-
-
-def get_model() -> str:
-    """
-    Get device model from /proc/device-tree/model.
-
-    Returns:
-        Device model string, or "Raspberry Pi" if unable to read
-
-    Raises:
-        Never raises - always returns a fallback value
-    """
-    try:
-        with open("/proc/device-tree/model", "rb") as f:
-            model_bytes = f.read()
-            model_str = model_bytes.decode(errors="ignore").strip("\x00")
-            logger.debug("Device model: %s", model_str)
-            return model_str
-    except FileNotFoundError:
-        logger.warning("Device model file not found, using default")
-        logger.info("Device model will be reported as 'Raspberry Pi'")
-        return "Raspberry Pi"
-    except Exception as e:
-        logger.error("Failed to read device model: %s", e)
-        logger.info("Device model will be reported as 'Raspberry Pi'")
-        return "Raspberry Pi"
-
-
-def get_serial() -> str:
-    """
-    Get device serial number from /proc/cpuinfo.
-
-    Returns:
-        Serial number string, or "unknown" if unable to read
-
-    Raises:
-        Never raises - always returns a fallback value
-    """
-    try:
-        with open("/proc/cpuinfo", "r") as f:
-            for line in f:
-                if line.startswith("Serial"):
-                    serial = line.split(":")[1].strip()
-                    logger.debug("Device serial: %s", serial)
-                    return serial
-        logger.warning("Serial number not found in cpuinfo")
-        logger.info("Serial number will be reported as 'unknown'")
-        return "unknown"
-    except FileNotFoundError:
-        logger.error("CPU info file not found")
-        logger.info("Serial number will be reported as 'unknown'")
-        return "unknown"
-    except Exception as e:
-        logger.error("Failed to read device serial: %s", e)
-        logger.info("Serial number will be reported as 'unknown'")
-        return "unknown"
-
-
-def get_os_release() -> str:
-    """
-    Get OS release information from /etc/os-release or platform fallback.
-
-    Returns:
-        OS release string, or "unknown" if unable to determine
-
-    Raises:
-        Never raises - always returns a fallback value
-    """
-    try:
-        # Try to get more detailed OS info
-        if os.path.exists("/etc/os-release"):
-            with open("/etc/os-release", "r") as f:
-                lines = f.readlines()
-            for line in lines:
-                if line.startswith("PRETTY_NAME="):
-                    os_name = line.split("=", 1)[1].strip().strip('"')
-                    logger.debug("OS release from os-release: %s", os_name)
-                    return os_name
-
-        # Fallback to platform info
-        platform_info = platform.platform()
-        logger.debug("OS release from platform: %s", platform_info)
-        return platform_info
-
-    except FileNotFoundError:
-        logger.warning("OS release file not found, using platform fallback")
-        try:
-            platform_info = platform.platform()
-            logger.info("OS release will be reported as: %s", platform_info)
-            return platform_info
-        except Exception as e:
-            logger.error("Platform fallback failed: %s", e)
-            logger.info("OS release will be reported as 'unknown'")
-            return "unknown"
-    except Exception as e:
-        logger.error("Failed to get OS release: %s", e)
-        logger.info("OS release will be reported as 'unknown'")
-        return "unknown"
 
 
 # ---------- logging ----------
@@ -201,36 +49,23 @@ logger = logging.getLogger(APP_NAME)
 logger.setLevel(logging.INFO)
 fmt = logging.Formatter("%(asctime)s %(levelname)s %(message)s", "%Y-%m-%d %H:%M:%S")
 handlers: List[logging.Handler] = [logging.StreamHandler()]
-if LOG_TO_FILE:
-    try:
-        fh = logging.FileHandler(LOG_PATH)
-        fh.setFormatter(fmt)
-        handlers.append(fh)
-    except Exception:
-        pass
-for h in handlers:
-    h.setFormatter(fmt)
-    logger.handlers = []
-    logger.addHandler(h)
+# Logging will be configured in main() with config
 # ----------------------------
 
-DEVICE_INFO = {
-    "identifiers": [device_id],
-    "name": "Enviro+",
-    "manufacturer": "Pimoroni",
-    "model": "Enviro+ (no PMS5003)",
-    "sw_version": f"{APP_NAME} {VERSION}",
-    "configuration_url": "https://github.com/JeffLuckett/ha-enviro-plus",
-}
+# Note: DEVICE_INFO is now a function call, not a constant
+# This ensures device info is refreshed with current location/serial/etc
+# Individual discovery payloads call get_device_info() directly
 
 SENSORS = {
     "bme280/temperature": ("Temperature", "°C", "temperature"),
     "bme280/humidity": ("Humidity", "%", "humidity"),
     "bme280/pressure": ("Pressure", "hPa", "atmospheric_pressure"),
     "ltr559/lux": ("Illuminance", "lx", "illuminance"),
+    "ltr559/proximity": ("Proximity", None, None),
     "gas/oxidising": ("Gas Oxidising (kΩ)", "kΩ", None),
     "gas/reducing": ("Gas Reducing (kΩ)", "kΩ", None),
     "gas/nh3": ("Gas NH3 (kΩ)", "kΩ", None),
+    "noise/spl_db": ("Noise Level", "dB(A)", None),
     "host/cpu_temp": ("CPU Temp", "°C", "temperature"),
     "host/cpu_usage": ("CPU Usage", "%", None),
     "host/mem_usage": ("Mem Usage", "%", None),
@@ -250,13 +85,41 @@ def disc_payload(
     device_class: Optional[str] = None,
     state_class: Optional[str] = "measurement",
     icon: Optional[str] = None,
+    config: Optional[Config] = None,
 ) -> Dict[str, Any]:
+    """
+    Create discovery payload for Home Assistant MQTT integration.
+
+    Args:
+        topic_tail: Sensor topic path (e.g., "bme280/temperature")
+        name: Display name for the sensor
+        unit: Unit of measurement (e.g., "°C", "%")
+        device_class: Device class (e.g., "temperature", "humidity")
+        state_class: State class (default: "measurement")
+        icon: Optional icon name
+        config: Optional Config instance for device location
+
+    Returns:
+        Dictionary with discovery configuration
+    """
+    # Use serial number for unique_id if available (HA best practice)
+    serial = get_serial()
+    if serial and serial != "unknown":
+        uniq_id = f"enviro_{serial}_{topic_tail.replace('/', '_')}"
+    else:
+        # Fallback to device_id
+        uniq_id = f"{device_id}_{topic_tail.replace('/', '_')}"
+
+    # Get device info with location if config provided
+    device_location = config.device_location if config else ""
+    device_info_dict = get_device_info(device_location, APP_NAME, VERSION)
+
     cfg = {
         "name": name,
-        "uniq_id": f"{device_id}_{topic_tail.replace('/', '_')}",
+        "uniq_id": uniq_id,
         "state_topic": f"{root}/{topic_tail}",
         "availability_topic": avail_t,
-        "device": DEVICE_INFO,
+        "device": device_info_dict,
     }
     if unit:
         cfg["unit_of_measurement"] = unit
@@ -269,33 +132,105 @@ def disc_payload(
     return cfg
 
 
-def publish_discovery(c: mqtt.Client) -> None:
-    # sensors
+def publish_discovery(
+    c: mqtt.Client,
+    config: Config,
+    enviro_sensors: Optional[EnviroPlusSensors] = None,
+) -> None:
+    """
+    Publish MQTT discovery payloads for all sensors.
+
+    Args:
+        c: MQTT client
+        config: Config instance
+        enviro_sensors: Optional sensors instance for availability checking
+    """
+    # Use serial number for object_id if available (for topic consistency)
+    serial = get_serial()
+    if serial and serial != "unknown":
+        obj_id = f"enviro_{serial}"
+    else:
+        obj_id = device_id
+
+    # Get device info with location
+    device_info_dict = get_device_info(config.device_location, APP_NAME, VERSION)
+
     for tail, (name, unit, devcls) in SENSORS.items():
+        # Check if sensor is available
+        if enviro_sensors is not None:
+            # Skip gas sensors if not available
+            if tail.startswith("gas/") and not enviro_sensors.has_sensor("gas"):
+                continue
+            # Skip BME280 sensors if not available
+            if tail.startswith("bme280/") and not enviro_sensors.has_sensor("bme280"):
+                continue
+            # Skip LTR559 sensors if not available
+            if tail.startswith("ltr559/") and not enviro_sensors.has_sensor("ltr559"):
+                continue
+            # Skip noise sensors if not available
+            if tail.startswith("noise/") and not enviro_sensors.has_sensor("noise"):
+                logger.debug(
+                    "Skipping noise sensor discovery: noise sensor not available (has_sensor('noise')=%s)",
+                    enviro_sensors.has_sensor("noise"),
+                )
+                continue
+
         obj = tail.replace("/", "_")
-        topic = f"{MQTT_DISCOVERY_PREFIX}/sensor/{device_id}/{obj}/config"
+        topic = f"{config.mqtt_discovery_prefix}/sensor/{obj_id}/{obj}/config"
         # For text sensors (no unit), don't set state_class
         state_class = None if unit is None else "measurement"
+        # Update device info in payload
+        payload = disc_payload(tail, name, unit, devcls, state_class, config=config)
+        # Device info already set in disc_payload, but ensure it's correct
+        payload["device"] = device_info_dict
         c.publish(
             topic,
-            json.dumps(disc_payload(tail, name, unit, devcls, state_class)),
-            qos=1,
-            retain=True,
+            json.dumps(payload),
+            qos=Constants.MQTT_QOS_DISCOVERY,
+            retain=Constants.MQTT_RETAIN_DISCOVERY,
         )
+        # Log noise sensor discovery for debugging
+        if tail.startswith("noise/"):
+            logger.info(
+                "Published noise sensor discovery: %s -> %s",
+                topic,
+                json.dumps(payload),
+            )
+        # Log proximity discovery for debugging
+        if tail == "ltr559/proximity":
+            logger.info(
+                "Published proximity discovery: %s -> %s",
+                topic,
+                json.dumps(payload),
+            )
 
     # controls: simple button commands
     def button(topic_key: str, name: str, icon: str) -> None:
+        # Use serial number for unique_id if available
+        serial = get_serial()
+        if serial and serial != "unknown":
+            uniq_id = f"enviro_{serial}_btn_{topic_key}"
+            obj_id = f"enviro_{serial}"
+        else:
+            uniq_id = f"{device_id}_btn_{topic_key}"
+            obj_id = device_id
+
         cfg = {
             "name": name,
-            "uniq_id": f"{device_id}_btn_{topic_key}",
+            "uniq_id": uniq_id,
             "cmd_t": f"{root}/cmd",
             "pl_prs": topic_key,
             "availability_topic": avail_t,
-            "device": DEVICE_INFO,
+            "device": get_device_info(config.device_location, APP_NAME, VERSION),
             "icon": icon,
         }
-        topic = f"{MQTT_DISCOVERY_PREFIX}/button/{device_id}/{topic_key}/config"
-        c.publish(topic, json.dumps(cfg), qos=1, retain=True)
+        topic = f"{config.mqtt_discovery_prefix}/button/{obj_id}/{topic_key}/config"
+        c.publish(
+            topic,
+            json.dumps(cfg),
+            qos=Constants.MQTT_QOS_DISCOVERY,
+            retain=Constants.MQTT_RETAIN_DISCOVERY,
+        )
 
     button("reboot", "Reboot Enviro Zero", "mdi:restart")
     button("shutdown", "Shutdown Enviro Zero", "mdi:power")
@@ -306,107 +241,269 @@ def publish_discovery(c: mqtt.Client) -> None:
     def number(
         name: str, key: str, unit: Optional[str], minv: float, maxv: float, step: float
     ) -> None:
+        # Use serial number for unique_id if available
+        serial = get_serial()
+        if serial and serial != "unknown":
+            uniq_id = f"enviro_{serial}_num_{key}"
+            obj_id = f"enviro_{serial}"
+        else:
+            uniq_id = f"{device_id}_num_{key}"
+            obj_id = device_id
+
         cfg = {
             "name": name,
-            "uniq_id": f"{device_id}_num_{key}",
+            "uniq_id": uniq_id,
             "cmd_t": f"{root}/set/{key}",
             "stat_t": f"{root}/set/{key}",
             "availability_topic": avail_t,
-            "device": DEVICE_INFO,
+            "device": get_device_info(config.device_location, APP_NAME, VERSION),
             "unit_of_measurement": unit,
             "min": minv,
             "max": maxv,
             "step": step,
             "mode": "box",
         }
-        topic = f"{MQTT_DISCOVERY_PREFIX}/number/{device_id}/{key}/config"
-        c.publish(topic, json.dumps(cfg), qos=1, retain=True)
+        topic = f"{config.mqtt_discovery_prefix}/number/{obj_id}/{key}/config"
+        c.publish(
+            topic,
+            json.dumps(cfg),
+            qos=Constants.MQTT_QOS_DISCOVERY,
+            retain=Constants.MQTT_RETAIN_DISCOVERY,
+        )
 
     number("Temp Offset", "temp_offset", "°C", -10, 10, 0.1)
     number("Humidity Offset", "hum_offset", "%", -20, 20, 0.5)
     number("CPU Temp Factor", "cpu_temp_factor", None, 0.5, 5.0, 0.1)
     number("CPU Temp Smoothing", "cpu_temp_smoothing", None, 0.01, 1.0, 0.01)
+    number("Temp Smoothing Window", "temp_smoothing_minutes", "min", 0.0, 60.0, 0.1)
+    number("Pressure Offset", "pressure_offset", "hPa", -10.0, 10.0, 0.01)
+    number("Elevation", "elevation_meters", "m", 0.0, 8848.0, 0.1)  # 0 to Mount Everest
+    number("Noise Calibration Offset", "noise_calibration_offset", "dB", 0.0, 200.0, 0.01)
 
 
 def read_all(enviro_sensors: EnviroPlusSensors) -> Dict[str, Any]:
-    """Read all sensor and system data using the EnviroPlusSensors class."""
+    """
+    Read all sensor and system data using the EnviroPlusSensors class.
+
+    Returns a dictionary with all sensor readings, using "unavailable" for
+    missing sensors to ensure Home Assistant knows about all sensors.
+    """
+    from .system_info import (
+        get_uptime_seconds,
+        get_ipv4_prefer_wlan0,
+        get_os_release,
+        get_hostname,
+    )
+
     # Get sensor data from the encapsulated sensor manager
     sensor_data = enviro_sensors.get_all_sensor_data()
 
     # Get system metrics
     mem = psutil.virtual_memory()
 
+    # Define sensor mappings for data-driven approach
+    SENSOR_MAPPINGS = {
+        "bme280": {
+            "sensor_key": "bme280",
+            "fields": ["temperature", "humidity", "pressure"],
+        },
+        "ltr559": {
+            "sensor_key": "ltr559",
+            "fields": ["lux", "proximity"],
+        },
+        "gas": {
+            "sensor_key": "gas",
+            "fields": ["oxidising", "reducing", "nh3"],
+        },
+        "noise": {
+            "sensor_key": "noise",
+            "fields": ["spl_db"],
+        },
+    }
+
+    # Build values dictionary with system metrics
     vals = {
-        # Sensor data (processed)
-        "bme280/temperature": sensor_data["temperature"],
-        "bme280/humidity": sensor_data["humidity"],
-        "bme280/pressure": sensor_data["pressure"],
-        "ltr559/lux": sensor_data["lux"],
-        "gas/oxidising": sensor_data["gas_oxidising"],
-        "gas/reducing": sensor_data["gas_reducing"],
-        "gas/nh3": sensor_data["gas_nh3"],
-        # System metrics
+        # System metrics (always available)
         "host/cpu_temp": round(enviro_sensors.cpu_temp(), 1),
         "host/cpu_usage": round(psutil.cpu_percent(interval=None), 1),
         "host/mem_usage": round(mem.percent, 1),
         "host/mem_size": round(mem.total / 1024 / 1024 / 1024, 3),
         "host/uptime": get_uptime_seconds(),
-        "host/hostname": str(hostname),
+        "host/hostname": get_hostname(),
         "host/network": get_ipv4_prefer_wlan0(),
         "host/os_release": get_os_release(),
         "meta/last_update": datetime.now(timezone.utc).isoformat(),
     }
+
+    # Add sensor data using mapping (data-driven approach)
+    for sensor_type, mapping in SENSOR_MAPPINGS.items():
+        prefix = mapping["sensor_key"]
+        if enviro_sensors.has_sensor(sensor_type):
+            for field in mapping["fields"]:
+                # For gas sensors, map topic field name to sensor data key
+                # Topic: gas/oxidising -> Sensor data key: gas_oxidising
+                # For noise sensors, map topic field name to sensor data key
+                # Topic: noise/spl_db -> Sensor data key: noise_spl_db
+                # For ltr559, most fields map directly, but proximity is just "proximity"
+                if sensor_type == "gas":
+                    sensor_data_key = f"{prefix}_{field}"
+                elif sensor_type == "noise":
+                    sensor_data_key = f"{prefix}_{field}"
+                elif sensor_type == "ltr559" and field == "proximity":
+                    sensor_data_key = "proximity"
+                else:
+                    sensor_data_key = field
+                vals[f"{prefix}/{field}"] = sensor_data[sensor_data_key]
+        else:
+            for field in mapping["fields"]:
+                vals[f"{prefix}/{field}"] = "unavailable"
+
     return vals
 
 
 def on_connect(
-    client: mqtt.Client, userdata: Any, flags: Any, rc: int, properties: Any = None
+    client: mqtt.Client,
+    userdata: Any,
+    flags: Any,
+    rc: int,
+    properties: Any = None,
+    config: Optional[Config] = None,
 ) -> None:
-    logger.info("Connected to MQTT (%s:%s) RC=%s", MQTT_HOST, MQTT_PORT, mqtt.connack_string(rc))
-    client.publish(avail_t, "online", retain=True)
+    """
+    Handle MQTT connection callback.
+
+    Args:
+        client: MQTT client
+        userdata: User data containing config, sensors, settings_manager
+        flags: Connection flags
+        rc: Return code
+        properties: MQTT properties (optional)
+        config: Config instance (optional, may be in userdata)
+    """
+    # Get config from userdata if not provided
+    if config is None and userdata:
+        config = userdata.get("config")
+
+    if config is None:
+        # Fallback: create config from env (shouldn't happen in normal flow)
+        config = Config.from_env()
+
+    logger.info(
+        "Connected to MQTT (%s:%s) RC=%s",
+        config.mqtt_host,
+        config.mqtt_port,
+        mqtt.connack_string(rc),
+    )
+    client.publish(avail_t, "online", retain=Constants.MQTT_RETAIN_STATE)
     # (Re)publish discovery on connect
-    publish_discovery(client)
+    # Get enviro_sensors from userdata if available for discovery filtering
+    enviro_sensors = userdata.get("enviro_sensors") if userdata else None
+    publish_discovery(client, config, enviro_sensors)
 
     # Get settings manager from userdata
     settings_manager = userdata.get("settings_manager") if userdata else None
     if settings_manager:
         # Publish retained offsets so HA shows the current values
         client.publish(
-            f"{root}/set/temp_offset", str(settings_manager.get_temp_offset()), retain=True
+            f"{root}/set/temp_offset",
+            str(settings_manager.temp_offset),
+            retain=Constants.MQTT_RETAIN_STATE,
         )
         client.publish(
-            f"{root}/set/hum_offset", str(settings_manager.get_hum_offset()), retain=True
+            f"{root}/set/hum_offset",
+            str(settings_manager.hum_offset),
+            retain=Constants.MQTT_RETAIN_STATE,
         )
         client.publish(
-            f"{root}/set/cpu_temp_factor", str(settings_manager.get_cpu_temp_factor()), retain=True
+            f"{root}/set/cpu_temp_factor",
+            str(settings_manager.cpu_temp_factor),
+            retain=Constants.MQTT_RETAIN_STATE,
         )
         client.publish(
             f"{root}/set/cpu_temp_smoothing",
-            str(settings_manager.get_cpu_temp_smoothing()),
-            retain=True,
+            str(settings_manager.cpu_temp_smoothing),
+            retain=Constants.MQTT_RETAIN_STATE,
+        )
+        client.publish(
+            f"{root}/set/temp_smoothing_minutes",
+            str(settings_manager.get_temp_smoothing_minutes()),
+            retain=Constants.MQTT_RETAIN_STATE,
+        )
+        client.publish(
+            f"{root}/set/pressure_offset",
+            str(settings_manager.pressure_offset),
+            retain=Constants.MQTT_RETAIN_STATE,
+        )
+        client.publish(
+            f"{root}/set/elevation_meters",
+            str(settings_manager.elevation_meters),
+            retain=Constants.MQTT_RETAIN_STATE,
+        )
+        client.publish(
+            f"{root}/set/noise_calibration_offset",
+            str(settings_manager.noise_calibration_offset),
+            retain=Constants.MQTT_RETAIN_STATE,
         )
     else:
-        # Fallback to environment variables if settings manager not available
-        client.publish(f"{root}/set/temp_offset", str(TEMP_OFFSET), retain=True)
-        client.publish(f"{root}/set/hum_offset", str(HUM_OFFSET), retain=True)
-        client.publish(f"{root}/set/cpu_temp_factor", str(CPU_TEMP_FACTOR), retain=True)
-        client.publish(f"{root}/set/cpu_temp_smoothing", str(CPU_TEMP_SMOOTHING), retain=True)
+        # Fallback to config if settings manager not available
+        if config:
+            client.publish(
+                f"{root}/set/temp_offset",
+                str(config.temp_offset),
+                retain=Constants.MQTT_RETAIN_STATE,
+            )
+            client.publish(
+                f"{root}/set/hum_offset", str(config.hum_offset), retain=Constants.MQTT_RETAIN_STATE
+            )
+            client.publish(
+                f"{root}/set/cpu_temp_factor",
+                str(config.cpu_temp_factor),
+                retain=Constants.MQTT_RETAIN_STATE,
+            )
+            client.publish(
+                f"{root}/set/cpu_temp_smoothing",
+                str(config.cpu_temp_smoothing),
+                retain=Constants.MQTT_RETAIN_STATE,
+            )
+            client.publish(
+                f"{root}/set/temp_smoothing_minutes",
+                str(config.temp_smoothing_minutes),
+                retain=Constants.MQTT_RETAIN_STATE,
+            )
+            client.publish(
+                f"{root}/set/pressure_offset",
+                str(config.pressure_offset),
+                retain=Constants.MQTT_RETAIN_STATE,
+            )
+            client.publish(
+                f"{root}/set/elevation_meters",
+                str(config.elevation_meters),
+                retain=Constants.MQTT_RETAIN_STATE,
+            )
+            # Note: noise_calibration_offset not in Config, use default from Constants
+            client.publish(
+                f"{root}/set/noise_calibration_offset",
+                str(Constants.NOISE_CALIBRATION_OFFSET),
+                retain=Constants.MQTT_RETAIN_STATE,
+            )
 
     # Subscribe to commands and setters
-    client.subscribe([(cmd_t, 1), (set_t, 1)])
+    client.subscribe([(cmd_t, Constants.MQTT_QOS_COMMAND), (set_t, Constants.MQTT_QOS_COMMAND)])
 
 
 def _handle_command(
-    client: mqtt.Client, payload: str, settings_manager: Optional[SettingsManager] = None
+    client: mqtt.Client,
+    payload: str,
+    settings_manager: Optional[SettingsManager] = None,
 ) -> None:
     """Handle system commands."""
     if payload == "reboot":
         logger.info("Command: reboot")
-        client.publish(avail_t, "offline", retain=True)
+        client.publish(avail_t, "offline", retain=Constants.MQTT_RETAIN_STATE)
         subprocess.Popen(["sudo", "reboot"])
     elif payload == "shutdown":
         logger.info("Command: shutdown")
-        client.publish(avail_t, "offline", retain=True)
+        client.publish(avail_t, "offline", retain=Constants.MQTT_RETAIN_STATE)
         subprocess.Popen(["sudo", "shutdown", "-h", "now"])
     elif payload == "restart_service":
         logger.info("Command: restart service")
@@ -418,20 +515,44 @@ def _handle_command(
                 settings_manager.reset_to_defaults()
                 # Publish the reset values to MQTT
                 client.publish(
-                    f"{root}/set/temp_offset", str(settings_manager.get_temp_offset()), retain=True
+                    f"{root}/set/temp_offset",
+                    str(settings_manager.temp_offset),
+                    retain=Constants.MQTT_RETAIN_STATE,
                 )
                 client.publish(
-                    f"{root}/set/hum_offset", str(settings_manager.get_hum_offset()), retain=True
+                    f"{root}/set/hum_offset",
+                    str(settings_manager.hum_offset),
+                    retain=Constants.MQTT_RETAIN_STATE,
                 )
                 client.publish(
                     f"{root}/set/cpu_temp_factor",
-                    str(settings_manager.get_cpu_temp_factor()),
-                    retain=True,
+                    str(settings_manager.cpu_temp_factor),
+                    retain=Constants.MQTT_RETAIN_STATE,
                 )
                 client.publish(
                     f"{root}/set/cpu_temp_smoothing",
-                    str(settings_manager.get_cpu_temp_smoothing()),
-                    retain=True,
+                    str(settings_manager.cpu_temp_smoothing),
+                    retain=Constants.MQTT_RETAIN_STATE,
+                )
+                client.publish(
+                    f"{root}/set/temp_smoothing_minutes",
+                    str(settings_manager.get_temp_smoothing_minutes()),
+                    retain=Constants.MQTT_RETAIN_STATE,
+                )
+                client.publish(
+                    f"{root}/set/pressure_offset",
+                    str(settings_manager.pressure_offset),
+                    retain=Constants.MQTT_RETAIN_STATE,
+                )
+                client.publish(
+                    f"{root}/set/elevation_meters",
+                    str(settings_manager.elevation_meters),
+                    retain=Constants.MQTT_RETAIN_STATE,
+                )
+                client.publish(
+                    f"{root}/set/noise_calibration_offset",
+                    str(settings_manager.noise_calibration_offset),
+                    retain=Constants.MQTT_RETAIN_STATE,
                 )
                 logger.info("Settings reset successfully")
             except Exception as e:
@@ -441,6 +562,7 @@ def _handle_command(
 
 
 def _handle_calibration_setting(
+    client: mqtt.Client,
     topic: str,
     payload: str,
     enviro_sensors: EnviroPlusSensors,
@@ -470,6 +592,50 @@ def _handle_calibration_setting(
             enviro_sensors.update_calibration(cpu_temp_smoothing=value)
             if settings_manager:
                 settings_manager.set_cpu_temp_smoothing(value)
+        elif key == "temp_smoothing_minutes":
+            original_value = float(payload)
+            value = original_value
+            value_changed = False
+
+            if value < 0.0:
+                logger.warning("Temperature smoothing window must be >= 0, got %s", value)
+                value = 0.0
+                value_changed = True
+            if value > 60.0:
+                logger.warning("Temperature smoothing window should be <= 60, got %s", value)
+                value = 60.0
+                value_changed = True
+
+            enviro_sensors.update_calibration(temp_smoothing_minutes=value)
+            if settings_manager:
+                settings_manager.set_temp_smoothing_minutes(value)
+
+            # Only publish back if value was clamped (changed from original)
+            # This prevents infinite loops while still updating HA if we corrected the value
+            if value_changed:
+                client.publish(
+                    f"{root}/set/temp_smoothing_minutes",
+                    str(value),
+                    retain=Constants.MQTT_RETAIN_STATE,
+                )
+        elif key == "pressure_offset":
+            value = float(payload)
+            enviro_sensors.update_calibration(pressure_offset=value)
+            if settings_manager:
+                settings_manager.pressure_offset = value
+        elif key == "elevation_meters":
+            value = float(payload)
+            if value < 0.0:
+                logger.warning("Elevation cannot be negative, got %s", value)
+                value = 0.0
+            enviro_sensors.update_calibration(elevation_meters=value)
+            if settings_manager:
+                settings_manager.elevation_meters = value
+        elif key == "noise_calibration_offset":
+            value = float(payload)
+            enviro_sensors.update_calibration(noise_calibration_offset=value)
+            if settings_manager:
+                settings_manager.noise_calibration_offset = value
         else:
             logger.warning("Unknown calibration setting: %s", key)
     except ValueError:
@@ -492,55 +658,44 @@ def on_message(
         if topic == cmd_t:
             _handle_command(client, payload, settings_manager)
         elif topic.startswith(f"{root}/set/"):
-            _handle_calibration_setting(topic, payload, enviro_sensors, settings_manager)
+            _handle_calibration_setting(client, topic, payload, enviro_sensors, settings_manager)
     except Exception as e:
         logger.exception("on_message error: %s", e)
 
 
-def validate_config() -> None:
+def validate_config(config: Config) -> None:
     """
     Validate required configuration on startup.
+
+    Args:
+        config: Config instance to validate
 
     Raises:
         SystemExit: If critical configuration is missing
     """
     logger.info("Validating configuration...")
 
-    # Check MQTT_HOST
-    if not MQTT_HOST or MQTT_HOST == "":
-        logger.error("MQTT_HOST is required but not set")
-        logger.error("Please set MQTT_HOST in /etc/default/ha-enviro-plus")
-        sys.exit(1)
-
-    # Check MQTT_PORT
-    if not isinstance(MQTT_PORT, int) or MQTT_PORT <= 0 or MQTT_PORT > 65535:
-        logger.error("MQTT_PORT must be a valid port number (1-65535), got: %s", MQTT_PORT)
+    try:
+        config.validate()
+    except ValueError as e:
+        logger.error("Configuration validation failed: %s", e)
+        logger.error("Please check /etc/default/ha-enviro-plus")
         sys.exit(1)
 
     # Warn about missing authentication
-    if not MQTT_USER:
+    if not config.mqtt_user:
         logger.warning("MQTT_USER not set - using anonymous connection")
         logger.warning("Consider setting MQTT_USER and MQTT_PASS for security")
-
-    # Check poll interval
-    if POLL_SEC <= 0:
-        logger.error("POLL_SEC must be positive, got: %s", POLL_SEC)
-        sys.exit(1)
-
-    # Check calibration values are numeric
-    try:
-        float(TEMP_OFFSET)
-        float(HUM_OFFSET)
-        float(CPU_TEMP_FACTOR)
-        float(CPU_TEMP_SMOOTHING)
-    except (ValueError, TypeError) as e:
-        logger.error("Invalid calibration values: %s", e)
-        sys.exit(1)
 
     logger.info("Configuration validation passed")
 
 
-def signal_handler(signum: int, frame: Any, client: Optional[mqtt.Client] = None) -> None:
+def signal_handler(
+    signum: int,
+    frame: Any,
+    client: Optional[mqtt.Client] = None,
+    display: Optional[Any] = None,
+) -> None:
     """
     Handle shutdown signals gracefully.
 
@@ -548,13 +703,22 @@ def signal_handler(signum: int, frame: Any, client: Optional[mqtt.Client] = None
         signum: Signal number
         frame: Current stack frame
         client: MQTT client to disconnect gracefully
+        display: Display manager to clean up
     """
     signal_name = signal.Signals(signum).name
     logger.info("Received signal %s (%d), shutting down gracefully", signal_name, signum)
 
+    # Clean up display if provided
+    if display:
+        try:
+            display.cleanup()
+            logger.info("Display cleaned up gracefully")
+        except Exception as e:
+            logger.error("Error during display cleanup: %s", e)
+
     if client:
         try:
-            client.publish(avail_t, "offline", retain=True)
+            client.publish(avail_t, "offline", retain=Constants.MQTT_RETAIN_STATE)
             client.loop_stop()
             client.disconnect()
             logger.info("MQTT client disconnected gracefully")
@@ -573,50 +737,173 @@ def signal_handler(signum: int, frame: Any, client: Optional[mqtt.Client] = None
 
 
 def main() -> None:
+    """Main application entry point."""
+    # Load and validate configuration
+    config = Config.from_env()
+
+    # Configure logging with config
+    if config.log_to_file:
+        try:
+            fh = logging.FileHandler(config.log_path)
+            fh.setFormatter(fmt)
+            handlers.append(fh)
+        except Exception:
+            pass
+
+    for h in handlers:
+        h.setFormatter(fmt)
+        logger.handlers = []
+        logger.addHandler(h)
+
     logger.info("%s starting (v%s)", APP_NAME, VERSION)
 
     # Validate configuration before proceeding
-    validate_config()
+    validate_config(config)
 
     logger.info("Root topic: %s", root)
-    logger.info("Discovery prefix: %s", MQTT_DISCOVERY_PREFIX)
-    logger.info("Poll interval: %ss", POLL_SEC)
+    logger.info("Discovery prefix: %s", config.mqtt_discovery_prefix)
+    logger.info("Poll interval: %ss", config.poll_sec)
 
     # Initialize settings manager
     settings_manager = SettingsManager(logger=logger)
 
-    # Load persistent settings, falling back to environment variables
-    temp_offset = settings_manager.get_temp_offset()
-    hum_offset = settings_manager.get_hum_offset()
-    cpu_temp_factor = settings_manager.get_cpu_temp_factor()
-    cpu_temp_smoothing = settings_manager.get_cpu_temp_smoothing()
+    # Load persistent settings, falling back to config
+    temp_offset: float = settings_manager.temp_offset
+    hum_offset: float = settings_manager.hum_offset
+    cpu_temp_factor: float = settings_manager.cpu_temp_factor
+    cpu_temp_smoothing: float = settings_manager.cpu_temp_smoothing
+    temp_smoothing_minutes: float = config.temp_smoothing_minutes
+    pressure_offset: float = (
+        settings_manager.pressure_offset
+        if hasattr(settings_manager, "pressure_offset")
+        else config.pressure_offset
+    )
+    elevation_meters: float = (
+        settings_manager.elevation_meters
+        if hasattr(settings_manager, "elevation_meters")
+        else config.elevation_meters
+    )
+
+    # Load units setting (from config or settings file)
+    units = config.units
+    if units not in ("metric", "imperial"):
+        logger.warning("Invalid units setting: %s, using 'metric'", units)
+        units = "metric"
+    settings_manager.units = units
 
     logger.info(
-        "Initial offsets: TEMP=%s°C HUM=%s%% CPU_FACTOR=%s CPU_SMOOTHING=%s",
+        "Initial offsets: TEMP=%s°C HUM=%s%% CPU_FACTOR=%s CPU_SMOOTHING=%s TEMP_SMOOTHING=%s min PRESSURE=%s hPa ELEVATION=%s m UNITS=%s",
         temp_offset,
         hum_offset,
         cpu_temp_factor,
         cpu_temp_smoothing,
+        temp_smoothing_minutes,
+        pressure_offset,
+        elevation_meters,
+        units,
     )
 
     # Initialize sensor manager with current calibration values
+    # Get noise calibration offset from settings manager if available
+    noise_calibration_offset = (
+        settings_manager.noise_calibration_offset
+        if settings_manager
+        else Constants.NOISE_CALIBRATION_OFFSET
+    )
+
     enviro_sensors = EnviroPlusSensors(
         temp_offset=temp_offset,
         hum_offset=hum_offset,
         cpu_temp_factor=cpu_temp_factor,
         cpu_temp_smoothing=cpu_temp_smoothing,
+        temp_smoothing_minutes=temp_smoothing_minutes,
+        pressure_offset=pressure_offset,
+        elevation_meters=elevation_meters,
+        noise_calibration_offset=noise_calibration_offset,
         logger=logger,
     )
 
+    # Initialize display and show splash screen (skip in tests when disabled)
+    display = None
+    # Display splash screen during startup (skipped in tests)
+    if config.display_enabled and os.getenv("PYTEST_CURRENT_TEST") is None:
+        try:
+            display = DisplayManager(
+                logger=logger,
+                enabled=config.display_enabled,
+                auto_rotate=config.display_auto_rotate,
+                rotation_interval=config.display_rotation_interval,
+            )
+            if display.display_available:
+                # Display is already cleared during initialization
+                # Queue splash screen - this is non-blocking now!
+                display.show_splash(duration=8, fade_duration=2)
+                logger.info("Splash screen queued for display")
+        except Exception as e:
+            logger.warning("Failed to initialize display: %s, continuing without splash", e)
+
+    # Sensor warm-up period - read sensors and discard initial readings
+    if config.sensor_warmup_sec > 0:
+        logger.info("Warming up sensors for %.1f seconds...", config.sensor_warmup_sec)
+        warmup_start = time.time()
+
+        while time.time() - warmup_start < config.sensor_warmup_sec:
+            # Read sensors but don't publish (only if available)
+            try:
+                if enviro_sensors.has_sensor("bme280"):
+                    _ = enviro_sensors.temp()
+                    _ = enviro_sensors.humidity()
+                    _ = enviro_sensors.pressure()
+            except Exception:
+                pass  # Ignore errors during warm-up
+            time.sleep(0.1)  # Small delay between reads
+
+        logger.info("Sensor warm-up complete")
+
+    # Discover and start display plugins after splash screen
+    if display and display.display_available:
+        try:
+            # Wait a bit for splash screen to display, then discover plugins
+            # We'll start plugin cycle after splash completes
+            available_plugins = get_available_plugins(enviro_sensors, settings_manager)
+            if available_plugins:
+                logger.info(
+                    "Found %d available display plugin(s): %s",
+                    len(available_plugins),
+                    ", ".join([p.name() for p in available_plugins]),
+                )
+                # Initialize plugin data first, before starting cycle
+                display.update_plugin_data(enviro_sensors, settings_manager)
+                # Start plugin cycle (will begin after splash completes)
+                display.start_plugin_cycle(available_plugins)
+            else:
+                logger.warning("No display plugins available")
+        except Exception as e:
+            logger.error("Failed to initialize display plugins: %s", e)
+            if display:
+                display.show_error_message(f"Plugin error: {str(e)}")
+
     client = mqtt.Client(client_id=root, protocol=mqtt.MQTTv5)
-    if MQTT_USER:
-        client.username_pw_set(MQTT_USER, MQTT_PASS)
-    client.will_set(avail_t, "offline", retain=True)
+    if config.mqtt_user:
+        client.username_pw_set(config.mqtt_user, config.mqtt_pass)
+    client.will_set(avail_t, "offline", retain=Constants.MQTT_RETAIN_STATE)
 
-    # Set userdata to pass settings manager to callbacks
-    client.user_data_set({"settings_manager": settings_manager})
+    # Set userdata to pass config, settings manager and sensors to callbacks
+    client.user_data_set(
+        {
+            "config": config,
+            "settings_manager": settings_manager,
+            "enviro_sensors": enviro_sensors,
+        }
+    )
 
-    client.on_connect = on_connect
+    # Create wrapper for on_connect that includes config
+    def connect_wrapper(
+        client: mqtt.Client, userdata: Any, flags: Any, rc: int, properties: Any = None
+    ) -> None:
+        on_connect(client, userdata, flags, rc, properties, config=config)
+
+    client.on_connect = connect_wrapper
 
     # Create a wrapper for on_message that includes the sensor instance
     def message_wrapper(client: mqtt.Client, userdata: Any, msg: mqtt.MQTTMessage) -> None:
@@ -626,15 +913,15 @@ def main() -> None:
 
     # Register signal handlers for graceful shutdown
     def sigterm_handler(signum: int, frame: Any) -> None:
-        signal_handler(signum, frame, client)
+        signal_handler(signum, frame, client, display)
 
     def sigint_handler(signum: int, frame: Any) -> None:
-        signal_handler(signum, frame, client)
+        signal_handler(signum, frame, client, display)
 
     signal.signal(signal.SIGTERM, sigterm_handler)
     signal.signal(signal.SIGINT, sigint_handler)
 
-    client.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
+    client.connect(config.mqtt_host, config.mqtt_port, keepalive=Constants.MQTT_KEEPALIVE)
     client.loop_start()
 
     # Publish static device attributes once
@@ -642,27 +929,105 @@ def main() -> None:
         "model": get_model(),
         "serial": get_serial(),
     }
-    client.publish(f"{root}/device/attributes", json.dumps(static), retain=True)
+    client.publish(
+        f"{root}/device/attributes", json.dumps(static), retain=Constants.MQTT_RETAIN_STATE
+    )
+
+    # Track previous values to only publish changes
+    previous_vals: Dict[str, Any] = {}
 
     try:
         while True:
             vals = read_all(enviro_sensors)
             for tail, val in vals.items():
-                client.publish(f"{root}/{tail}", str(val), retain=True)
-            time.sleep(POLL_SEC)
+                # Convert value to string for comparison
+                val_str = str(val)
+
+                # Check if value has changed (with tolerance for floats)
+                if tail not in previous_vals:
+                    # First time seeing this value - always publish
+                    client.publish(f"{root}/{tail}", val_str, retain=Constants.MQTT_RETAIN_STATE)
+                    previous_vals[tail] = val_str
+                    # Log first proximity publication for debugging
+                    if tail == "ltr559/proximity":
+                        logger.info("Published initial proximity value: %s", val_str)
+                    # Log first noise sensor publication for debugging
+                    if tail.startswith("noise/"):
+                        logger.info("Published initial noise sensor value: %s = %s", tail, val_str)
+                else:
+                    # Compare with previous value
+                    prev_val_str = previous_vals[tail]
+
+                    # For numeric values, compare with small tolerance
+                    try:
+                        prev_val_float = float(prev_val_str)
+                        val_float = float(val_str)
+                        # Use tolerance for floating point comparison
+                        if abs(val_float - prev_val_float) > Constants.FLOAT_TOLERANCE:
+                            client.publish(
+                                f"{root}/{tail}", val_str, retain=Constants.MQTT_RETAIN_STATE
+                            )
+                            previous_vals[tail] = val_str
+                            # Log proximity changes for debugging
+                            if tail == "ltr559/proximity":
+                                logger.debug(
+                                    "Published proximity: %.0f (change: %.0f)",
+                                    val_float,
+                                    val_float - prev_val_float,
+                                )
+                    except (ValueError, TypeError):
+                        # Non-numeric values - string comparison
+                        if val_str != prev_val_str:
+                            client.publish(
+                                f"{root}/{tail}", val_str, retain=Constants.MQTT_RETAIN_STATE
+                            )
+                            previous_vals[tail] = val_str
+
+            # Update display plugin data periodically
+            if display and display.display_available:
+                try:
+                    display.update_plugin_data(enviro_sensors, settings_manager)
+
+                    # Check for proximity tap detection more frequently for responsiveness
+                    # Check taps every 0.1s during the poll interval instead of once per interval
+                    if enviro_sensors.has_sensor("ltr559"):
+                        tap_check_interval = 0.1  # Check taps every 100ms for responsiveness
+                        remaining_time = config.poll_sec
+                        while remaining_time > 0:
+                            check_start = time.time()
+                            try:
+                                proximity_value = enviro_sensors.proximity()
+                                if display.check_proximity_tap(proximity_value):
+                                    display.handle_tap()
+                                    # After tap, continue checking immediately for rapid taps
+                                    time.sleep(0.05)
+                                    remaining_time -= time.time() - check_start
+                                    continue
+                            except Exception as e:
+                                pass  # Silently ignore tap check errors
+                            # Sleep for tap check interval, but don't exceed remaining time
+                            sleep_time = min(tap_check_interval, remaining_time)
+                            if sleep_time > 0:
+                                time.sleep(sleep_time)
+                            remaining_time -= time.time() - check_start
+                except Exception as e:
+                    logger.warning("Failed to update display plugin data: %s", e)
+            else:
+                # No display, just sleep for poll interval
+                time.sleep(config.poll_sec)
     except KeyboardInterrupt:
         logger.info("Received KeyboardInterrupt, shutting down gracefully")
-        signal_handler(signal.SIGINT, None, client)
+        signal_handler(signal.SIGINT, None, client, display)
     except Exception as e:
         logger.error("Unexpected error in main loop: %s", e)
         logger.info("Shutting down gracefully due to error")
-        signal_handler(signal.SIGTERM, None, client)
+        signal_handler(signal.SIGTERM, None, client, display)
     finally:
         # This should not be reached due to signal_handler calling sys.exit()
         # But keeping it as a safety net for cases where signal_handler wasn't called
         try:
             if client:
-                client.publish(avail_t, "offline", retain=True)
+                client.publish(avail_t, "offline", retain=Constants.MQTT_RETAIN_STATE)
                 client.loop_stop()
                 client.disconnect()
         except Exception:

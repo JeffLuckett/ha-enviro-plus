@@ -14,6 +14,60 @@ sys.modules["enviroplus"] = MagicMock()
 sys.modules["enviroplus.gas"] = MagicMock()
 sys.modules["gpiod"] = MagicMock()
 sys.modules["spidev"] = MagicMock()
+sys.modules["sounddevice"] = MagicMock()
+
+# Mock scipy.signal.butter to return proper filter coefficients
+scipy_mock = MagicMock()
+scipy_signal_mock = MagicMock()
+
+
+def mock_butter(*args, **kwargs):
+    """Mock butter filter that returns (b, a) coefficients."""
+    # Return a simple mock filter coefficients tuple
+    return ([1.0, 2.0, 1.0], [1.0, -0.5, 0.3])
+
+
+scipy_signal_mock.butter = mock_butter
+scipy_mock.signal = scipy_signal_mock
+
+# Mock scipy.io.wavfile for noise sensor tests
+scipy_io_mock = MagicMock()
+scipy_io_wavfile_mock = MagicMock()
+scipy_io_mock.wavfile = scipy_io_wavfile_mock
+scipy_mock.io = scipy_io_mock
+
+sys.modules["scipy"] = scipy_mock
+sys.modules["scipy.signal"] = scipy_signal_mock
+sys.modules["scipy.io"] = scipy_io_mock
+sys.modules["scipy.io.wavfile"] = scipy_io_wavfile_mock
+
+# Mock numpy properly to avoid isinstance issues
+# Try to import numpy, if it fails, create a proper mock
+try:
+    import numpy
+
+    # If numpy is available, use it (but still register it in sys.modules for consistency)
+    sys.modules["numpy"] = numpy
+except ImportError:
+    # Create a simple class that mimics numpy for isinstance checks
+    class NumpyMock:
+        """Mock numpy module that works with isinstance checks."""
+
+        bool_ = bool  # Use Python's bool type
+
+        def array(self, *args, **kwargs):
+            return MagicMock()
+
+        def isscalar(self, obj):
+            """Check if object is a scalar."""
+            return isinstance(obj, (int, float, bool, str, bytes))
+
+        def __getattr__(self, name):
+            """Return MagicMock for any other attribute."""
+            return MagicMock()
+
+    numpy_mock = NumpyMock()
+    sys.modules["numpy"] = numpy_mock
 
 
 @pytest.fixture
@@ -34,6 +88,7 @@ def mock_ltr559(mocker):
     mock = mocker.patch("ha_enviro_plus.sensors.LTR559")
     instance = Mock()
     instance.get_lux.return_value = 150.0
+    instance.get_proximity.return_value = 50.0
     mock.return_value = instance
     return instance
 
@@ -244,23 +299,6 @@ def sample_system_data():
     }
 
 
-def hardware_available():
-    """Check if hardware is available for testing."""
-    try:
-        from bme280 import BME280
-
-        BME280(i2c_addr=0x76)
-        return True
-    except Exception:
-        return False
-
-
-@pytest.fixture
-def hardware_skipif():
-    """Skipif marker for hardware tests."""
-    return pytest.mark.skipif(not hardware_available(), reason="Hardware not detected")
-
-
 @pytest.fixture
 def mock_env_vars(mocker):
     """Mock environment variables."""
@@ -284,7 +322,7 @@ def mock_env_vars(mocker):
 @pytest.fixture
 def mock_socket(mocker):
     """Mock socket operations."""
-    mock_gethostname = mocker.patch("ha_enviro_plus.agent.socket.gethostname")
+    mock_gethostname = mocker.patch("ha_enviro_plus.system_info.socket.gethostname")
     mock_gethostname.return_value = "raspberrypi"
     return mock_gethostname
 
@@ -292,6 +330,23 @@ def mock_socket(mocker):
 @pytest.fixture
 def mock_platform(mocker):
     """Mock platform operations."""
-    mock_platform = mocker.patch("ha_enviro_plus.agent.platform.platform")
+    mock_platform = mocker.patch("ha_enviro_plus.system_info.platform.platform")
     mock_platform.return_value = "Linux-5.15.0-rpi4-aarch64-with-glibc2.31"
     return mock_platform
+
+
+@pytest.fixture
+def tmp_settings_dir(tmp_path):
+    """
+    Create a temporary directory for settings files.
+
+    This fixture provides a temporary directory that's automatically cleaned up
+    after each test. Use with patch to override SETTINGS_DIR.
+
+    Example:
+        def test_something(tmp_settings_dir):
+            with patch("ha_enviro_plus.settings.Constants.SETTINGS_DIR", tmp_settings_dir):
+                manager = SettingsManager()
+                # test code
+    """
+    return tmp_path / "ha-enviro-plus-settings"
