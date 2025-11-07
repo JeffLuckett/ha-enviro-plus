@@ -52,10 +52,10 @@ class Constants:
     # Calibration: maps RMS value to dB(A)
     # For I2S microphone (adau7002), calibrated based on typical quiet room (30 dB)
     # This is an empirical calibration - adjust based on reference SPL meter
-    # Formula: dB(A) = 20 * log10(filtered_rms) + NOISE_CALIBRATION_OFFSET
+    # Formula: dB(A) = 20 * log10(raw_rms) + NOISE_CALIBRATION_OFFSET
+    # Using raw RMS instead of filtered RMS because A-weighting reduces signal too much
     # Calibrated for quiet room (30 dB) with raw RMS ~0.049
-    # After A-weighting, filtered RMS is typically 10-20% of raw RMS
-    # If filtered RMS ≈ 0.005 for 30 dB: 30 = 20*log10(0.005) + offset = -46 + offset
-    # Therefore: offset ≈ 76 dB
-    # Using 80 dB as a starting point - adjust based on actual measurements
-    NOISE_CALIBRATION_OFFSET = 80.0  # dB offset for I2S microphone calibration
+    # If raw RMS ≈ 0.049 for 30 dB: 30 = 20*log10(0.049) + offset = -26 + offset
+    # Therefore: offset ≈ 56 dB
+    # Using 60 dB as starting point - adjust based on actual measurements
+    NOISE_CALIBRATION_OFFSET = 60.0  # dB offset for I2S microphone calibration

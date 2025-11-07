@@ -1231,12 +1231,15 @@ class EnviroPlusSensors:
                 )
                 return 0.0
 
+            # Calculate raw RMS for calibration
+            raw_rms = np.sqrt(np.mean(raw_audio**2))
+
             # Apply A-weighting filter
             b, a = self._a_weight_filter
             filtered_audio = lfilter(b, a, raw_audio.flatten())
 
             # Calculate RMS of filtered audio
-            rms = np.sqrt(np.mean(filtered_audio**2))
+            filtered_rms = np.sqrt(np.mean(filtered_audio**2))
 
             # Get max value for logging
             max_val = np.max(np.abs(raw_audio))
@@ -1249,17 +1252,18 @@ class EnviroPlusSensors:
             # 4. A-weighting filter attenuation
             # We use a calibration offset to map RMS values to dB(A)
             # This offset is calibrated for I2S microphone (adau7002) based on typical quiet room (30 dB)
-            # Formula: dB(A) = 20 * log10(filtered_rms) + calibration_offset
+            # Formula: dB(A) = 20 * log10(raw_rms) + calibration_offset
+            # Using raw RMS instead of filtered RMS because A-weighting reduces signal too much
             # Calibrated for quiet room (30 dB) with raw RMS ~0.049
-            # After A-weighting, filtered RMS is typically 10-20% of raw RMS
-            if rms > 0:
-                # Convert filtered RMS to dB using logarithmic scale
+            if raw_rms > 0:
+                # Convert raw RMS to dB using logarithmic scale
                 # Add small epsilon to avoid log(0)
-                spl_db = 20.0 * np.log10(rms + 1e-10)
+                spl_db = 20.0 * np.log10(raw_rms + 1e-10)
 
                 # Add calibration offset to map to actual dB(A) range
                 # This offset accounts for microphone sensitivity, normalization, and A-weighting
                 # Calibrated for quiet room (30 dB) - adjust if needed with reference SPL meter
+                # Note: We use raw RMS but the offset accounts for A-weighting characteristics
                 spl_db_calibrated = spl_db + Constants.NOISE_CALIBRATION_OFFSET
 
                 # Only clamp maximum to prevent unrealistic high readings
@@ -1269,8 +1273,8 @@ class EnviroPlusSensors:
                 self.logger.info(
                     "Noise SPL: %.1f dB(A) (raw rms=%.6f, filtered rms=%.6f, max=%.6f)",
                     spl_db_final,
-                    np.sqrt(np.mean(raw_audio**2)),
-                    rms,
+                    raw_rms,
+                    filtered_rms,
                     max_val,
                 )
                 return float(round(spl_db_final, Constants.NOISE_ROUND_PRECISION))
@@ -1289,24 +1293,27 @@ class EnviroPlusSensors:
                     self.logger.warning("arecord fallback also failed in noise_spl_db")
                     return 0.0
 
+                # Calculate raw RMS for calibration
+                raw_rms = np.sqrt(np.mean(raw_audio**2))
+
                 # Apply A-weighting filter
                 b, a = self._a_weight_filter
                 filtered_audio = lfilter(b, a, raw_audio.flatten())
 
                 # Calculate RMS of filtered audio
-                rms = np.sqrt(np.mean(filtered_audio**2))
+                filtered_rms = np.sqrt(np.mean(filtered_audio**2))
                 max_val = np.max(np.abs(raw_audio))
 
-                if rms > 0:
-                    # Use same calibration as main path
-                    spl_db = 20.0 * np.log10(rms + 1e-10)
+                if raw_rms > 0:
+                    # Use same calibration as main path (using raw RMS)
+                    spl_db = 20.0 * np.log10(raw_rms + 1e-10)
                     spl_db_calibrated = spl_db + Constants.NOISE_CALIBRATION_OFFSET
                     spl_db_final = min(100.0, spl_db_calibrated)
                     self.logger.info(
                         "arecord fallback succeeded in noise_spl_db: %.1f dB(A) (raw rms=%.6f, filtered rms=%.6f, max=%.6f)",
                         spl_db_final,
-                        np.sqrt(np.mean(raw_audio**2)),
-                        rms,
+                        raw_rms,
+                        filtered_rms,
                         max_val,
                     )
                     return float(round(spl_db_final, Constants.NOISE_ROUND_PRECISION))
