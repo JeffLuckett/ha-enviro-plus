@@ -744,8 +744,9 @@ class DisplayManager:
         Tap detection logic:
         - Proximity value rises above threshold (object detected, > baseline)
         - Proximity value stays high for minimum time
-        - Proximity value falls back to baseline (object removed)
+        - Tap is detected immediately when threshold is met (no need to wait for low)
         - Debounce: ignore taps within debounce time window
+        - Supports rapid taps while hovering (doesn't require return to baseline)
 
         Note: Proximity sensor baseline is ~30, max tap is ~1236.
         Threshold is set to 1000 to detect actual contact/near-contact taps.
@@ -770,13 +771,14 @@ class DisplayManager:
             # Proximity just went high - start tracking
             self._proximity_high_time = current_time
 
-        # Check if proximity has been high long enough and then goes low (back to baseline)
+        # Detect tap when proximity has been high for minimum time
+        # This allows immediate tap detection without waiting for return to baseline
         if (
-            self._proximity_high_time > 0
-            and proximity_low
+            proximity_high
+            and self._proximity_high_time > 0
             and self._proximity_last_value > self._proximity_threshold
         ):
-            # Proximity just went low after being high - potential tap
+            # Proximity is currently high and has been high for a while
             high_duration = current_time - self._proximity_high_time
 
             # Check debounce: ignore taps too close together
@@ -786,24 +788,21 @@ class DisplayManager:
                 high_duration >= self._proximity_high_threshold_time
                 and time_since_last_change >= self._tap_debounce_time
             ):
-                # Valid tap detected
+                # Valid tap detected - proximity has been high long enough
                 self._proximity_last_change_time = current_time
-                self._proximity_high_time = 0.0
+                # Reset high time to allow detecting another tap while still hovering
+                self._proximity_high_time = current_time
                 self.logger.info(
                     "Tap detected! (proximity high for %.2fs, peak: %.0f)",
                     high_duration,
-                    self._proximity_last_value,
+                    proximity_value,
                 )
                 return True
-            else:
-                # Proximity went low but didn't meet tap criteria - reset tracking
-                self._proximity_high_time = 0.0
 
-        # Reset high time if proximity stays low for too long (prevents accumulation)
+        # Reset tracking when proximity goes low
         if proximity_low and self._proximity_high_time > 0:
-            high_duration = current_time - self._proximity_high_time
-            if high_duration > 1.0:  # Reset if high for more than 1 second
-                self._proximity_high_time = 0.0
+            # Proximity returned to baseline - reset tracking
+            self._proximity_high_time = 0.0
 
         # Update last value
         self._proximity_last_value = proximity_value

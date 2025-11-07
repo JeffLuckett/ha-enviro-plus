@@ -391,13 +391,13 @@ class TestDisplayPluginIntegration:
             # Simulate tap detection
             initial_index = display._plugin_cycle_index
 
-            # Simulate proximity tap: low -> high -> low
+            # Simulate proximity tap: low -> high (stays high)
             display.check_proximity_tap(10.0)  # Low
-            display.check_proximity_tap(75.0)  # High
+            display.check_proximity_tap(75.0)  # High - starts tracking
             import time
 
             time.sleep(0.15)  # Wait for minimum time
-            tap_detected = display.check_proximity_tap(10.0)  # Low - tap complete
+            tap_detected = display.check_proximity_tap(75.0)  # Still high - tap detected
 
             if tap_detected:
                 display.handle_tap()

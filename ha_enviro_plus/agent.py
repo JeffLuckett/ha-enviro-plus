@@ -956,7 +956,7 @@ def main() -> None:
                                 proximity_value = enviro_sensors.proximity()
                                 if display.check_proximity_tap(proximity_value):
                                     display.handle_tap()
-                                    logger.info("Tap detected! Proximity: %.0f", proximity_value)
+                                    logger.info("Tap detected!")
                                     # After tap, continue checking immediately for rapid taps
                                     time.sleep(0.05)
                                     remaining_time -= time.time() - check_start

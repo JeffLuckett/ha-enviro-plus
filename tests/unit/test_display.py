@@ -250,24 +250,52 @@ class TestDisplayManager:
         display = DisplayManager(enabled=False)
         display._plugin_cycle_active = True
         display._proximity_threshold = 50.0
+        display._proximity_baseline = 30.0
         display._proximity_last_value = 0.0
         display._proximity_last_change_time = 0.0
+        display._proximity_high_threshold_time = 0.05
 
-        # Simulate tap: proximity goes high then low
+        # Simulate tap: proximity goes high and stays high
         # Low value
         result1 = display.check_proximity_tap(10.0)
         assert result1 is False
 
-        # High value (above threshold)
+        # High value (above threshold) - starts tracking
         result2 = display.check_proximity_tap(75.0)
-        assert result2 is False  # Not yet detected
+        assert result2 is False  # Not yet detected (needs minimum time)
 
-        # Wait a bit (simulate time passing)
-        time.sleep(0.15)
+        # Wait for minimum time
+        time.sleep(0.06)
 
-        # Low value again (tap complete)
-        result3 = display.check_proximity_tap(10.0)
+        # Still high - tap detected!
+        result3 = display.check_proximity_tap(75.0)
         assert result3 is True  # Tap detected!
+
+    def test_check_proximity_tap_rapid_taps(self):
+        """Test rapid tap detection while hovering."""
+        import time
+        from ha_enviro_plus.display import DisplayManager
+
+        display = DisplayManager(enabled=False)
+        display._plugin_cycle_active = True
+        display._proximity_threshold = 50.0
+        display._proximity_baseline = 30.0
+        display._proximity_last_value = 0.0
+        display._proximity_last_change_time = 0.0
+        display._proximity_high_threshold_time = 0.05
+        display._tap_debounce_time = 0.1
+
+        # First tap - proximity goes high
+        display.check_proximity_tap(10.0)  # Low
+        display.check_proximity_tap(75.0)  # High - starts tracking
+        time.sleep(0.06)  # Wait for minimum time
+        result1 = display.check_proximity_tap(75.0)  # Still high - tap detected
+        assert result1 is True
+
+        # Second tap while still hovering (after debounce)
+        time.sleep(0.15)  # Wait for debounce time
+        result2 = display.check_proximity_tap(75.0)  # Still high - should detect another tap
+        assert result2 is True  # Rapid tap detected!
 
     def test_check_proximity_tap_debounce(self):
         """Test that tap detection respects debounce time."""
@@ -277,21 +305,22 @@ class TestDisplayManager:
         display = DisplayManager(enabled=False)
         display._plugin_cycle_active = True
         display._proximity_threshold = 50.0
+        display._proximity_baseline = 30.0
         display._proximity_last_value = 0.0
         display._proximity_last_change_time = 0.0
+        display._proximity_high_threshold_time = 0.05
         display._tap_debounce_time = 0.3
 
-        # First tap
+        # First tap - proximity goes high
         display.check_proximity_tap(10.0)  # Low
-        display.check_proximity_tap(75.0)  # High
-        time.sleep(0.15)
-        result1 = display.check_proximity_tap(10.0)  # Low - tap detected
+        display.check_proximity_tap(75.0)  # High - starts tracking
+        time.sleep(0.06)  # Wait for minimum time
+        result1 = display.check_proximity_tap(75.0)  # Still high - tap detected
         assert result1 is True
 
-        # Second tap too soon (within debounce time)
-        display.check_proximity_tap(75.0)  # High
-        time.sleep(0.15)
-        result2 = display.check_proximity_tap(10.0)  # Low - should be ignored
+        # Second tap too soon (within debounce time) - still hovering
+        time.sleep(0.1)  # Not enough time for debounce
+        result2 = display.check_proximity_tap(75.0)  # Still high - should be ignored
         assert result2 is False  # Debounced
 
     def test_handle_tap(self):
