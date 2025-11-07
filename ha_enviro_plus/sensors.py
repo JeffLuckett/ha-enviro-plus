@@ -146,111 +146,71 @@ class EnviroPlusSensors:
                 self._gas_available = False
 
             # Check if noise sensor (microphone) is available
+            # On Enviro+, the I2S microphone (adau7002) may not be detected by device enumeration
+            # but can still work via PortAudio/ALSA. We prioritize test recording which is more reliable.
             if NOISE_SENSOR_AVAILABLE:
                 try:
-                    # Try multiple methods to detect microphone availability
-                    # Method 1: Query all input devices
-                    devices = sd.query_devices(kind="input")
-                    if devices and len(devices) > 0:
-                        self._noise_available = True
-                        self.logger.info(
-                            "Noise sensor (microphone) available - found %d input device(s)",
-                            len(devices),
+                    # Method 1: Try test recording first (most reliable for I2S microphones)
+                    # This works even if device enumeration doesn't find the microphone
+                    try:
+                        test_data = sd.rec(
+                            frames=100,
+                            samplerate=Constants.NOISE_SAMPLE_RATE,
+                            channels=1,
+                            dtype="float32",
                         )
-                    else:
-                        # Method 2: Try to get default input device
-                        try:
+                        sd.wait()  # Wait for recording to complete
+                        if test_data is not None and len(test_data) > 0:
+                            self._noise_available = True
+                            self.logger.info(
+                                "Noise sensor (microphone) available - verified by test recording"
+                            )
+                        else:
+                            # Test recording returned no data, try device enumeration
+                            raise ValueError("Test recording returned no data")
+                    except Exception as test_error:
+                        # Test recording failed, try device enumeration as fallback
+                        self.logger.debug(
+                            "Test recording failed, trying device enumeration: %s", test_error
+                        )
+                        # Method 2: Query all input devices
+                        devices = sd.query_devices(kind="input")
+                        if devices and len(devices) > 0:
+                            self._noise_available = True
+                            self.logger.info(
+                                "Noise sensor (microphone) available - found %d input device(s)",
+                                len(devices),
+                            )
+                        else:
+                            # Method 3: Try to get default input device (if >= 0)
                             default_input = sd.default.device[0]  # Input device index
-                            if default_input is not None:
-                                default_device_info = sd.query_devices(default_input)
-                                if (
-                                    default_device_info
-                                    and default_device_info.get("max_input_channels", 0) > 0
-                                ):
-                                    self._noise_available = True
-                                    self.logger.info(
-                                        "Noise sensor (microphone) available - using default input device: %s",
-                                        default_device_info.get("name", "unknown"),
-                                    )
-                                else:
-                                    # Method 3: Try to open a test stream to verify microphone works
-                                    # This is more reliable than query_devices on some systems
-                                    # Use sd.rec() with a very short duration to test
-                                    try:
-                                        # Try to read a tiny chunk to verify microphone works
-                                        test_data = sd.rec(
-                                            frames=100,
-                                            samplerate=Constants.NOISE_SAMPLE_RATE,
-                                            channels=1,
-                                            dtype="float32",
-                                        )
-                                        sd.wait()  # Wait for recording to complete
-                                        if test_data is not None and len(test_data) > 0:
-                                            self._noise_available = True
-                                            self.logger.info(
-                                                "Noise sensor (microphone) available - verified by test recording"
-                                            )
-                                        else:
-                                            self.logger.warning(
-                                                "Noise sensor test recording returned no data - noise sensor will be unavailable"
-                                            )
-                                            self._noise_available = False
-                                    except Exception as stream_error:
-                                        self.logger.warning(
-                                            "Noise sensor test recording failed: %s - noise sensor will be unavailable",
-                                            stream_error,
-                                        )
-                                        self._noise_available = False
-                            else:
-                                # No default input device, try test recording
+                            if default_input is not None and default_input >= 0:
                                 try:
-                                    test_data = sd.rec(
-                                        frames=100,
-                                        samplerate=Constants.NOISE_SAMPLE_RATE,
-                                        channels=1,
-                                        dtype="float32",
-                                    )
-                                    sd.wait()
-                                    if test_data is not None and len(test_data) > 0:
+                                    default_device_info = sd.query_devices(default_input)
+                                    if (
+                                        default_device_info
+                                        and default_device_info.get("max_input_channels", 0) > 0
+                                    ):
                                         self._noise_available = True
                                         self.logger.info(
-                                            "Noise sensor (microphone) available - verified by test recording"
+                                            "Noise sensor (microphone) available - using default input device: %s",
+                                            default_device_info.get("name", "unknown"),
                                         )
                                     else:
                                         self.logger.warning(
-                                            "Noise sensor test recording returned no data - noise sensor will be unavailable"
+                                            "No microphone input device found - noise sensor will be unavailable"
                                         )
                                         self._noise_available = False
-                                except Exception as stream_error:
+                                except Exception as query_error:
                                     self.logger.warning(
-                                        "Noise sensor test recording failed: %s - noise sensor will be unavailable",
-                                        stream_error,
+                                        "Noise sensor device query failed: %s - noise sensor will be unavailable",
+                                        query_error,
                                     )
                                     self._noise_available = False
-                        except Exception as default_error:
-                            # If default device query fails, try test recording as fallback
-                            try:
-                                test_data = sd.rec(
-                                    frames=100,
-                                    samplerate=Constants.NOISE_SAMPLE_RATE,
-                                    channels=1,
-                                    dtype="float32",
-                                )
-                                sd.wait()
-                                if test_data is not None and len(test_data) > 0:
-                                    self._noise_available = True
-                                    self.logger.info(
-                                        "Noise sensor (microphone) available - verified by test recording (fallback)"
-                                    )
-                                else:
-                                    self.logger.warning(
-                                        "Noise sensor test recording returned no data - noise sensor will be unavailable"
-                                    )
-                                    self._noise_available = False
-                            except Exception as stream_error:
+                            else:
                                 self.logger.warning(
-                                    "Noise sensor test recording failed: %s - noise sensor will be unavailable",
-                                    stream_error,
+                                    "No microphone input device found (default device: %s) - noise sensor will be unavailable",
+                                    default_input,
                                 )
                                 self._noise_available = False
                 except Exception as e:
