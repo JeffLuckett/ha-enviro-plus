@@ -973,14 +973,30 @@ class EnviroPlusSensors:
                     device = None
 
             # Read audio chunk - use explicit device if found, otherwise default
+            # Use blocking=False and timeout to prevent hanging on shutdown
+            # Calculate timeout based on chunk size and sample rate
+            timeout_seconds = (
+                Constants.NOISE_CHUNK_SIZE / Constants.NOISE_SAMPLE_RATE
+            ) + 0.1  # Add 100ms buffer
+
             audio_data = sd.rec(
                 Constants.NOISE_CHUNK_SIZE,
                 samplerate=Constants.NOISE_SAMPLE_RATE,
                 channels=1,
                 dtype="float32",
                 device=device,  # Use explicit ALSA device if found, otherwise default
+                blocking=False,  # Non-blocking to allow graceful shutdown
             )
-            sd.wait()  # Wait for recording to complete
+            # Wait for recording with timeout to prevent hanging
+            try:
+                sd.wait(timeout=timeout_seconds)
+            except KeyboardInterrupt:
+                # Allow graceful shutdown if interrupted
+                raise
+            except Exception as wait_error:
+                # If wait times out or fails, return None
+                self.logger.debug("Recording wait failed or timed out: %s", wait_error)
+                return None
 
             # Convert to numpy array if needed
             if not isinstance(audio_data, np.ndarray):
@@ -1050,14 +1066,30 @@ class EnviroPlusSensors:
                     device = None
 
             # Read audio chunk - use explicit device if found, otherwise default
+            # Use blocking=False and timeout to prevent hanging on shutdown
+            # Calculate timeout based on chunk size and sample rate
+            timeout_seconds = (
+                Constants.NOISE_CHUNK_SIZE / Constants.NOISE_SAMPLE_RATE
+            ) + 0.1  # Add 100ms buffer
+
             audio_data = sd.rec(
                 Constants.NOISE_CHUNK_SIZE,
                 samplerate=Constants.NOISE_SAMPLE_RATE,
                 channels=1,
                 dtype="float32",
                 device=device,  # Use explicit ALSA device if found, otherwise default
+                blocking=False,  # Non-blocking to allow graceful shutdown
             )
-            sd.wait()
+            # Wait for recording with timeout to prevent hanging
+            try:
+                sd.wait(timeout=timeout_seconds)
+            except KeyboardInterrupt:
+                # Allow graceful shutdown if interrupted
+                raise
+            except Exception as wait_error:
+                # If wait times out or fails, return 0.0 (noise_spl_db returns float)
+                self.logger.debug("Recording wait failed or timed out: %s", wait_error)
+                return 0.0
 
             # Convert to numpy array
             if not isinstance(audio_data, np.ndarray):
