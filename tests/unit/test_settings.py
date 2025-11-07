@@ -84,6 +84,7 @@ class TestSettingsManager:
                 "temp_smoothing_minutes",
                 "pressure_offset",
                 "elevation_meters",
+                "noise_calibration_offset",
                 "units",
             }
             assert set(settings.keys()) == expected_keys

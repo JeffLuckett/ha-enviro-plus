@@ -60,6 +60,7 @@ class EnviroPlusSensors:
         temp_smoothing_minutes: float = 5.0,
         pressure_offset: float = 0.0,
         elevation_meters: float = 0.0,
+        noise_calibration_offset: float = 60.0,
         logger: Optional[logging.Logger] = None,
     ):
         """
@@ -73,6 +74,7 @@ class EnviroPlusSensors:
             temp_smoothing_minutes: Temperature smoothing window in minutes (0.0 = no smoothing)
             pressure_offset: Pressure calibration offset in hPa
             elevation_meters: Elevation in meters for sea-level pressure calculation (0.0 = no correction)
+            noise_calibration_offset: Noise sensor calibration offset in dB (default: 60.0)
             logger: Optional logger instance
         """
         self.temp_offset = temp_offset
@@ -82,6 +84,7 @@ class EnviroPlusSensors:
         self.temp_smoothing_minutes = temp_smoothing_minutes
         self.pressure_offset = pressure_offset
         self.elevation_meters = elevation_meters
+        self.noise_calibration_offset = noise_calibration_offset
         self.logger = logger or logging.getLogger(__name__)
 
         # CPU temperature smoothing state
@@ -1105,7 +1108,7 @@ class EnviroPlusSensors:
         rms_float = float(rms)
         # Cache successful reading
         self._last_noise_rms = rms_float
-        self.logger.info(
+        self.logger.debug(
             "arecord succeeded: RMS=%.6f (max=%.6f, shape=%s, dtype=%s)",
             rms_float,
             max_val,
@@ -1173,17 +1176,20 @@ class EnviroPlusSensors:
             # Calibrated for quiet room (30 dB) with raw RMS ~0.049
             if raw_rms > 0:
                 spl_db = 20.0 * np.log10(raw_rms + 1e-10)
-                spl_db_calibrated = spl_db + Constants.NOISE_CALIBRATION_OFFSET
+                spl_db_calibrated = spl_db + self.noise_calibration_offset
                 spl_db_final = min(100.0, spl_db_calibrated)
 
                 # Round to 2 decimal places to avoid floating point precision issues
-                spl_db_rounded = round(spl_db_final, Constants.NOISE_ROUND_PRECISION)
+                # Convert numpy float to Python float, then round, then convert back to float
+                # This ensures we get a clean Python float without numpy precision artifacts
+                spl_db_python_float = float(spl_db_final)
+                spl_db_rounded = round(spl_db_python_float, Constants.NOISE_ROUND_PRECISION)
                 spl_db_float = float(spl_db_rounded)
 
                 # Cache successful reading
                 self._last_noise_db = spl_db_float
 
-                self.logger.info(
+                self.logger.debug(
                     "Noise SPL: %.2f dB(A) (raw rms=%.6f, filtered rms=%.6f, max=%.6f)",
                     spl_db_float,
                     raw_rms,
@@ -1219,20 +1225,24 @@ class EnviroPlusSensors:
         try:
             rms = self._read_noise_chunk_rms()
             if rms is not None:
-                return round(rms, Constants.NOISE_ROUND_PRECISION)
+                # Round to 2 decimal places and convert to float to ensure proper rounding
+                rms_rounded = round(rms, Constants.NOISE_ROUND_PRECISION)
+                return float(rms_rounded)
             # If reading failed, return last known value if available
             if self._last_noise_rms is not None:
                 self.logger.debug(
-                    "Using cached RMS value: %.6f (current reading failed)",
+                    "Using cached RMS value: %.2f (current reading failed)",
                     self._last_noise_rms,
                 )
-                return round(self._last_noise_rms, Constants.NOISE_ROUND_PRECISION)
+                rms_rounded = round(self._last_noise_rms, Constants.NOISE_ROUND_PRECISION)
+                return float(rms_rounded)
             return 0.0
         except Exception as e:
             self.logger.error("Failed to read raw noise SPL: %s", e)
             # Return last known value if available
             if self._last_noise_rms is not None:
-                return round(self._last_noise_rms, Constants.NOISE_ROUND_PRECISION)
+                rms_rounded = round(self._last_noise_rms, Constants.NOISE_ROUND_PRECISION)
+                return float(rms_rounded)
             return 0.0
 
     def update_calibration(
@@ -1244,6 +1254,7 @@ class EnviroPlusSensors:
         temp_smoothing_minutes: Optional[float] = None,
         pressure_offset: Optional[float] = None,
         elevation_meters: Optional[float] = None,
+        noise_calibration_offset: Optional[float] = None,
     ) -> None:
         """
         Update calibration parameters.
@@ -1256,6 +1267,7 @@ class EnviroPlusSensors:
             temp_smoothing_minutes: New temperature smoothing window in minutes (0.0 = no smoothing)
             pressure_offset: New pressure offset in hPa
             elevation_meters: New elevation in meters for sea-level pressure calculation
+            noise_calibration_offset: New noise sensor calibration offset in dB
         """
         if temp_offset is not None:
             self.temp_offset = temp_offset
@@ -1292,6 +1304,10 @@ class EnviroPlusSensors:
             self.elevation_meters = elevation_meters
             self.logger.info("Updated elevation to %s meters", elevation_meters)
 
+        if noise_calibration_offset is not None:
+            self.noise_calibration_offset = noise_calibration_offset
+            self.logger.info("Updated noise calibration offset to %s dB", noise_calibration_offset)
+
     def get_all_sensor_data(self) -> Dict[str, Any]:
         """
         Get all sensor readings in a structured format.
@@ -1323,5 +1339,4 @@ class EnviroPlusSensors:
             "gas_nh3_raw": self.gas_nh3_raw(),
             # Noise sensor
             "noise_spl_db": self.noise_spl_db(),
-            "noise_spl_raw": self.noise_spl_raw(),
         }

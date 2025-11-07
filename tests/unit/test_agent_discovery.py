@@ -181,8 +181,7 @@ class TestPublishDiscovery:
                     topic = call[0][0]
                     if "noise_spl_db" in topic:
                         noise_db_config = json.loads(call[0][1])
-                    elif "noise_spl_raw" in topic:
-                        noise_raw_config = json.loads(call[0][1])
+                    # noise_spl_raw removed - only noise_spl_db is published
 
                 # Noise sensor should be discovered if available
                 if sensors.has_sensor("noise"):

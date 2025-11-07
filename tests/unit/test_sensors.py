@@ -861,7 +861,6 @@ class TestGetAllSensorData:
             "gas_nh3",
             "gas_nh3_raw",
             "noise_spl_db",
-            "noise_spl_raw",
         }
 
         assert set(data.keys()) == expected_keys
@@ -1053,7 +1052,5 @@ class TestNoiseSensor:
 
         # Should include noise sensor keys even if unavailable
         assert "noise_spl_db" in data
-        assert "noise_spl_raw" in data
         # Should be 0.0 when unavailable
         assert data["noise_spl_db"] == 0.0
-        assert data["noise_spl_raw"] == 0.0

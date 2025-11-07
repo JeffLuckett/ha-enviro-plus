@@ -218,7 +218,6 @@ class TestConstants:
         assert "gas/reducing" in SENSORS
         assert "gas/nh3" in SENSORS
         assert "noise/spl_db" in SENSORS
-        assert "noise/spl_raw" in SENSORS
 
 
 class TestSettingsIntegration:
@@ -430,6 +429,7 @@ class TestSettingsIntegration:
         mock_settings_manager.cpu_temp_smoothing = 0.3
         mock_settings_manager.pressure_offset = 0.0
         mock_settings_manager.elevation_meters = 0.0
+        mock_settings_manager.noise_calibration_offset = 60.0
         mock_settings_manager.get_temp_offset.return_value = 1.0
         mock_settings_manager.get_hum_offset.return_value = 2.0
         mock_settings_manager.get_cpu_temp_factor.return_value = 2.5
@@ -452,8 +452,8 @@ class TestSettingsIntegration:
             settings_calls = [call for call in publish_calls if "set/" in call[0][0]]
 
             assert (
-                len(settings_calls) == 7
-            )  # temp_offset, hum_offset, cpu_temp_factor, cpu_temp_smoothing, temp_smoothing_minutes, pressure_offset, elevation_meters
+                len(settings_calls) == 8
+            )  # temp_offset, hum_offset, cpu_temp_factor, cpu_temp_smoothing, temp_smoothing_minutes, pressure_offset, elevation_meters, noise_calibration_offset
 
             # Verify each setting was published with correct value
             temp_offset_call = next(call for call in settings_calls if "temp_offset" in call[0][0])
@@ -498,8 +498,8 @@ class TestSettingsIntegration:
             settings_calls = [call for call in publish_calls if "set/" in call[0][0]]
 
             assert (
-                len(settings_calls) == 7
-            )  # temp_offset, hum_offset, cpu_temp_factor, cpu_temp_smoothing, temp_smoothing_minutes, pressure_offset, elevation_meters
+                len(settings_calls) == 8
+            )  # temp_offset, hum_offset, cpu_temp_factor, cpu_temp_smoothing, temp_smoothing_minutes, pressure_offset, elevation_meters, noise_calibration_offset
 
             # Verify each setting was published with environment variable value
             temp_offset_call = next(call for call in settings_calls if "temp_offset" in call[0][0])

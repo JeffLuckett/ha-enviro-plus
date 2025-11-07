@@ -66,7 +66,6 @@ SENSORS = {
     "gas/reducing": ("Gas Reducing (kΩ)", "kΩ", None),
     "gas/nh3": ("Gas NH3 (kΩ)", "kΩ", None),
     "noise/spl_db": ("Noise Level", "dB(A)", None),
-    "noise/spl_raw": ("Noise Level Raw", None, None),
     "host/cpu_temp": ("CPU Temp", "°C", "temperature"),
     "host/cpu_usage": ("CPU Usage", "%", None),
     "host/mem_usage": ("Mem Usage", "%", None),
@@ -317,7 +316,7 @@ def read_all(enviro_sensors: EnviroPlusSensors) -> Dict[str, Any]:
         },
         "noise": {
             "sensor_key": "noise",
-            "fields": ["spl_db", "spl_raw"],
+            "fields": ["spl_db"],
         },
     }
 
@@ -439,6 +438,11 @@ def on_connect(
             str(settings_manager.elevation_meters),
             retain=Constants.MQTT_RETAIN_STATE,
         )
+        client.publish(
+            f"{root}/set/noise_calibration_offset",
+            str(settings_manager.noise_calibration_offset),
+            retain=Constants.MQTT_RETAIN_STATE,
+        )
     else:
         # Fallback to config if settings manager not available
         if config:
@@ -473,6 +477,12 @@ def on_connect(
             client.publish(
                 f"{root}/set/elevation_meters",
                 str(config.elevation_meters),
+                retain=Constants.MQTT_RETAIN_STATE,
+            )
+            # Note: noise_calibration_offset not in Config, use default from Constants
+            client.publish(
+                f"{root}/set/noise_calibration_offset",
+                str(Constants.NOISE_CALIBRATION_OFFSET),
                 retain=Constants.MQTT_RETAIN_STATE,
             )
 
@@ -536,6 +546,11 @@ def _handle_command(
                 client.publish(
                     f"{root}/set/elevation_meters",
                     str(settings_manager.elevation_meters),
+                    retain=Constants.MQTT_RETAIN_STATE,
+                )
+                client.publish(
+                    f"{root}/set/noise_calibration_offset",
+                    str(settings_manager.noise_calibration_offset),
                     retain=Constants.MQTT_RETAIN_STATE,
                 )
                 logger.info("Settings reset successfully")
@@ -615,6 +630,11 @@ def _handle_calibration_setting(
             enviro_sensors.update_calibration(elevation_meters=value)
             if settings_manager:
                 settings_manager.elevation_meters = value
+        elif key == "noise_calibration_offset":
+            value = float(payload)
+            enviro_sensors.update_calibration(noise_calibration_offset=value)
+            if settings_manager:
+                settings_manager.noise_calibration_offset = value
         else:
             logger.warning("Unknown calibration setting: %s", key)
     except ValueError:
@@ -783,6 +803,13 @@ def main() -> None:
     )
 
     # Initialize sensor manager with current calibration values
+    # Get noise calibration offset from settings manager if available
+    noise_calibration_offset = (
+        settings_manager.noise_calibration_offset
+        if settings_manager
+        else Constants.NOISE_CALIBRATION_OFFSET
+    )
+
     enviro_sensors = EnviroPlusSensors(
         temp_offset=temp_offset,
         hum_offset=hum_offset,
@@ -791,6 +818,7 @@ def main() -> None:
         temp_smoothing_minutes=temp_smoothing_minutes,
         pressure_offset=pressure_offset,
         elevation_meters=elevation_meters,
+        noise_calibration_offset=noise_calibration_offset,
         logger=logger,
     )
 
