@@ -170,6 +170,10 @@ def publish_discovery(
                 continue
             # Skip noise sensors if not available
             if tail.startswith("noise/") and not enviro_sensors.has_sensor("noise"):
+                logger.debug(
+                    "Skipping noise sensor discovery: noise sensor not available (has_sensor('noise')=%s)",
+                    enviro_sensors.has_sensor("noise"),
+                )
                 continue
 
         obj = tail.replace("/", "_")
@@ -186,6 +190,13 @@ def publish_discovery(
             qos=Constants.MQTT_QOS_DISCOVERY,
             retain=Constants.MQTT_RETAIN_DISCOVERY,
         )
+        # Log noise sensor discovery for debugging
+        if tail.startswith("noise/"):
+            logger.info(
+                "Published noise sensor discovery: %s -> %s",
+                topic,
+                json.dumps(payload),
+            )
         # Log proximity discovery for debugging
         if tail == "ltr559/proximity":
             logger.info(
@@ -911,6 +922,9 @@ def main() -> None:
                     # Log first proximity publication for debugging
                     if tail == "ltr559/proximity":
                         logger.info("Published initial proximity value: %s", val_str)
+                    # Log first noise sensor publication for debugging
+                    if tail.startswith("noise/"):
+                        logger.info("Published initial noise sensor value: %s = %s", tail, val_str)
                 else:
                     # Compare with previous value
                     prev_val_str = previous_vals[tail]
