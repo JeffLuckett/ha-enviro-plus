@@ -182,28 +182,66 @@ ensure_fonts() {
 ensure_system_dependencies() {
   echo "==> Ensuring system dependencies are installed..."
 
-  # Update package list
-  sudo apt-get update -y >/dev/null 2>&1
+  # Update package list (non-fatal if it fails)
+  # Use timeout if available to prevent hanging, but continue even if it fails
+  echo "==> Updating package list..."
+  if command -v timeout >/dev/null 2>&1; then
+    if timeout 60 sudo apt-get update -y >/dev/null 2>&1; then
+      echo "==> Package list updated successfully"
+    else
+      echo "==> Warning: Package list update failed or timed out"
+      echo "==> Continuing with installation (packages may be outdated)"
+      echo "==> You can update manually later with: sudo apt-get update"
+    fi
+  else
+    # Fallback if timeout is not available
+    if sudo apt-get update -y >/dev/null 2>&1; then
+      echo "==> Package list updated successfully"
+    else
+      echo "==> Warning: Package list update failed"
+      echo "==> Continuing with installation (packages may be outdated)"
+      echo "==> You can update manually later with: sudo apt-get update"
+    fi
+  fi
 
   # Install PortAudio development libraries (required for sounddevice)
   # This is needed for the noise sensor feature
   echo "==> Installing PortAudio libraries for noise sensor support..."
-  if sudo apt-get install -y portaudio19-dev libportaudio2 libportaudiocpp0 2>&1; then
-    echo "==> PortAudio libraries installed successfully"
+  if command -v timeout >/dev/null 2>&1; then
+    if timeout 300 sudo apt-get install -y portaudio19-dev libportaudio2 libportaudiocpp0 >/dev/null 2>&1; then
+      echo "==> PortAudio libraries installed successfully"
+    else
+      echo "==> Warning: Failed to install PortAudio libraries"
+      echo "==> Noise sensor will not be available (this is optional)"
+      echo "==> To install manually: sudo apt-get install portaudio19-dev libportaudio2 libportaudiocpp0"
+    fi
   else
-    echo "==> Warning: Failed to install PortAudio libraries"
-    echo "==> Noise sensor will not be available (this is optional)"
-    echo "==> To install manually: sudo apt-get install portaudio19-dev libportaudio2 libportaudiocpp0"
+    if sudo apt-get install -y portaudio19-dev libportaudio2 libportaudiocpp0 >/dev/null 2>&1; then
+      echo "==> PortAudio libraries installed successfully"
+    else
+      echo "==> Warning: Failed to install PortAudio libraries"
+      echo "==> Noise sensor will not be available (this is optional)"
+      echo "==> To install manually: sudo apt-get install portaudio19-dev libportaudio2 libportaudiocpp0"
+    fi
   fi
 
   # Install other system dependencies that might be needed
   # numpy and scipy may need system libraries for optimal performance
   echo "==> Installing additional system libraries for scientific computing..."
-  if sudo apt-get install -y libatlas-base-dev gfortran 2>&1; then
-    echo "==> Scientific computing libraries installed successfully"
+  if command -v timeout >/dev/null 2>&1; then
+    if timeout 300 sudo apt-get install -y libatlas-base-dev gfortran >/dev/null 2>&1; then
+      echo "==> Scientific computing libraries installed successfully"
+    else
+      echo "==> Warning: Failed to install some scientific computing libraries"
+      echo "==> This may affect performance but should not prevent installation"
+    fi
   else
-    echo "==> Warning: Failed to install some scientific computing libraries"
-    echo "==> This may affect performance but should not prevent installation"
+    if sudo apt-get install -y libatlas-base-dev gfortran >/dev/null 2>&1; then
+      echo "==> Scientific computing libraries installed successfully"
+    else
+      echo "==> Warning: Failed to install some scientific computing libraries"
+      echo "==> This may affect performance but should not prevent installation"
+    fi
   fi
 }
 
