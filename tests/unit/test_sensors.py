@@ -980,9 +980,11 @@ class TestNoiseSensor:
             # Mock scipy.io.wavfile module
             from unittest.mock import MagicMock
 
+            # Mock scipy.io.wavfile module
             mock_wavfile_module = MagicMock()
             # Return audio data that looks like a real recording (enough samples)
-            audio_data = np.array([1000] * 44100, dtype=np.int32)  # 1 second at 44.1kHz
+            # Use a list instead of numpy array to ensure len() works correctly with mocks
+            audio_data = [1000] * 44100  # 1 second at 44.1kHz
             mock_wavfile_module.read.return_value = (44100, audio_data)
             with (
                 patch("subprocess.run") as mock_run,

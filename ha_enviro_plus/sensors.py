@@ -10,8 +10,7 @@ import subprocess
 import logging
 import time
 import numpy as np
-from typing import Dict, Any, Optional, Tuple, List, Union
-from collections import deque
+from typing import Dict, Any, Optional, Tuple, List
 
 from .constants import Constants
 
@@ -104,7 +103,6 @@ class EnviroPlusSensors:
 
         # Noise sensor state
         self._noise_chunks_discarded = 0
-        self._noise_chunk_buffer: deque[float] = deque(maxlen=Constants.NOISE_AVERAGE_WINDOW)
         self._a_weight_filter: Optional[Tuple[List[float], List[float]]] = None
         if NOISE_SENSOR_AVAILABLE:
             try:
@@ -929,42 +927,12 @@ class EnviroPlusSensors:
             self.logger.warning("Failed to initialize A-weighting filter: %s", e)
             self._a_weight_filter = None
 
-    def _read_noise_chunk(self) -> Optional[float]:
+    def _record_audio_with_arecord(self) -> Optional[np.ndarray]:
         """
-        Read a chunk of audio data and return RMS level.
-
-        Uses arecord (ALSA) directly for I2S microphones.
+        Record audio using arecord (ALSA) and return raw audio data.
 
         Returns:
-            RMS level of audio chunk, or None if unavailable
-        """
-        if not self._noise_available:
-            return None
-
-        # Use arecord exclusively - PortAudio doesn't work reliably with I2S mics
-        return self._read_noise_chunk_arecord()
-
-    def _read_noise_chunk_raw(self) -> Optional[np.ndarray]:
-        """
-        Read raw audio data (not RMS) for A-weighting.
-
-        Uses arecord (ALSA) directly for I2S microphones.
-
-        Returns:
-            Raw audio data as numpy array, or None if unavailable
-        """
-        if not self._noise_available:
-            return None
-
-        # Use arecord exclusively - PortAudio doesn't work reliably with I2S mics
-        return self._read_noise_chunk_raw_arecord()
-
-    def _read_noise_chunk_raw_arecord(self) -> Optional[np.ndarray]:
-        """
-        Read raw audio using arecord fallback.
-
-        Returns:
-            Raw audio data as numpy array, or None if unavailable
+            Raw audio data as numpy array (float32, normalized to [-1.0, 1.0]), or None if unavailable
         """
         if not self._noise_available:
             return None
@@ -979,163 +947,65 @@ class EnviroPlusSensors:
 
             try:
                 # Calculate duration - arecord only accepts integer seconds
-                # Record 1 second minimum and we'll use only the samples we need
                 duration_sec = max(1.0, Constants.NOISE_CHUNK_SIZE / Constants.NOISE_SAMPLE_RATE)
-                duration_str = str(int(duration_sec))  # Use integer seconds
+                duration_str = str(int(duration_sec))
 
-                result = subprocess.run(
-                    [
-                        "arecord",
-                        "-D",
-                        "dmic_sv",
-                        "-c",
-                        "2",
-                        "-r",
-                        str(Constants.NOISE_SAMPLE_RATE),
-                        "-f",
-                        "S16_LE",
-                        "-t",
-                        "wav",
-                        "-d",
-                        duration_str,
-                        tmp_wav,
-                    ],
-                    capture_output=True,
-                    timeout=duration_sec + 1.0,
-                    check=False,
-                )
+                # Build arecord command
+                arecord_cmd = [
+                    "arecord",
+                    "-D",
+                    "dmic_sv",
+                    "-c",
+                    "2",  # Stereo (required by I2S microphone)
+                    "-r",
+                    str(Constants.NOISE_SAMPLE_RATE),
+                    "-f",
+                    "S32_LE",  # 32-bit signed little-endian
+                    "-t",
+                    "wav",
+                    "-d",
+                    duration_str,
+                    tmp_wav,
+                ]
 
-                if result.returncode != 0:
-                    return None
+                # Record with retry logic for busy device
+                max_retries = 3
+                result = None
+                for attempt in range(max_retries):
+                    result = subprocess.run(
+                        arecord_cmd,
+                        capture_output=True,
+                        timeout=duration_sec + 1.0,
+                        check=False,
+                    )
 
-                sample_rate, audio_data = wavfile.read(tmp_wav)
+                    if result.returncode == 0:
+                        break
 
-                # Convert to float32 in range [-1.0, 1.0]
-                if audio_data.dtype == np.int16:
-                    audio_data = audio_data.astype(np.float32) / 32768.0
-                elif audio_data.dtype == np.int32:
-                    audio_data = audio_data.astype(np.float32) / 2147483648.0
-                else:
-                    audio_data = audio_data.astype(np.float32)
-
-                # Ensure mono
-                if len(audio_data.shape) > 1:
-                    audio_data = audio_data[:, 0]
-
-                return audio_data
-            finally:
-                try:
-                    if os.path.exists(tmp_wav):
-                        os.unlink(tmp_wav)
-                except Exception:
-                    pass
-        except Exception:
-            return None
-
-    def _read_noise_chunk_arecord(self) -> Optional[float]:
-        """
-        Read audio using arecord (ALSA).
-
-        Uses arecord to record a WAV file, then reads it with scipy.io.wavfile.
-
-        Returns:
-            RMS level of audio chunk, or None if unavailable
-        """
-        if not self._noise_available:
-            return None
-
-        try:
-            import tempfile
-            import os
-            from scipy.io import wavfile
-
-            # Create temporary WAV file
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
-                tmp_wav = tmp_file.name
-
-            try:
-                # Calculate duration - arecord only accepts integer seconds
-                # Record 1 second minimum and we'll use only the samples we need
-                duration_sec = max(1.0, Constants.NOISE_CHUNK_SIZE / Constants.NOISE_SAMPLE_RATE)
-                duration_str = str(int(duration_sec))  # Use integer seconds
-
-                # Record using arecord with ALSA device
-                # Use mono channel, 32-bit signed LE (required by I2S microphone)
-                result = subprocess.run(
-                    [
-                        "arecord",
-                        "-D",
-                        "dmic_sv",  # Use our ALSA PCM device
-                        "-c",
-                        "2",  # Stereo (required by I2S microphone)
-                        "-r",
-                        str(Constants.NOISE_SAMPLE_RATE),
-                        "-f",
-                        "S32_LE",  # 32-bit signed little-endian
-                        "-t",
-                        "wav",
-                        "-d",
-                        duration_str,
-                        tmp_wav,
-                    ],
-                    capture_output=True,
-                    timeout=duration_sec + 1.0,  # Add 1 second buffer
-                    check=False,  # Don't raise on error
-                )
-
-                if result.returncode != 0:
-                    stderr_msg = result.stderr.decode("utf-8", errors="ignore")
-                    # Check if device is busy - if so, wait a bit and retry multiple times
+                    stderr_msg = (
+                        result.stderr.decode("utf-8", errors="ignore") if result.stderr else ""
+                    )
                     if "busy" in stderr_msg.lower() or "resource busy" in stderr_msg.lower():
-                        # Device busy - retry with increasing delays
-                        max_retries = 3
-                        for retry in range(max_retries):
-                            delay = 0.2 * (retry + 1)  # 0.2s, 0.4s, 0.6s
+                        if attempt < max_retries - 1:
+                            delay = 0.2 * (attempt + 1)
                             self.logger.debug(
-                                "Device busy, waiting %.1fs and retrying arecord (attempt %d/%d)...",
+                                "Device busy, waiting %.1fs and retrying (attempt %d/%d)...",
                                 delay,
-                                retry + 1,
+                                attempt + 1,
                                 max_retries,
                             )
                             time.sleep(delay)
-                            # Retry
-                            result = subprocess.run(
-                                [
-                                    "arecord",
-                                    "-D",
-                                    "dmic_sv",
-                                    "-c",
-                                    "1",
-                                    "-r",
-                                    str(Constants.NOISE_SAMPLE_RATE),
-                                    "-f",
-                                    "S16_LE",
-                                    "-t",
-                                    "wav",
-                                    "-d",
-                                    duration_str,
-                                    tmp_wav,
-                                ],
-                                capture_output=True,
-                                timeout=duration_sec + 1.0,
-                                check=False,
-                            )
-                            if result.returncode == 0:
-                                break  # Success!
-                        if result.returncode != 0:
-                            stderr_msg = result.stderr.decode("utf-8", errors="ignore")
-                            self.logger.warning(
-                                "arecord failed after %d retries (exit code %d): %s",
-                                max_retries,
-                                result.returncode,
-                                stderr_msg,
-                            )
-                            return None
-                    else:
+                            continue
+
+                    # Non-busy error or all retries exhausted
+                    if attempt == max_retries - 1:
                         self.logger.warning(
-                            "arecord failed (exit code %d): %s", result.returncode, stderr_msg
+                            "arecord failed after %d attempts (exit code %d): %s",
+                            max_retries,
+                            result.returncode,
+                            stderr_msg,
                         )
-                        return None
+                    return None
 
                 # Read WAV file
                 sample_rate, audio_data = wavfile.read(tmp_wav)
@@ -1152,46 +1022,60 @@ class EnviroPlusSensors:
                 if len(audio_data.shape) > 1:
                     audio_data = audio_data[:, 0]
 
-                # Trim to only the samples we need (in case we recorded more)
+                # Trim to only the samples we need
                 samples_needed = Constants.NOISE_CHUNK_SIZE
                 if len(audio_data) > samples_needed:
                     audio_data = audio_data[:samples_needed]
 
-                # Check if we got actual audio data (not all zeros)
-                max_val = np.max(np.abs(audio_data))
-                if max_val == 0.0:
-                    self.logger.warning(
-                        "arecord returned zeros (max_val=0.0) - microphone may not be recording"
-                    )
-                    return 0.0
-
-                # Calculate RMS
-                rms = np.sqrt(np.mean(audio_data**2))
-
-                self.logger.info(
-                    "arecord fallback succeeded: RMS=%.6f (max=%.6f, shape=%s, dtype=%s)",
-                    rms,
-                    max_val,
-                    audio_data.shape,
-                    audio_data.dtype,
-                )
-                return float(rms)
-
+                return audio_data
             finally:
-                # Clean up temporary file
                 try:
                     if os.path.exists(tmp_wav):
                         os.unlink(tmp_wav)
                 except Exception:
                     pass
-
-        except ImportError:
-            # scipy.io.wavfile not available
-            self.logger.debug("scipy.io.wavfile not available for arecord fallback")
-            return None
         except Exception as e:
-            self.logger.debug("Failed to read noise chunk with arecord: %s", e)
+            self.logger.debug("Failed to record audio with arecord: %s", e)
             return None
+
+    def _read_noise_chunk_raw(self) -> Optional[np.ndarray]:
+        """
+        Read raw audio data for A-weighting.
+
+        Returns:
+            Raw audio data as numpy array, or None if unavailable
+        """
+        return self._record_audio_with_arecord()
+
+    def _read_noise_chunk_rms(self) -> Optional[float]:
+        """
+        Read audio chunk and return RMS level.
+
+        Returns:
+            RMS level of audio chunk, or None if unavailable
+        """
+        audio_data = self._record_audio_with_arecord()
+        if audio_data is None:
+            return None
+
+        # Check if we got actual audio data (not all zeros)
+        max_val = np.max(np.abs(audio_data))
+        if max_val == 0.0:
+            self.logger.warning(
+                "arecord returned zeros (max_val=0.0) - microphone may not be recording"
+            )
+            return 0.0
+
+        # Calculate RMS
+        rms = np.sqrt(np.mean(audio_data**2))
+        self.logger.info(
+            "arecord succeeded: RMS=%.6f (max=%.6f, shape=%s, dtype=%s)",
+            rms,
+            max_val,
+            audio_data.shape,
+            audio_data.dtype,
+        )
+        return float(rms)
 
     def noise_spl_db(self) -> float:
         """
@@ -1234,40 +1118,18 @@ class EnviroPlusSensors:
             # Calculate raw RMS for calibration
             raw_rms = np.sqrt(np.mean(raw_audio**2))
 
-            # Apply A-weighting filter
+            # Apply A-weighting filter (for reference, but we use raw RMS for calculation)
             b, a = self._a_weight_filter
             filtered_audio = lfilter(b, a, raw_audio.flatten())
-
-            # Calculate RMS of filtered audio
             filtered_rms = np.sqrt(np.mean(filtered_audio**2))
-
-            # Get max value for logging
             max_val = np.max(np.abs(raw_audio))
 
-            # Convert to dB(A)
-            # For normalized audio (range -1 to 1), we need to account for:
-            # 1. Microphone sensitivity (typically -40 to -60 dBV/Pa for I2S mics)
-            # 2. Preamp gain
-            # 3. ADC normalization (int32 to float32)
-            # 4. A-weighting filter attenuation
-            # We use a calibration offset to map RMS values to dB(A)
-            # This offset is calibrated for I2S microphone (adau7002) based on typical quiet room (30 dB)
+            # Convert to dB(A) using raw RMS with calibration offset
             # Formula: dB(A) = 20 * log10(raw_rms) + calibration_offset
-            # Using raw RMS instead of filtered RMS because A-weighting reduces signal too much
             # Calibrated for quiet room (30 dB) with raw RMS ~0.049
             if raw_rms > 0:
-                # Convert raw RMS to dB using logarithmic scale
-                # Add small epsilon to avoid log(0)
                 spl_db = 20.0 * np.log10(raw_rms + 1e-10)
-
-                # Add calibration offset to map to actual dB(A) range
-                # This offset accounts for microphone sensitivity, normalization, and A-weighting
-                # Calibrated for quiet room (30 dB) - adjust if needed with reference SPL meter
-                # Note: We use raw RMS but the offset accounts for A-weighting characteristics
                 spl_db_calibrated = spl_db + Constants.NOISE_CALIBRATION_OFFSET
-
-                # Only clamp maximum to prevent unrealistic high readings
-                # Don't clamp minimum - report actual quiet readings accurately
                 spl_db_final = min(100.0, spl_db_calibrated)
 
                 self.logger.info(
@@ -1281,49 +1143,9 @@ class EnviroPlusSensors:
             else:
                 self.logger.debug("Noise SPL: rms is 0, returning 0.0")
                 return 0.0
-
         except Exception as e:
-            # PortAudio failed - try arecord fallback for raw audio
-            self.logger.warning(
-                "PortAudio failed in noise_spl_db: %s, trying arecord fallback...", e
-            )
-            try:
-                raw_audio = self._read_noise_chunk_raw_arecord()
-                if raw_audio is None:
-                    self.logger.warning("arecord fallback also failed in noise_spl_db")
-                    return 0.0
-
-                # Calculate raw RMS for calibration
-                raw_rms = np.sqrt(np.mean(raw_audio**2))
-
-                # Apply A-weighting filter
-                b, a = self._a_weight_filter
-                filtered_audio = lfilter(b, a, raw_audio.flatten())
-
-                # Calculate RMS of filtered audio
-                filtered_rms = np.sqrt(np.mean(filtered_audio**2))
-                max_val = np.max(np.abs(raw_audio))
-
-                if raw_rms > 0:
-                    # Use same calibration as main path (using raw RMS)
-                    spl_db = 20.0 * np.log10(raw_rms + 1e-10)
-                    spl_db_calibrated = spl_db + Constants.NOISE_CALIBRATION_OFFSET
-                    spl_db_final = min(100.0, spl_db_calibrated)
-                    self.logger.info(
-                        "arecord fallback succeeded in noise_spl_db: %.1f dB(A) (raw rms=%.6f, filtered rms=%.6f, max=%.6f)",
-                        spl_db_final,
-                        raw_rms,
-                        filtered_rms,
-                        max_val,
-                    )
-                    return float(round(spl_db_final, Constants.NOISE_ROUND_PRECISION))
-                else:
-                    return 0.0
-            except Exception as fallback_error:
-                self.logger.error(
-                    "arecord fallback also failed in noise_spl_db: %s", fallback_error
-                )
-                return 0.0
+            self.logger.error("Failed to read noise SPL: %s", e)
+            return 0.0
 
     def noise_spl_raw(self) -> float:
         """
@@ -1341,13 +1163,12 @@ class EnviroPlusSensors:
             return 0.0
 
         try:
-            rms = self._read_noise_chunk()
+            rms = self._read_noise_chunk_rms()
             if rms is not None:
                 return round(rms, Constants.NOISE_ROUND_PRECISION)
             return 0.0
         except Exception as e:
             self.logger.error("Failed to read raw noise SPL: %s", e)
-            self.logger.info("Raw noise SPL will be reported as 0.0")
             return 0.0
 
     def update_calibration(
