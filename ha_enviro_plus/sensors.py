@@ -37,7 +37,7 @@ try:
     from scipy.signal import lfilter, butter
 
     NOISE_SENSOR_AVAILABLE = True
-except (ImportError, OSError):
+except (ImportError, OSError) as e:
     # ImportError: libraries not installed
     # OSError: PortAudio library not found (sounddevice dependency)
     NOISE_SENSOR_AVAILABLE = False
@@ -148,7 +148,8 @@ class EnviroPlusSensors:
             # Check if noise sensor (microphone) is available
             if NOISE_SENSOR_AVAILABLE:
                 try:
-                    # Try to query default input device to verify microphone availability
+                    # Try multiple methods to detect microphone availability
+                    # Method 1: Query all input devices
                     devices = sd.query_devices(kind="input")
                     if devices and len(devices) > 0:
                         self._noise_available = True
@@ -157,13 +158,110 @@ class EnviroPlusSensors:
                             len(devices),
                         )
                     else:
-                        self.logger.debug("No microphone input device found")
-                        self._noise_available = False
+                        # Method 2: Try to get default input device
+                        try:
+                            default_input = sd.default.device[0]  # Input device index
+                            if default_input is not None:
+                                default_device_info = sd.query_devices(default_input)
+                                if (
+                                    default_device_info
+                                    and default_device_info.get("max_input_channels", 0) > 0
+                                ):
+                                    self._noise_available = True
+                                    self.logger.info(
+                                        "Noise sensor (microphone) available - using default input device: %s",
+                                        default_device_info.get("name", "unknown"),
+                                    )
+                                else:
+                                    # Method 3: Try to open a test stream to verify microphone works
+                                    # This is more reliable than query_devices on some systems
+                                    # Use sd.rec() with a very short duration to test
+                                    try:
+                                        # Try to read a tiny chunk to verify microphone works
+                                        test_data = sd.rec(
+                                            frames=100,
+                                            samplerate=Constants.NOISE_SAMPLE_RATE,
+                                            channels=1,
+                                            dtype="float32",
+                                        )
+                                        sd.wait()  # Wait for recording to complete
+                                        if test_data is not None and len(test_data) > 0:
+                                            self._noise_available = True
+                                            self.logger.info(
+                                                "Noise sensor (microphone) available - verified by test recording"
+                                            )
+                                        else:
+                                            self.logger.warning(
+                                                "Noise sensor test recording returned no data - noise sensor will be unavailable"
+                                            )
+                                            self._noise_available = False
+                                    except Exception as stream_error:
+                                        self.logger.warning(
+                                            "Noise sensor test recording failed: %s - noise sensor will be unavailable",
+                                            stream_error,
+                                        )
+                                        self._noise_available = False
+                            else:
+                                # No default input device, try test recording
+                                try:
+                                    test_data = sd.rec(
+                                        frames=100,
+                                        samplerate=Constants.NOISE_SAMPLE_RATE,
+                                        channels=1,
+                                        dtype="float32",
+                                    )
+                                    sd.wait()
+                                    if test_data is not None and len(test_data) > 0:
+                                        self._noise_available = True
+                                        self.logger.info(
+                                            "Noise sensor (microphone) available - verified by test recording"
+                                        )
+                                    else:
+                                        self.logger.warning(
+                                            "Noise sensor test recording returned no data - noise sensor will be unavailable"
+                                        )
+                                        self._noise_available = False
+                                except Exception as stream_error:
+                                    self.logger.warning(
+                                        "Noise sensor test recording failed: %s - noise sensor will be unavailable",
+                                        stream_error,
+                                    )
+                                    self._noise_available = False
+                        except Exception as default_error:
+                            # If default device query fails, try test recording as fallback
+                            try:
+                                test_data = sd.rec(
+                                    frames=100,
+                                    samplerate=Constants.NOISE_SAMPLE_RATE,
+                                    channels=1,
+                                    dtype="float32",
+                                )
+                                sd.wait()
+                                if test_data is not None and len(test_data) > 0:
+                                    self._noise_available = True
+                                    self.logger.info(
+                                        "Noise sensor (microphone) available - verified by test recording (fallback)"
+                                    )
+                                else:
+                                    self.logger.warning(
+                                        "Noise sensor test recording returned no data - noise sensor will be unavailable"
+                                    )
+                                    self._noise_available = False
+                            except Exception as stream_error:
+                                self.logger.warning(
+                                    "Noise sensor test recording failed: %s - noise sensor will be unavailable",
+                                    stream_error,
+                                )
+                                self._noise_available = False
                 except Exception as e:
-                    self.logger.debug("Noise sensor not available: %s", e)
+                    self.logger.warning(
+                        "Noise sensor not available: %s - noise sensor will be unavailable", e
+                    )
                     self._noise_available = False
             else:
-                self.logger.debug("Noise sensor libraries not available (sounddevice/scipy)")
+                self.logger.warning(
+                    "Noise sensor libraries not available (sounddevice/scipy) - noise sensor will be unavailable"
+                )
 
             # Log summary of available sensors
             available = []
