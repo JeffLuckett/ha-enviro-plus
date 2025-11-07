@@ -60,7 +60,7 @@ class EnviroPlusSensors:
         temp_smoothing_minutes: float = 5.0,
         pressure_offset: float = 0.0,
         elevation_meters: float = 0.0,
-        noise_calibration_offset: float = 80.0,
+        noise_calibration_offset: float = 120.0,
         logger: Optional[logging.Logger] = None,
     ):
         """
@@ -74,7 +74,7 @@ class EnviroPlusSensors:
             temp_smoothing_minutes: Temperature smoothing window in minutes (0.0 = no smoothing)
             pressure_offset: Pressure calibration offset in hPa
             elevation_meters: Elevation in meters for sea-level pressure calculation (0.0 = no correction)
-            noise_calibration_offset: Noise sensor calibration offset in dB (default: 80.0)
+            noise_calibration_offset: Noise sensor calibration offset in dB (default: 120.0)
             logger: Optional logger instance
         """
         self.temp_offset = temp_offset

@@ -278,7 +278,7 @@ def publish_discovery(
     number("Temp Smoothing Window", "temp_smoothing_minutes", "min", 0.0, 60.0, 0.1)
     number("Pressure Offset", "pressure_offset", "hPa", -10.0, 10.0, 0.01)
     number("Elevation", "elevation_meters", "m", 0.0, 8848.0, 0.1)  # 0 to Mount Everest
-    number("Noise Calibration Offset", "noise_calibration_offset", "dB", 0.0, 120.0, 0.01)
+    number("Noise Calibration Offset", "noise_calibration_offset", "dB", 0.0, 200.0, 0.01)
 
 
 def read_all(enviro_sensors: EnviroPlusSensors) -> Dict[str, Any]:
