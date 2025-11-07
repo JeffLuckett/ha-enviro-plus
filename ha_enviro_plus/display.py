@@ -265,7 +265,7 @@ class DisplayManager:
                         # or current display is continuous (can be interrupted)
                         if self._current_display is not None:
                             # Interrupt current continuous display for new item
-                            self.logger.debug("Interrupting current display for queued item")
+                            pass
                         self._current_display = self._display_queue.pop(0)
                         display_start_time = time.time()
                         fade_out_start_time = None
@@ -385,9 +385,6 @@ class DisplayManager:
                             with self._lock:
                                 if self._display_queue:
                                     # Interrupt current display for queued item
-                                    self.logger.debug(
-                                        "Interrupting continuous display for queued item"
-                                    )
                                     self._current_display = self._display_queue.pop(0)
                                     display_start_time = time.time()
                                     fade_out_start_time = None
@@ -772,12 +769,6 @@ class DisplayManager:
         if proximity_high and self._proximity_last_value <= self._proximity_threshold:
             # Proximity just went high - start tracking
             self._proximity_high_time = current_time
-            self.logger.debug(
-                "Proximity high detected: %.0f (threshold: %.0f, baseline: %.0f)",
-                proximity_value,
-                self._proximity_threshold,
-                self._proximity_baseline,
-            )
 
         # Check if proximity has been high long enough and then goes low (back to baseline)
         if (
@@ -826,10 +817,8 @@ class DisplayManager:
         This method should be called when a tap is detected.
         """
         if not self._plugin_cycle_active:
-            self.logger.debug("Tap ignored: plugin cycle not active")
             return
 
-        self.logger.info("Handling tap: immediately switching to next plugin")
         # Clear current display and queue FIRST to force immediate switch
         with self._lock:
             self._current_display = None

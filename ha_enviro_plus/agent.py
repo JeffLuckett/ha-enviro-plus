@@ -962,7 +962,7 @@ def main() -> None:
                                     remaining_time -= time.time() - check_start
                                     continue
                             except Exception as e:
-                                logger.debug("Failed to check proximity tap: %s", e)
+                                pass  # Silently ignore tap check errors
                             # Sleep for tap check interval, but don't exceed remaining time
                             sleep_time = min(tap_check_interval, remaining_time)
                             if sleep_time > 0:
