@@ -1006,8 +1006,17 @@ class EnviroPlusSensors:
             max_val = np.max(np.abs(audio_data))
             if max_val == 0.0:
                 # PortAudio returned zeros - try fallback to arecord
-                self.logger.debug("PortAudio returned zeros, trying arecord fallback...")
-                return self._read_noise_chunk_arecord()
+                self.logger.warning(
+                    "PortAudio returned zeros (max_val=0.0), trying arecord fallback..."
+                )
+                fallback_result = self._read_noise_chunk_arecord()
+                if fallback_result is None:
+                    self.logger.warning("arecord fallback also failed or returned None")
+                elif fallback_result == 0.0:
+                    self.logger.warning("arecord fallback also returned zeros")
+                else:
+                    self.logger.info("arecord fallback succeeded: RMS=%.6f", fallback_result)
+                return fallback_result
 
             # Calculate RMS (Root Mean Square) level
             rms = np.sqrt(np.mean(audio_data**2))
@@ -1015,9 +1024,18 @@ class EnviroPlusSensors:
             self.logger.debug("Noise chunk RMS: %.6f (max: %.6f)", rms, max_val)
             return float(rms)
         except Exception as e:
-            self.logger.debug("Failed to read noise chunk with PortAudio: %s", e)
+            self.logger.warning(
+                "Failed to read noise chunk with PortAudio: %s, trying arecord fallback...", e
+            )
             # Try fallback to arecord
-            return self._read_noise_chunk_arecord()
+            fallback_result = self._read_noise_chunk_arecord()
+            if fallback_result is None:
+                self.logger.warning("arecord fallback also failed or returned None")
+            elif fallback_result == 0.0:
+                self.logger.warning("arecord fallback also returned zeros")
+            else:
+                self.logger.info("arecord fallback succeeded: RMS=%.6f", fallback_result)
+            return fallback_result
 
     def _read_noise_chunk_arecord(self) -> Optional[float]:
         """
@@ -1069,8 +1087,9 @@ class EnviroPlusSensors:
                 )
 
                 if result.returncode != 0:
-                    self.logger.debug(
-                        "arecord failed: %s", result.stderr.decode("utf-8", errors="ignore")
+                    stderr_msg = result.stderr.decode("utf-8", errors="ignore")
+                    self.logger.warning(
+                        "arecord failed (exit code %d): %s", result.returncode, stderr_msg
                     )
                     return None
 
@@ -1092,13 +1111,21 @@ class EnviroPlusSensors:
                 # Check if we got actual audio data (not all zeros)
                 max_val = np.max(np.abs(audio_data))
                 if max_val == 0.0:
-                    self.logger.debug("arecord returned zeros - microphone may not be recording")
+                    self.logger.warning(
+                        "arecord returned zeros (max_val=0.0) - microphone may not be recording"
+                    )
                     return 0.0
 
                 # Calculate RMS
                 rms = np.sqrt(np.mean(audio_data**2))
 
-                self.logger.debug("arecord fallback RMS: %.6f (max: %.6f)", rms, max_val)
+                self.logger.info(
+                    "arecord fallback succeeded: RMS=%.6f (max=%.6f, shape=%s, dtype=%s)",
+                    rms,
+                    max_val,
+                    audio_data.shape,
+                    audio_data.dtype,
+                )
                 return float(rms)
 
             finally:
