@@ -133,7 +133,24 @@ class DisplayPlugin(ABC):
 # Plugin registry
 _plugin_registry: List[type[DisplayPlugin]] = []
 
+
+def register_plugin(plugin_class: type[DisplayPlugin]) -> type[DisplayPlugin]:
+    """
+    Register a display plugin.
+
+    Args:
+        plugin_class: Plugin class to register
+
+    Returns:
+        The plugin class (for use as decorator)
+    """
+    if plugin_class not in _plugin_registry:
+        _plugin_registry.append(plugin_class)
+    return plugin_class
+
+
 # Auto-import user plugins from plugins directory
+# This must happen AFTER register_plugin is defined to avoid circular imports
 try:
     # Import user plugins if the directory exists
     import importlib
@@ -155,21 +172,6 @@ try:
 except Exception:
     # Silently fail - user plugins directory may not exist
     pass
-
-
-def register_plugin(plugin_class: type[DisplayPlugin]) -> type[DisplayPlugin]:
-    """
-    Register a display plugin.
-
-    Args:
-        plugin_class: Plugin class to register
-
-    Returns:
-        The plugin class (for use as decorator)
-    """
-    if plugin_class not in _plugin_registry:
-        _plugin_registry.append(plugin_class)
-    return plugin_class
 
 
 def get_available_plugins(

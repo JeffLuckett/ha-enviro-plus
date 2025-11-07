@@ -102,8 +102,11 @@ class DisplayManager:
         self._plugin_start_time: Optional[float] = None  # Track when current plugin started showing
 
         # Tap detection state
+        # Proximity sensor baseline is ~30, max tap is ~1236
+        # Threshold should be high to detect actual contact/near-contact
+        self._proximity_baseline = 30  # Normal baseline value (no object detected)
         self._proximity_threshold = (
-            30  # Threshold for tap detection (0-255) - lowered for better sensitivity
+            1000  # Threshold for tap detection - detects near-contact (max ~1236)
         )
         self._proximity_last_value = 0.0
         self._proximity_last_change_time = 0.0
@@ -702,13 +705,16 @@ class DisplayManager:
         Check if proximity sensor indicates a tap gesture.
 
         Tap detection logic:
-        - Proximity value rises above threshold (object detected)
+        - Proximity value rises above threshold (object detected, > baseline)
         - Proximity value stays high for minimum time
-        - Proximity value falls below threshold (object removed)
+        - Proximity value falls back to baseline (object removed)
         - Debounce: ignore taps within debounce time window
 
+        Note: Proximity sensor baseline is ~30, max tap is ~1236.
+        Threshold is set to 1000 to detect actual contact/near-contact taps.
+
         Args:
-            proximity_value: Current proximity reading (0-255)
+            proximity_value: Current proximity reading (baseline ~30, max ~1236)
 
         Returns:
             True if tap detected, False otherwise
@@ -717,26 +723,29 @@ class DisplayManager:
             return False
 
         current_time = time.time()
+        # Detect when proximity rises significantly above baseline
         proximity_high = proximity_value > self._proximity_threshold
-        proximity_low = proximity_value <= self._proximity_threshold
+        # Detect when proximity returns to near baseline
+        proximity_low = proximity_value <= (self._proximity_baseline + 20)
 
-        # Track when proximity goes high
+        # Track when proximity goes high (above threshold)
         if proximity_high and self._proximity_last_value <= self._proximity_threshold:
-            # Proximity just went high
+            # Proximity just went high - start tracking
             self._proximity_high_time = current_time
-            self.logger.info(
-                "Proximity high detected: %.0f (threshold: %.0f)",
+            self.logger.debug(
+                "Proximity high detected: %.0f (threshold: %.0f, baseline: %.0f)",
                 proximity_value,
                 self._proximity_threshold,
+                self._proximity_baseline,
             )
 
-        # Check if proximity has been high long enough and then goes low
+        # Check if proximity has been high long enough and then goes low (back to baseline)
         if (
             self._proximity_high_time > 0
             and proximity_low
             and self._proximity_last_value > self._proximity_threshold
         ):
-            # Proximity just went low after being high
+            # Proximity just went low after being high - potential tap
             high_duration = current_time - self._proximity_high_time
 
             # Check debounce: ignore taps too close together
@@ -750,10 +759,20 @@ class DisplayManager:
                 self._proximity_last_change_time = current_time
                 self._proximity_high_time = 0.0
                 self.logger.info(
-                    "Tap detected! (proximity high for %.2fs)",
+                    "Tap detected! (proximity high for %.2fs, peak: %.0f)",
                     high_duration,
+                    self._proximity_last_value,
                 )
                 return True
+            else:
+                # Proximity went low but didn't meet tap criteria - reset tracking
+                self._proximity_high_time = 0.0
+
+        # Reset high time if proximity stays low for too long (prevents accumulation)
+        if proximity_low and self._proximity_high_time > 0:
+            high_duration = current_time - self._proximity_high_time
+            if high_duration > 1.0:  # Reset if high for more than 1 second
+                self._proximity_high_time = 0.0
 
         # Update last value
         self._proximity_last_value = proximity_value
@@ -771,11 +790,11 @@ class DisplayManager:
             return
 
         self.logger.info("Handling tap: immediately switching to next plugin")
-        # Advance to next plugin immediately (this will queue it)
-        self._advance_plugin_cycle()
-        # Clear current display to force immediate switch
+        # Clear current display and queue FIRST to force immediate switch
         with self._lock:
             self._current_display = None
-            self._display_queue.clear()  # Clear queue to ensure immediate switch
+            self._display_queue.clear()
             # Reset plugin start time for rotation interval tracking
             self._plugin_start_time = None
+        # THEN advance to next plugin (this will queue it)
+        self._advance_plugin_cycle()
