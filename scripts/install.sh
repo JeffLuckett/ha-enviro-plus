@@ -348,15 +348,51 @@ EOF
   }
 
   # Always configure for root (service runs as root)
+  # Use || true to prevent script from exiting on error (we'll handle it)
   local root_success=false
-  if create_asoundrc "$root_asoundrc" "root"; then
+  create_asoundrc "$root_asoundrc" "root" || {
+    echo "==> Attempting alternative method to create root ALSA config..."
+    # Try direct method as fallback
+    sudo tee "$root_asoundrc" > /dev/null <<EOF
+# ALSA configuration for Enviro+ I2S microphone (adau7002)
+pcm.dmic_hw {
+  type hw
+  card $i2s_card
+  channels 2
+  format S32_LE
+}
+pcm.dmic_sv {
+  type softvol
+  slave.pcm dmic_hw
+  control {
+    name "Master Capture Volume"
+    card $i2s_card
+  }
+  min_dB -3.0
+  max_dB 30.0
+}
+pcm.!default {
+  type plug
+  slave.pcm dmic_sv
+}
+EOF
+    if [ -f "$root_asoundrc" ]; then
+      sudo chown root:root "$root_asoundrc" 2>/dev/null || true
+      sudo chmod 644 "$root_asoundrc" 2>/dev/null || true
+      root_success=true
+      echo "==> ✓ ALSA configuration created successfully at $root_asoundrc (using alternative method)"
+    fi
+  }
+
+  if [ -f "$root_asoundrc" ] && grep -q "adau7002\|dmic" "$root_asoundrc" 2>/dev/null; then
     root_success=true
   fi
 
   # Also configure for script user if different from root
   local user_success=false
   if [ -n "$script_user_asoundrc" ] && [ "$script_user" != "root" ]; then
-    if create_asoundrc "$script_user_asoundrc" "$script_user"; then
+    create_asoundrc "$script_user_asoundrc" "$script_user" || true
+    if [ -f "$script_user_asoundrc" ]; then
       user_success=true
     fi
   fi
@@ -369,7 +405,9 @@ EOF
   else
     echo "==> Warning: Failed to create ALSA configuration for root user"
     echo "==> The noise sensor may not work until ALSA is configured manually"
-    return 1
+    echo "==> You can manually create /root/.asoundrc with the configuration"
+    # Don't return error - allow installation to continue
+    return 0
   fi
 }
 
