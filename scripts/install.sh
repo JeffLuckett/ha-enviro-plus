@@ -292,74 +292,51 @@ configure_i2s_microphone() {
       fi
     fi
 
-    # Write the config file
+    # Write the config file using a temporary file for reliability
+    local temp_file
+    temp_file=$(mktemp /tmp/asoundrc.XXXXXX)
+
+    cat > "$temp_file" <<EOF
+# ALSA configuration for Enviro+ I2S microphone (adau7002)
+# This section makes a reference to your I2S hardware
+# Adjust the card name to what is shown in 'arecord -l' after 'card x:' before the name in []
+pcm.dmic_hw {
+  type hw
+  card $i2s_card
+  channels 2
+  format S32_LE
+}
+
+# Software volume control for the I2S microphone
+# After saving this file, you can adjust volume with: alsamixer
+# Press F6 to select the I2S mic, then F4 to set recording volume
+pcm.dmic_sv {
+  type softvol
+  slave.pcm dmic_hw
+  control {
+    name "Master Capture Volume"
+    card $i2s_card
+  }
+  min_dB -3.0
+  max_dB 30.0
+}
+
+# Default capture device
+pcm.!default {
+  type plug
+  slave.pcm dmic_sv
+}
+EOF
+
+    # Copy temp file to target location with proper ownership
     if [ "$target_user" = "root" ]; then
-      sudo bash -c "cat > '$target_file'" <<EOF
-# ALSA configuration for Enviro+ I2S microphone (adau7002)
-# This section makes a reference to your I2S hardware
-# Adjust the card name to what is shown in 'arecord -l' after 'card x:' before the name in []
-pcm.dmic_hw {
-  type hw
-  card $i2s_card
-  channels 2
-  format S32_LE
-}
-
-# Software volume control for the I2S microphone
-# After saving this file, you can adjust volume with: alsamixer
-# Press F6 to select the I2S mic, then F4 to set recording volume
-pcm.dmic_sv {
-  type softvol
-  slave.pcm dmic_hw
-  control {
-    name "Master Capture Volume"
-    card $i2s_card
-  }
-  min_dB -3.0
-  max_dB 30.0
-}
-
-# Default capture device
-pcm.!default {
-  type plug
-  slave.pcm dmic_sv
-}
-EOF
-      sudo chown root:root "$target_file" 2>/dev/null || true
+      sudo cp "$temp_file" "$target_file" && sudo chown root:root "$target_file" && sudo chmod 644 "$target_file"
     else
-      sudo -u "$target_user" bash -c "cat > '$target_file'" <<EOF
-# ALSA configuration for Enviro+ I2S microphone (adau7002)
-# This section makes a reference to your I2S hardware
-# Adjust the card name to what is shown in 'arecord -l' after 'card x:' before the name in []
-pcm.dmic_hw {
-  type hw
-  card $i2s_card
-  channels 2
-  format S32_LE
-}
-
-# Software volume control for the I2S microphone
-# After saving this file, you can adjust volume with: alsamixer
-# Press F6 to select the I2S mic, then F4 to set recording volume
-pcm.dmic_sv {
-  type softvol
-  slave.pcm dmic_hw
-  control {
-    name "Master Capture Volume"
-    card $i2s_card
-  }
-  min_dB -3.0
-  max_dB 30.0
-}
-
-# Default capture device
-pcm.!default {
-  type plug
-  slave.pcm dmic_sv
-}
-EOF
-      sudo chown "$target_user:$target_user" "$target_file" 2>/dev/null || true
+      sudo cp "$temp_file" "$target_file" && sudo chown "$target_user:$target_user" "$target_file" && sudo chmod 644 "$target_file"
     fi
+
+    # Clean up temp file
+    rm -f "$temp_file"
 
     if [ -f "$target_file" ]; then
       echo "==> ✓ ALSA configuration created successfully at $target_file"
