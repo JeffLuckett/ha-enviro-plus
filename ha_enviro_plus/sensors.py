@@ -951,9 +951,6 @@ class EnviroPlusSensors:
         if self._cached_audio is not None:
             cached_data, cache_time = self._cached_audio
             if current_time - cache_time < self._audio_cache_timeout:
-                self.logger.debug(
-                    "Reusing cached audio data (age: %.3fs)", current_time - cache_time
-                )
                 return cached_data.copy()
 
         # Acquire lock to prevent concurrent microphone access
@@ -962,9 +959,6 @@ class EnviroPlusSensors:
             if self._cached_audio is not None:
                 cached_data, cache_time = self._cached_audio
                 if current_time - cache_time < self._audio_cache_timeout:
-                    self.logger.debug(
-                        "Reusing cached audio data (age: %.3fs)", current_time - cache_time
-                    )
                     return cached_data.copy()
 
             try:
@@ -1021,12 +1015,6 @@ class EnviroPlusSensors:
                             if attempt < max_retries - 1:
                                 # Exponential backoff: 0.3s, 0.6s, 1.2s, 2.4s
                                 delay = 0.3 * (2**attempt)
-                                self.logger.debug(
-                                    "Device busy, waiting %.1fs and retrying (attempt %d/%d)...",
-                                    delay,
-                                    attempt + 1,
-                                    max_retries,
-                                )
                                 time.sleep(delay)
                                 continue
 
@@ -1072,7 +1060,6 @@ class EnviroPlusSensors:
                     except Exception:
                         pass
             except Exception as e:
-                self.logger.debug("Failed to record audio with arecord: %s", e)
                 return None
 
     def _read_noise_chunk_raw(self) -> Optional[np.ndarray]:
@@ -1108,13 +1095,6 @@ class EnviroPlusSensors:
         rms_float = float(rms)
         # Cache successful reading
         self._last_noise_rms = rms_float
-        self.logger.debug(
-            "arecord succeeded: RMS=%.6f (max=%.6f, shape=%s, dtype=%s)",
-            rms_float,
-            max_val,
-            audio_data.shape,
-            audio_data.dtype,
-        )
         return rms_float
 
     def noise_spl_db(self) -> float:
@@ -1122,17 +1102,20 @@ class EnviroPlusSensors:
         Get A-weighted sound pressure level in dB(A).
 
         Uses streaming approach to handle microphone startup "plop" by discarding
-        initial chunks. Applies A-weighting filter for accurate sound level measurement.
+        initial chunks. Applies A-weighting filter and uses two-point calibration
+        to convert filtered RMS values to dB(A) readings.
+
+        The two-point calibration maps filtered RMS values to sound pressure levels
+        using calibration points from quiet room (30 dB) and loud music (77 dB).
+        A user-defined offset can be applied for fine-tuning.
 
         Returns:
             Sound pressure level in dB(A), or 0.0 if unavailable
         """
         if not self._noise_available:
-            self.logger.debug("Noise SPL unavailable: microphone not available")
             return 0.0
 
         if not NOISE_SENSOR_AVAILABLE or self._a_weight_filter is None:
-            self.logger.debug("Noise SPL unavailable: noise sensor libraries not available")
             return 0.0
 
         try:
@@ -1141,31 +1124,19 @@ class EnviroPlusSensors:
             if raw_audio is None:
                 # If reading failed, return last known value if available
                 if self._last_noise_db is not None:
-                    self.logger.debug(
-                        "Using cached dB value: %.2f (current reading failed)",
-                        self._last_noise_db,
-                    )
                     return self._last_noise_db
                 return 0.0
 
             # Discard initial chunks to avoid microphone startup "plop"
             if self._noise_chunks_discarded < Constants.NOISE_STARTUP_DISCARD_CHUNKS:
                 self._noise_chunks_discarded += 1
-                max_val = np.max(np.abs(raw_audio))
-                raw_rms = np.sqrt(np.mean(raw_audio**2))
-                self.logger.debug(
-                    "Discarding noise chunk %d/%d (startup plop, max=%.6f, rms=%.6f)",
-                    self._noise_chunks_discarded,
-                    Constants.NOISE_STARTUP_DISCARD_CHUNKS,
-                    max_val,
-                    raw_rms,
-                )
                 return 0.0
 
-            # Calculate raw RMS for calibration
+            # Calculate raw RMS for logging/reference
             raw_rms = np.sqrt(np.mean(raw_audio**2))
 
-            # Apply A-weighting filter (for reference, but we use raw RMS for calculation)
+            # Apply A-weighting filter and calculate filtered RMS
+            # We use filtered RMS for the calculation because it scales better with sound level
             b, a = self._a_weight_filter
             filtered_audio = lfilter(b, a, raw_audio.flatten())
             filtered_rms = np.sqrt(np.mean(filtered_audio**2))
@@ -1218,16 +1189,8 @@ class EnviroPlusSensors:
                 # Cache successful reading
                 self._last_noise_db = spl_db_float
 
-                self.logger.info(
-                    "Noise SPL: %.2f dB(A) (raw rms=%.6f, filtered rms=%.6f, max=%.6f)",
-                    spl_db_float,
-                    raw_rms,
-                    filtered_rms,
-                    max_val,
-                )
                 return spl_db_float
             else:
-                self.logger.debug("Noise SPL: rms is 0, returning 0.0")
                 return 0.0
         except Exception as e:
             self.logger.error("Failed to read noise SPL: %s", e)
@@ -1244,11 +1207,9 @@ class EnviroPlusSensors:
             Raw sound level (RMS), or 0.0 if unavailable
         """
         if not self._noise_available:
-            self.logger.debug("Raw noise SPL unavailable: microphone not available")
             return 0.0
 
         if not NOISE_SENSOR_AVAILABLE:
-            self.logger.debug("Raw noise SPL unavailable: noise sensor libraries not available")
             return 0.0
 
         try:
@@ -1259,10 +1220,6 @@ class EnviroPlusSensors:
                 return float(rms_rounded)
             # If reading failed, return last known value if available
             if self._last_noise_rms is not None:
-                self.logger.debug(
-                    "Using cached RMS value: %.2f (current reading failed)",
-                    self._last_noise_rms,
-                )
                 rms_rounded = round(self._last_noise_rms, Constants.NOISE_ROUND_PRECISION)
                 return float(rms_rounded)
             return 0.0
