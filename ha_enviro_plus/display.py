@@ -102,7 +102,9 @@ class DisplayManager:
         self._plugin_start_time: Optional[float] = None  # Track when current plugin started showing
 
         # Tap detection state
-        self._proximity_threshold = 50  # Threshold for tap detection (0-255)
+        self._proximity_threshold = (
+            30  # Threshold for tap detection (0-255) - lowered for better sensitivity
+        )
         self._proximity_last_value = 0.0
         self._proximity_last_change_time = 0.0
         self._tap_debounce_time = 0.1  # seconds between taps (reduced for responsiveness)
@@ -278,6 +280,26 @@ class DisplayManager:
                     # Use default 2.0s fade time (can be customized per item later)
                     fade_time = 2.0 if self._current_display.fade_out else 0
 
+                    # Check rotation interval for auto-rotation (happens every loop iteration)
+                    if (
+                        self._plugin_cycle_active
+                        and self._auto_rotate
+                        and self._plugin_start_time is not None
+                    ):
+                        plugin_elapsed = time.time() - self._plugin_start_time
+                        if plugin_elapsed >= self._rotation_interval:
+                            # Time to rotate to next plugin
+                            self.logger.info(
+                                "Rotation interval reached (%.1fs), " "advancing to next plugin",
+                                plugin_elapsed,
+                            )
+                            self._advance_plugin_cycle()
+                            # Clear current display to force next plugin
+                            self._current_display = None
+                            display_start_time = None
+                            self._plugin_start_time = None  # Reset for next plugin
+                            continue  # Skip rest of loop, get next plugin
+
                     # Handle fade out state
                     if fade_out_start_time is not None:
                         # We're in fade out phase
@@ -296,10 +318,10 @@ class DisplayManager:
                             self._current_display = None
                             display_start_time = None
                             fade_out_start_time = None
-                            # Only advance plugin cycle automatically if auto-rotate is enabled
-                            # Otherwise, plugins only advance on tap
-                            if self._plugin_cycle_active and self._auto_rotate:
-                                self._advance_plugin_cycle()
+                            # Queue first plugin after splash completes
+                            if self._plugin_cycle_active:
+                                # Queue the first plugin (index 0) after splash
+                                self._queue_next_plugin()
                         else:
                             # Continue fading
                             progress = fade_elapsed / fade_time
@@ -326,25 +348,6 @@ class DisplayManager:
                                 # (prevents blinking)
                                 self._render_display_immediate(self._current_display)
                                 display_start_time = time.time()  # Reset timer
-
-                                # Check rotation interval for auto-rotation
-                                if (
-                                    self._plugin_cycle_active
-                                    and self._auto_rotate
-                                    and self._plugin_start_time is not None
-                                ):
-                                    plugin_elapsed = time.time() - self._plugin_start_time
-                                    if plugin_elapsed >= self._rotation_interval:
-                                        # Time to rotate to next plugin
-                                        self.logger.info(
-                                            "Rotation interval reached (%.1fs), "
-                                            "advancing to next plugin",
-                                            plugin_elapsed,
-                                        )
-                                        self._advance_plugin_cycle()
-                                        # Clear current display to force next plugin
-                                        self._current_display = None
-                                        display_start_time = None
                             else:
                                 # Just turn off immediately for longer displays
                                 self.logger.info("Display: Turning off (no fade)")
@@ -721,7 +724,7 @@ class DisplayManager:
         if proximity_high and self._proximity_last_value <= self._proximity_threshold:
             # Proximity just went high
             self._proximity_high_time = current_time
-            self.logger.debug(
+            self.logger.info(
                 "Proximity high detected: %.0f (threshold: %.0f)",
                 proximity_value,
                 self._proximity_threshold,

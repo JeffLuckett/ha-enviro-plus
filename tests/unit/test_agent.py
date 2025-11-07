@@ -145,6 +145,9 @@ class TestReadAll:
                         )  # With compensation (first reading)
                         assert vals["bme280/pressure"] == pytest.approx(1013.25, abs=0.1)
                         assert vals["ltr559/lux"] == pytest.approx(150.0, abs=0.1)
+                        # Proximity should be present if LTR559 is available
+                        if "ltr559/proximity" in vals:
+                            assert isinstance(vals["ltr559/proximity"], (int, float))
                         # Gas sensor data may not be available if gas sensor is not initialized
                         if "gas/oxidising" in vals:
                             assert vals["gas/oxidising"] == pytest.approx(
@@ -210,9 +213,12 @@ class TestConstants:
         assert "bme280/humidity" in SENSORS
         assert "bme280/pressure" in SENSORS
         assert "ltr559/lux" in SENSORS
+        assert "ltr559/proximity" in SENSORS
         assert "gas/oxidising" in SENSORS
         assert "gas/reducing" in SENSORS
         assert "gas/nh3" in SENSORS
+        assert "noise/spl_db" in SENSORS
+        assert "noise/spl_raw" in SENSORS
 
 
 class TestSettingsIntegration:

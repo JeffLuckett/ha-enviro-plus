@@ -25,6 +25,8 @@ class TestConfig:
             assert config.cpu_temp_smoothing == 0.1
             assert config.temp_smoothing_minutes == 5.0
             assert config.display_enabled is True
+            assert config.display_auto_rotate is True
+            assert config.display_rotation_interval == 10.0
             assert config.units == "metric"
 
     def test_from_env(self):
@@ -41,6 +43,8 @@ class TestConfig:
             "CPU_TEMP_SMOOTHING": "0.2",
             "TEMP_SMOOTHING_MINUTES": "10.0",
             "DISPLAY_ENABLED": "0",
+            "DISPLAY_AUTO_ROTATE": "0",
+            "DISPLAY_ROTATION_INTERVAL": "15.0",
             "UNITS": "imperial",
             "DEVICE_LOCATION": "Kitchen",
         }
@@ -57,6 +61,8 @@ class TestConfig:
             assert config.cpu_temp_smoothing == 0.2
             assert config.temp_smoothing_minutes == 10.0
             assert config.display_enabled is False
+            assert config.display_auto_rotate is False
+            assert config.display_rotation_interval == 15.0
             assert config.units == "imperial"
             assert config.device_location == "Kitchen"
 

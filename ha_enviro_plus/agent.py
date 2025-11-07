@@ -186,6 +186,13 @@ def publish_discovery(
             qos=Constants.MQTT_QOS_DISCOVERY,
             retain=Constants.MQTT_RETAIN_DISCOVERY,
         )
+        # Log proximity discovery for debugging
+        if tail == "ltr559/proximity":
+            logger.info(
+                "Published proximity discovery: %s -> %s",
+                topic,
+                json.dumps(payload),
+            )
 
     # controls: simple button commands
     def button(topic_key: str, name: str, icon: str) -> None:
@@ -901,6 +908,9 @@ def main() -> None:
                     # First time seeing this value - always publish
                     client.publish(f"{root}/{tail}", val_str, retain=Constants.MQTT_RETAIN_STATE)
                     previous_vals[tail] = val_str
+                    # Log first proximity publication for debugging
+                    if tail == "ltr559/proximity":
+                        logger.info("Published initial proximity value: %s", val_str)
                 else:
                     # Compare with previous value
                     prev_val_str = previous_vals[tail]
@@ -915,6 +925,13 @@ def main() -> None:
                                 f"{root}/{tail}", val_str, retain=Constants.MQTT_RETAIN_STATE
                             )
                             previous_vals[tail] = val_str
+                            # Log proximity changes for debugging
+                            if tail == "ltr559/proximity":
+                                logger.debug(
+                                    "Published proximity: %.0f (change: %.0f)",
+                                    val_float,
+                                    val_float - prev_val_float,
+                                )
                     except (ValueError, TypeError):
                         # Non-numeric values - string comparison
                         if val_str != prev_val_str:
@@ -934,6 +951,7 @@ def main() -> None:
                             proximity_value = enviro_sensors.proximity()
                             if display.check_proximity_tap(proximity_value):
                                 display.handle_tap()
+                                logger.info("Tap detected! Proximity: %.0f", proximity_value)
                         except Exception as e:
                             logger.debug("Failed to check proximity tap: %s", e)
                 except Exception as e:

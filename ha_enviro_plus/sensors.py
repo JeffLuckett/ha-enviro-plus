@@ -149,10 +149,13 @@ class EnviroPlusSensors:
             if NOISE_SENSOR_AVAILABLE:
                 try:
                     # Try to query default input device to verify microphone availability
-                    default_input = sd.query_devices(kind="input")
-                    if default_input:
+                    devices = sd.query_devices(kind="input")
+                    if devices and len(devices) > 0:
                         self._noise_available = True
-                        self.logger.info("Noise sensor (microphone) available")
+                        self.logger.info(
+                            "Noise sensor (microphone) available - found %d input device(s)",
+                            len(devices),
+                        )
                     else:
                         self.logger.debug("No microphone input device found")
                         self._noise_available = False
