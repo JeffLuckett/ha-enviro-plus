@@ -348,12 +348,20 @@ EOF
   }
 
   # Always configure for root (service runs as root)
-  # Use || true to prevent script from exiting on error (we'll handle it)
   local root_success=false
-  create_asoundrc "$root_asoundrc" "root" || {
-    echo "==> Attempting alternative method to create root ALSA config..."
-    # Try direct method as fallback
-    sudo tee "$root_asoundrc" > /dev/null <<EOF
+
+  # Check if already configured
+  if [ -f "$root_asoundrc" ] && grep -q "adau7002\|dmic" "$root_asoundrc" 2>/dev/null; then
+    echo "==> ALSA configuration already exists at $root_asoundrc"
+    root_success=true
+  else
+    # Try the create_asoundrc function first
+    if create_asoundrc "$root_asoundrc" "root" 2>/dev/null; then
+      root_success=true
+    else
+      # Fallback: use sudo tee directly
+      echo "==> Attempting alternative method to create root ALSA config..."
+      sudo tee "$root_asoundrc" > /dev/null <<EOF
 # ALSA configuration for Enviro+ I2S microphone (adau7002)
 pcm.dmic_hw {
   type hw
@@ -376,16 +384,15 @@ pcm.!default {
   slave.pcm dmic_sv
 }
 EOF
-    if [ -f "$root_asoundrc" ]; then
-      sudo chown root:root "$root_asoundrc" 2>/dev/null || true
-      sudo chmod 644 "$root_asoundrc" 2>/dev/null || true
-      root_success=true
-      echo "==> ✓ ALSA configuration created successfully at $root_asoundrc (using alternative method)"
+      if [ -f "$root_asoundrc" ]; then
+        sudo chown root:root "$root_asoundrc" 2>/dev/null || true
+        sudo chmod 644 "$root_asoundrc" 2>/dev/null || true
+        if grep -q "adau7002\|dmic" "$root_asoundrc" 2>/dev/null; then
+          root_success=true
+          echo "==> ✓ ALSA configuration created successfully at $root_asoundrc (using alternative method)"
+        fi
+      fi
     fi
-  }
-
-  if [ -f "$root_asoundrc" ] && grep -q "adau7002\|dmic" "$root_asoundrc" 2>/dev/null; then
-    root_success=true
   fi
 
   # Also configure for script user if different from root
@@ -460,7 +467,7 @@ ensure_system_dependencies() {
 }
 
 enable_hardware_interfaces() {
-  echo "==> Enabling hardware interfaces (I2C and SPI)..."
+  echo "==> Enabling hardware interfaces (I2C, SPI, and I2S)..."
 
   # Check if we're on a Raspberry Pi
   if [ ! -f /proc/device-tree/model ] || ! grep -q "Raspberry Pi" /proc/device-tree/model 2>/dev/null; then
@@ -481,6 +488,7 @@ enable_hardware_interfaces() {
   local reboot_needed=false
   local i2c_enabled=false
   local spi_enabled=false
+  local i2s_enabled=false
 
   # Check if I2C is already enabled (returns 0 if enabled, 1 if disabled)
   if sudo raspi-config nonint get_i2c >/dev/null 2>&1; then
@@ -521,6 +529,43 @@ enable_hardware_interfaces() {
       reboot_needed=true
     else
       echo "==> Warning: Failed to enable SPI"
+    fi
+  fi
+
+  # Check if I2S is enabled (for Enviro+ microphone)
+  # I2S is enabled with dtparam=i2s=on in config.txt
+  local config_file=""
+  for cfg in /boot/firmware/config.txt /boot/config.txt; do
+    if [ -f "$cfg" ]; then
+      config_file="$cfg"
+      break
+    fi
+  done
+
+  if [ -n "$config_file" ]; then
+    if grep -q "^dtparam=i2s=on" "$config_file" 2>/dev/null || \
+       grep -q "^[^#]*dtparam=i2s=on" "$config_file" 2>/dev/null; then
+      echo "==> I2S is already enabled"
+      i2s_enabled=true
+    fi
+  fi
+
+  # Enable I2S if not already enabled
+  if [ "$i2s_enabled" = "false" ] && [ -n "$config_file" ]; then
+    echo "==> Enabling I2S interface (required for Enviro+ microphone)..."
+    # Remove commented line if present
+    sudo sed -i 's/^#dtparam=i2s=on/dtparam=i2s=on/' "$config_file" 2>/dev/null || true
+    # Add if not present
+    if ! grep -q "dtparam=i2s=on" "$config_file" 2>/dev/null; then
+      echo "dtparam=i2s=on" | sudo tee -a "$config_file" > /dev/null
+    fi
+    if grep -q "^dtparam=i2s=on" "$config_file" 2>/dev/null || \
+       grep -q "^[^#]*dtparam=i2s=on" "$config_file" 2>/dev/null; then
+      echo "==> I2S enabled successfully"
+      i2s_enabled=true
+      reboot_needed=true
+    else
+      echo "==> Warning: Failed to enable I2S"
     fi
   fi
 
