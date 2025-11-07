@@ -792,11 +792,6 @@ class DisplayManager:
                 self._proximity_last_change_time = current_time
                 # Reset high time to allow detecting another tap while still hovering
                 self._proximity_high_time = current_time
-                self.logger.info(
-                    "Tap detected! (proximity high for %.2fs, peak: %.0f)",
-                    high_duration,
-                    proximity_value,
-                )
                 return True
 
         # Reset tracking when proximity goes low
