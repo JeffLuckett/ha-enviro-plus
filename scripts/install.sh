@@ -310,11 +310,12 @@ pcm.dmic_hw {
 # Software volume control for the I2S microphone
 # After saving this file, you can adjust volume with: alsamixer
 # Press F6 to select the I2S mic, then F4 to set recording volume
+# Note: Control name is "Master" for adau7002
 pcm.dmic_sv {
   type softvol
   slave.pcm dmic_hw
   control {
-    name "Master Capture Volume"
+    name "Master"
     card $i2s_card
   }
   min_dB -3.0
@@ -1085,6 +1086,9 @@ Wants=network-online.target
 [Service]
 Type=simple
 EnvironmentFile=${CFG}
+# Force PortAudio to use ALSA (required for I2S microphone on Enviro+)
+Environment="PULSE_RUNTIME_PATH="
+Environment="ALSA_CARD=adau7002"
 WorkingDirectory=${working_dir}
 ExecStart=${python_cmd}
 Restart=on-failure

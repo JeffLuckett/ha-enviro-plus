@@ -10,7 +10,7 @@ import subprocess
 import logging
 import time
 import numpy as np
-from typing import Dict, Any, Optional, Tuple, List
+from typing import Dict, Any, Optional, Tuple, List, Union
 from collections import deque
 
 from .constants import Constants
@@ -945,12 +945,40 @@ class EnviroPlusSensors:
             return None
 
         try:
-            # Read audio chunk
+            # Try to use ALSA device directly since PortAudio query_devices() fails
+            # We know the ALSA device name is "dmic_sv" from our .asoundrc config
+            # Try using the ALSA device name directly (sounddevice supports this)
+            device: Optional[Union[int, str]] = None
+            try:
+                # First try to query devices (may fail if no default device)
+                devices = sd.query_devices(kind="input")
+                for i, dev in enumerate(devices):
+                    dev_name = dev.get("name", "").lower()
+                    # Look for ALSA devices or adau7002
+                    if "alsa" in dev_name or "adau7002" in dev_name or "dmic" in dev_name:
+                        device = i
+                        self.logger.debug("Found ALSA device: %s (index %d)", dev.get("name"), i)
+                        break
+            except Exception as query_error:
+                # If query fails, try using ALSA device name directly
+                # sounddevice supports ALSA device names like "dmic_sv" or "plughw:1,0"
+                self.logger.debug(
+                    "Device query failed, trying ALSA device name directly: %s", query_error
+                )
+                # Try ALSA device name - sounddevice may support this
+                try:
+                    # Try using the ALSA PCM name directly
+                    device = "dmic_sv"  # Our ALSA PCM name from .asoundrc
+                except Exception:
+                    device = None
+
+            # Read audio chunk - use explicit device if found, otherwise default
             audio_data = sd.rec(
                 Constants.NOISE_CHUNK_SIZE,
                 samplerate=Constants.NOISE_SAMPLE_RATE,
                 channels=1,
                 dtype="float32",
+                device=device,  # Use explicit ALSA device if found, otherwise default
             )
             sd.wait()  # Wait for recording to complete
 
@@ -958,9 +986,18 @@ class EnviroPlusSensors:
             if not isinstance(audio_data, np.ndarray):
                 audio_data = np.array(audio_data)
 
+            # Check if we got actual audio data (not all zeros)
+            max_val = np.max(np.abs(audio_data))
+            if max_val == 0.0:
+                self.logger.debug(
+                    "Noise chunk contains only zeros - microphone may not be recording"
+                )
+                return 0.0
+
             # Calculate RMS (Root Mean Square) level
             rms = np.sqrt(np.mean(audio_data**2))
 
+            self.logger.debug("Noise chunk RMS: %.6f (max: %.6f)", rms, max_val)
             return float(rms)
         except Exception as e:
             self.logger.debug("Failed to read noise chunk: %s", e)
@@ -985,12 +1022,40 @@ class EnviroPlusSensors:
             return 0.0
 
         try:
-            # Read audio chunk
+            # Try to use ALSA device directly since PortAudio query_devices() fails
+            # We know the ALSA device name is "dmic_sv" from our .asoundrc config
+            # Try using the ALSA device name directly (sounddevice supports this)
+            device: Optional[Union[int, str]] = None
+            try:
+                # First try to query devices (may fail if no default device)
+                devices = sd.query_devices(kind="input")
+                for i, dev in enumerate(devices):
+                    dev_name = dev.get("name", "").lower()
+                    # Look for ALSA devices or adau7002
+                    if "alsa" in dev_name or "adau7002" in dev_name or "dmic" in dev_name:
+                        device = i
+                        self.logger.debug("Found ALSA device: %s (index %d)", dev.get("name"), i)
+                        break
+            except Exception as query_error:
+                # If query fails, try using ALSA device name directly
+                # sounddevice supports ALSA device names like "dmic_sv" or "plughw:1,0"
+                self.logger.debug(
+                    "Device query failed, trying ALSA device name directly: %s", query_error
+                )
+                # Try ALSA device name - sounddevice may support this
+                try:
+                    # Try using the ALSA PCM name directly
+                    device = "dmic_sv"  # Our ALSA PCM name from .asoundrc
+                except Exception:
+                    device = None
+
+            # Read audio chunk - use explicit device if found, otherwise default
             audio_data = sd.rec(
                 Constants.NOISE_CHUNK_SIZE,
                 samplerate=Constants.NOISE_SAMPLE_RATE,
                 channels=1,
                 dtype="float32",
+                device=device,  # Use explicit ALSA device if found, otherwise default
             )
             sd.wait()
 
@@ -998,13 +1063,22 @@ class EnviroPlusSensors:
             if not isinstance(audio_data, np.ndarray):
                 audio_data = np.array(audio_data)
 
+            # Check if we got actual audio data (not all zeros)
+            max_val = np.max(np.abs(audio_data))
+            if max_val == 0.0:
+                self.logger.warning(
+                    "Noise sensor recording contains only zeros - microphone may not be working"
+                )
+                return 0.0
+
             # Discard initial chunks to avoid microphone startup "plop"
             if self._noise_chunks_discarded < Constants.NOISE_STARTUP_DISCARD_CHUNKS:
                 self._noise_chunks_discarded += 1
                 self.logger.debug(
-                    "Discarding noise chunk %d/%d (startup plop)",
+                    "Discarding noise chunk %d/%d (startup plop, max=%.6f)",
                     self._noise_chunks_discarded,
                     Constants.NOISE_STARTUP_DISCARD_CHUNKS,
+                    max_val,
                 )
                 return 0.0
 
@@ -1034,11 +1108,20 @@ class EnviroPlusSensors:
                 )  # Add small epsilon to avoid log(0)
 
                 # Clamp to reasonable range (typically 30-100 dB for indoor environments)
+                # Only clamp if we have actual signal - if rms is very small, return 0 instead of fake 30 dB
+                if spl_db + 50.0 < 30.0:
+                    # Signal is too weak - return 0 instead of clamped minimum
+                    self.logger.debug("Noise SPL too low (%.1f dB), returning 0.0", spl_db + 50.0)
+                    return 0.0
+
                 spl_db = max(30.0, min(100.0, spl_db + 50.0))  # Offset by 50 for typical range
 
-                self.logger.debug("Noise SPL: %.1f dB(A) (rms=%.6f)", spl_db, rms)
+                self.logger.debug(
+                    "Noise SPL: %.1f dB(A) (rms=%.6f, max=%.6f)", spl_db, rms, max_val
+                )
                 return float(round(spl_db, Constants.NOISE_ROUND_PRECISION))
             else:
+                self.logger.debug("Noise SPL: rms is 0, returning 0.0")
                 return 0.0
 
         except Exception as e:
