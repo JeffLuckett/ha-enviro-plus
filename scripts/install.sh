@@ -83,13 +83,37 @@ load_defaults() {
   : "${DEFAULT_ELEVATION_METERS:=0.0}"
 }
 
+# Track if we've already updated in this script run to avoid multiple updates
+_APT_UPDATE_DONE=false
+
 # Helper function to safely run apt-get update
 # On resource-constrained systems, this can be killed by OOM killer
+# This function is silent and non-fatal - failures are expected on low-memory systems
+# Uses caching to avoid multiple updates in the same script execution
 safe_apt_update() {
-  if command -v timeout >/dev/null 2>&1; then
-    nice -n 19 timeout 60 sudo apt-get update -y >/dev/null 2>&1 || true
-  else
-    nice -n 19 sudo apt-get update -y >/dev/null 2>&1 || true
+  # If we've already updated in this script run, skip
+  if [ "$_APT_UPDATE_DONE" = "true" ]; then
+    return 0
+  fi
+
+  # Check if package lists are recent (less than 1 hour old)
+  # If they are, skip the update to avoid OOM kills
+  local update_needed=true
+  if [ -d /var/lib/apt/lists ] && [ -n "$(find /var/lib/apt/lists -name '*.gz' -mmin -60 2>/dev/null | head -1)" ]; then
+    update_needed=false
+    _APT_UPDATE_DONE=true  # Mark as done even if we skipped
+    return 0
+  fi
+
+  if [ "$update_needed" = "true" ]; then
+    # Suppress all output including "Killed" messages from shell
+    # Run in a separate shell context to suppress kill messages
+    if command -v timeout >/dev/null 2>&1; then
+      sh -c 'nice -n 19 timeout 60 sudo apt-get update -y >/dev/null 2>&1' 2>/dev/null || true
+    else
+      sh -c 'nice -n 19 sudo apt-get update -y >/dev/null 2>&1' 2>/dev/null || true
+    fi
+    _APT_UPDATE_DONE=true  # Mark as done even if it was killed
   fi
 }
 
@@ -200,32 +224,9 @@ ensure_fonts() {
 ensure_system_dependencies() {
   echo "==> Ensuring system dependencies are installed..."
 
-  # Update package list (non-fatal if it fails)
-  # On resource-constrained systems (like Pi Zero), apt-get update can be killed
-  # by the OOM killer, so we make this completely optional
-  echo "==> Updating package list (this may take a moment)..."
-
-  # Try to update, but don't fail if killed or if it fails
-  # Use nice to lower priority and reduce memory pressure
-  update_success=false
-  if command -v timeout >/dev/null 2>&1; then
-    if nice -n 19 timeout 60 sudo apt-get update -y >/dev/null 2>&1; then
-      update_success=true
-    fi
-  else
-    if nice -n 19 sudo apt-get update -y >/dev/null 2>&1; then
-      update_success=true
-    fi
-  fi
-
-  if [ "$update_success" = "true" ]; then
-    echo "==> Package list updated successfully"
-  else
-    echo "==> Warning: Package list update failed or was interrupted"
-    echo "==> This is common on resource-constrained systems"
-    echo "==> Continuing with installation - packages will be installed from cache"
-    echo "==> You can update manually later with: sudo apt-get update"
-  fi
+  # Use safe_apt_update which handles caching and OOM kills gracefully
+  # This avoids duplicate updates if other functions already ran it
+  safe_apt_update
 
   # Install PortAudio development libraries (required for sounddevice)
   # This is needed for the noise sensor feature
