@@ -1255,13 +1255,21 @@ class EnviroPlusSensors:
 
                 # Convert to dB (using arbitrary reference for relative measurements)
                 # For absolute dB(A), proper calibration with reference sound source needed
+                # The formula: dB = 20 * log10(rms / reference)
+                # For normalized audio (range -1 to 1), we need to account for:
+                # 1. Microphone sensitivity (typically -40 to -60 dBV/Pa)
+                # 2. Preamp gain
+                # 3. ADC normalization
+                # Using a larger offset to account for I2S microphone characteristics
                 spl_db = 20.0 * np.log10(
                     calibrated_rms + 1e-10
                 )  # Add small epsilon to avoid log(0)
 
                 # Add offset to bring normalized audio levels into typical dB range
-                # The offset of 50 dB accounts for typical microphone sensitivity and normalization
-                spl_db_offset = spl_db + 50.0
+                # I2S microphones typically need a larger offset (60-70 dB) to account for
+                # their sensitivity and the normalization from int32 to float32
+                # This offset is empirical and may need calibration with a reference SPL meter
+                spl_db_offset = spl_db + 70.0
 
                 # Only clamp maximum to prevent unrealistic high readings
                 # Don't clamp minimum - report actual quiet readings accurately
@@ -1303,14 +1311,17 @@ class EnviroPlusSensors:
                     calibrated_rms = rms * calibration_factor
                     spl_db = 20.0 * np.log10(calibrated_rms + 1e-10)
 
-                    if spl_db + 50.0 < 30.0:
-                        return 0.0
-
-                    spl_db = max(30.0, min(100.0, spl_db + 50.0))
+                    # Use same offset as main path (70 dB for I2S microphones)
+                    spl_db_offset = spl_db + 70.0
+                    spl_db_final = min(100.0, spl_db_offset)
                     self.logger.info(
-                        "arecord fallback succeeded in noise_spl_db: %.1f dB(A)", spl_db
+                        "arecord fallback succeeded in noise_spl_db: %.1f dB(A) (raw rms=%.6f, filtered rms=%.6f, max=%.6f)",
+                        spl_db_final,
+                        np.sqrt(np.mean(raw_audio**2)),
+                        rms,
+                        max_val,
                     )
-                    return float(round(spl_db, Constants.NOISE_ROUND_PRECISION))
+                    return float(round(spl_db_final, Constants.NOISE_ROUND_PRECISION))
                 else:
                     return 0.0
             except Exception as fallback_error:
