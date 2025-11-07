@@ -853,6 +853,7 @@ class TestGetAllSensorData:
             "pressure_raw",
             "lux",
             "lux_raw",
+            "proximity",
             "gas_oxidising",
             "gas_oxidising_raw",
             "gas_reducing",

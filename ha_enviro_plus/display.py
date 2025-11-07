@@ -63,13 +63,21 @@ class DisplayManager:
     on hardware failure.
     """
 
-    def __init__(self, logger: Optional[logging.Logger] = None, enabled: bool = True):
+    def __init__(
+        self,
+        logger: Optional[logging.Logger] = None,
+        enabled: bool = True,
+        auto_rotate: bool = True,
+        rotation_interval: float = 10.0,
+    ):
         """
         Initialize the display manager.
 
         Args:
             logger: Logger instance for display operations
             enabled: Whether display is enabled (from DISPLAY_ENABLED env var)
+            auto_rotate: Whether to auto-rotate display plugins (from DISPLAY_AUTO_ROTATE env var)
+            rotation_interval: Seconds between auto-rotations (from DISPLAY_ROTATION_INTERVAL env var)
         """
         self.logger = logger or logging.getLogger(__name__)
         self.enabled = enabled
@@ -89,14 +97,19 @@ class DisplayManager:
         self._plugin_cycle_index = 0
         self._plugin_cycle_sensors: Optional[Any] = None
         self._plugin_cycle_settings: Optional[Any] = None
+        self._auto_rotate = auto_rotate  # Enable auto-rotation by default
+        self._rotation_interval = rotation_interval  # Seconds between auto-rotations (configurable)
+        self._plugin_start_time: Optional[float] = None  # Track when current plugin started showing
 
         # Tap detection state
         self._proximity_threshold = 50  # Threshold for tap detection (0-255)
         self._proximity_last_value = 0.0
         self._proximity_last_change_time = 0.0
-        self._tap_debounce_time = 0.3  # seconds between taps
+        self._tap_debounce_time = 0.1  # seconds between taps (reduced for responsiveness)
         self._proximity_high_time = 0.0
-        self._proximity_high_threshold_time = 0.1  # minimum time proximity must be high
+        self._proximity_high_threshold_time = (
+            0.05  # minimum time proximity must be high (reduced for responsiveness)
+        )
 
         if not enabled:
             self.logger.debug("Display disabled by configuration")
@@ -243,6 +256,9 @@ class DisplayManager:
                             self._current_display = self._display_queue.pop(0)
                             display_start_time = time.time()
                             fade_out_start_time = None
+                            # Track plugin start time for rotation interval
+                            if self._plugin_cycle_active:
+                                self._plugin_start_time = time.time()
                             # Render the new display
                             if self.display:
                                 self.logger.info(
@@ -280,8 +296,9 @@ class DisplayManager:
                             self._current_display = None
                             display_start_time = None
                             fade_out_start_time = None
-                            # Advance plugin cycle if active
-                            if self._plugin_cycle_active:
+                            # Only advance plugin cycle automatically if auto-rotate is enabled
+                            # Otherwise, plugins only advance on tap
+                            if self._plugin_cycle_active and self._auto_rotate:
                                 self._advance_plugin_cycle()
                         else:
                             # Continue fading
@@ -306,8 +323,28 @@ class DisplayManager:
                             # For continuous updates (very short duration), update in place
                             if self._current_display.duration < 0.5:
                                 # Re-render the current display without clearing
+                                # (prevents blinking)
                                 self._render_display_immediate(self._current_display)
                                 display_start_time = time.time()  # Reset timer
+
+                                # Check rotation interval for auto-rotation
+                                if (
+                                    self._plugin_cycle_active
+                                    and self._auto_rotate
+                                    and self._plugin_start_time is not None
+                                ):
+                                    plugin_elapsed = time.time() - self._plugin_start_time
+                                    if plugin_elapsed >= self._rotation_interval:
+                                        # Time to rotate to next plugin
+                                        self.logger.info(
+                                            "Rotation interval reached (%.1fs), "
+                                            "advancing to next plugin",
+                                            plugin_elapsed,
+                                        )
+                                        self._advance_plugin_cycle()
+                                        # Clear current display to force next plugin
+                                        self._current_display = None
+                                        display_start_time = None
                             else:
                                 # Just turn off immediately for longer displays
                                 self.logger.info("Display: Turning off (no fade)")
@@ -318,8 +355,9 @@ class DisplayManager:
                                         pass
                                 self._current_display = None
                                 display_start_time = None
-                                # Queue next plugin if cycle is active
-                                if self._plugin_cycle_active:
+                                # Only queue next plugin automatically if auto-rotate is enabled
+                                # Otherwise, plugins only advance on tap
+                                if self._plugin_cycle_active and self._auto_rotate:
                                     self._queue_next_plugin()
 
                 # Small delay to prevent busy waiting
@@ -542,8 +580,13 @@ class DisplayManager:
                     self.logger.error("Plugin %s render error: %s", plugin.name(), e)
                     return self._create_error_image(plugin.error_message(e))
 
+            # Use continuous updates (0.1s) for all plugins to prevent blinking
+            # Auto-rotation is handled separately via rotation interval timer
             item = DisplayItem(
-                duration=plugin.duration(), render_func=render_plugin, fade_out=False, fade_in=False
+                duration=0.1,  # Continuous updates - prevents blinking
+                render_func=render_plugin,
+                fade_out=False,
+                fade_in=False,
             )
             self._display_queue.append(item)
 
@@ -634,7 +677,8 @@ class DisplayManager:
         """
         Advance to the next plugin in the cycle.
 
-        This is called when a plugin display completes to move to the next one.
+        This is called when a plugin display completes to move to the next one,
+        or when rotation interval expires, or when tap is detected.
         """
         if not self._plugin_cycle_active or not self._plugin_cycle_plugins:
             return
@@ -644,6 +688,8 @@ class DisplayManager:
                 self._plugin_cycle_plugins
             )
             self.logger.info("Advancing plugin cycle to index %d", self._plugin_cycle_index)
+            # Reset plugin start time for rotation interval tracking
+            self._plugin_start_time = None
 
         # Queue next plugin (outside lock to avoid reentrant lock issue)
         self._queue_next_plugin()
@@ -713,7 +759,7 @@ class DisplayManager:
 
     def handle_tap(self) -> None:
         """
-        Handle tap gesture by advancing to next plugin in cycle.
+        Handle tap gesture by immediately switching to next plugin in cycle.
 
         This method should be called when a tap is detected.
         """
@@ -721,5 +767,12 @@ class DisplayManager:
             self.logger.debug("Tap ignored: plugin cycle not active")
             return
 
-        self.logger.info("Handling tap: advancing to next plugin")
+        self.logger.info("Handling tap: immediately switching to next plugin")
+        # Advance to next plugin immediately (this will queue it)
         self._advance_plugin_cycle()
+        # Clear current display to force immediate switch
+        with self._lock:
+            self._current_display = None
+            self._display_queue.clear()  # Clear queue to ensure immediate switch
+            # Reset plugin start time for rotation interval tracking
+            self._plugin_start_time = None

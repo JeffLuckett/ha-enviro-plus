@@ -1087,6 +1087,8 @@ class EnviroPlusSensors:
             # Light
             "lux": self.lux(),
             "lux_raw": self.lux_raw(),
+            # Proximity
+            "proximity": self.proximity(),
             # Gas sensors
             "gas_oxidising": self.gas_oxidising(),
             "gas_oxidising_raw": self.gas_oxidising_raw(),

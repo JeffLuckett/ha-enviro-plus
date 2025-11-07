@@ -184,14 +184,20 @@ def get_available_plugins(
         settings: SettingsManager instance
 
     Returns:
-        List of available plugin instances
+        List of available plugin instances, with "Sensor Display" first
     """
     available = []
+    sensor_display_plugin = None
+
     for plugin_class in _plugin_registry:
         try:
             plugin = plugin_class()
             if plugin.is_available(sensors, settings):
-                available.append(plugin)
+                # Prioritize "Sensor Display" (dashboard) to be first
+                if plugin.name() == "Sensor Display":
+                    sensor_display_plugin = plugin
+                else:
+                    available.append(plugin)
         except Exception as e:
             plugin_logger = logging.getLogger(__name__)
             plugin_logger.warning(
@@ -199,6 +205,11 @@ def get_available_plugins(
                 plugin_class.__name__,
                 e,
             )
+
+    # Put Sensor Display first if available
+    if sensor_display_plugin:
+        available.insert(0, sensor_display_plugin)
+
     return available
 
 

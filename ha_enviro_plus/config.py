@@ -38,6 +38,8 @@ class Config:
     sensor_warmup_sec: float = 2.0
     units: str = "metric"
     device_location: str = ""
+    display_auto_rotate: bool = True
+    display_rotation_interval: float = 10.0
 
     # Logging Configuration
     log_to_file: bool = False
@@ -77,6 +79,8 @@ class Config:
             sensor_warmup_sec=float(_get("SENSOR_WARMUP_SEC", "2")),
             units=_get("UNITS", "metric"),
             device_location=_get("DEVICE_LOCATION", ""),
+            display_auto_rotate=int(_get("DISPLAY_AUTO_ROTATE", "1")) == 1,
+            display_rotation_interval=float(_get("DISPLAY_ROTATION_INTERVAL", "10.0")),
             # Logging
             log_to_file=int(_get("LOG_TO_FILE", "0")) == 1,
             log_path=Path(_get("LOG_PATH", "/var/log/ha-enviro-plus.log")),

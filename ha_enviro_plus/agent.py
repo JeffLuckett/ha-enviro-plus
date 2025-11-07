@@ -61,6 +61,7 @@ SENSORS = {
     "bme280/humidity": ("Humidity", "%", "humidity"),
     "bme280/pressure": ("Pressure", "hPa", "atmospheric_pressure"),
     "ltr559/lux": ("Illuminance", "lx", "illuminance"),
+    "ltr559/proximity": ("Proximity", None, None),
     "gas/oxidising": ("Gas Oxidising (kΩ)", "kΩ", None),
     "gas/reducing": ("Gas Reducing (kΩ)", "kΩ", None),
     "gas/nh3": ("Gas NH3 (kΩ)", "kΩ", None),
@@ -290,7 +291,7 @@ def read_all(enviro_sensors: EnviroPlusSensors) -> Dict[str, Any]:
         },
         "ltr559": {
             "sensor_key": "ltr559",
-            "fields": ["lux"],
+            "fields": ["lux", "proximity"],
         },
         "gas": {
             "sensor_key": "gas",
@@ -325,10 +326,13 @@ def read_all(enviro_sensors: EnviroPlusSensors) -> Dict[str, Any]:
                 # Topic: gas/oxidising -> Sensor data key: gas_oxidising
                 # For noise sensors, map topic field name to sensor data key
                 # Topic: noise/spl_db -> Sensor data key: noise_spl_db
+                # For ltr559, most fields map directly, but proximity is just "proximity"
                 if sensor_type == "gas":
                     sensor_data_key = f"{prefix}_{field}"
                 elif sensor_type == "noise":
                     sensor_data_key = f"{prefix}_{field}"
+                elif sensor_type == "ltr559" and field == "proximity":
+                    sensor_data_key = "proximity"
                 else:
                     sensor_data_key = field
                 vals[f"{prefix}/{field}"] = sensor_data[sensor_data_key]
@@ -777,7 +781,12 @@ def main() -> None:
     # Display splash screen during startup (skipped in tests)
     if config.display_enabled and os.getenv("PYTEST_CURRENT_TEST") is None:
         try:
-            display = DisplayManager(logger=logger, enabled=config.display_enabled)
+            display = DisplayManager(
+                logger=logger,
+                enabled=config.display_enabled,
+                auto_rotate=config.display_auto_rotate,
+                rotation_interval=config.display_rotation_interval,
+            )
             if display.display_available:
                 # Display is already cleared during initialization
                 # Queue splash screen - this is non-blocking now!

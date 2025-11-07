@@ -429,6 +429,14 @@ check_new_config_options() {
     new_options+=("UNITS")
   fi
 
+  if [ -z "${DISPLAY_AUTO_ROTATE:-}" ]; then
+    new_options+=("DISPLAY_AUTO_ROTATE")
+  fi
+
+  if [ -z "${DISPLAY_ROTATION_INTERVAL:-}" ]; then
+    new_options+=("DISPLAY_ROTATION_INTERVAL")
+  fi
+
   if [ ${#new_options[@]} -gt 0 ]; then
     echo "==> New configuration options detected: ${new_options[*]}"
     echo "These options were added in newer versions and need to be configured."
@@ -530,6 +538,16 @@ write_config() {
           fi
           units_prompted=true  # Mark that UNITS was already prompted
         fi
+
+        if [ -z "${DISPLAY_AUTO_ROTATE:-}" ]; then
+          read -rp "Enable display auto-rotation (1=yes, 0=no) [${DEFAULT_DISPLAY_AUTO_ROTATE}]: " DISPLAY_AUTO_ROTATE_INPUT
+          DISPLAY_AUTO_ROTATE="${DISPLAY_AUTO_ROTATE_INPUT:-${DEFAULT_DISPLAY_AUTO_ROTATE}}"
+        fi
+
+        if [ -z "${DISPLAY_ROTATION_INTERVAL:-}" ]; then
+          read -rp "Display rotation interval (seconds) [${DEFAULT_DISPLAY_ROTATION_INTERVAL}]: " DISPLAY_ROTATION_INTERVAL_INPUT
+          DISPLAY_ROTATION_INTERVAL="${DISPLAY_ROTATION_INTERVAL_INPUT:-${DEFAULT_DISPLAY_ROTATION_INTERVAL}}"
+        fi
       else
         # Use defaults for new options if not interactive
         echo "==> Using defaults for new options (non-interactive mode)"
@@ -538,6 +556,8 @@ write_config() {
         : "${TEMP_SMOOTHING_MINUTES:=${DEFAULT_TEMP_SMOOTHING_MINUTES}}"
         : "${PRESSURE_OFFSET:=${DEFAULT_PRESSURE_OFFSET}}"
         : "${ELEVATION_METERS:=${DEFAULT_ELEVATION_METERS}}"
+        : "${DISPLAY_AUTO_ROTATE:=${DEFAULT_DISPLAY_AUTO_ROTATE}}"
+        : "${DISPLAY_ROTATION_INTERVAL:=${DEFAULT_DISPLAY_ROTATION_INTERVAL}}"
         # Only set UNITS default if it wasn't in the config file with a valid value
         if [ "$units_in_config" = "false" ]; then
           : "${UNITS:=${DEFAULT_UNITS}}"
@@ -641,6 +661,8 @@ write_config() {
   : "${PRESSURE_OFFSET:=${DEFAULT_PRESSURE_OFFSET}}"
   : "${ELEVATION_METERS:=${DEFAULT_ELEVATION_METERS}}"
   : "${DISPLAY_ENABLED:=${DEFAULT_DISPLAY_ENABLED}}"
+  : "${DISPLAY_AUTO_ROTATE:=${DEFAULT_DISPLAY_AUTO_ROTATE}}"
+  : "${DISPLAY_ROTATION_INTERVAL:=${DEFAULT_DISPLAY_ROTATION_INTERVAL}}"
   # Only set UNITS default if it wasn't already set above
   if [ -z "${UNITS:-}" ]; then
     : "${UNITS:=${DEFAULT_UNITS}}"
@@ -662,6 +684,8 @@ TEMP_SMOOTHING_MINUTES="${TEMP_SMOOTHING_MINUTES}"
 PRESSURE_OFFSET="${PRESSURE_OFFSET}"
 ELEVATION_METERS="${ELEVATION_METERS}"
 DISPLAY_ENABLED="${DISPLAY_ENABLED}"
+DISPLAY_AUTO_ROTATE="${DISPLAY_AUTO_ROTATE}"
+DISPLAY_ROTATION_INTERVAL="${DISPLAY_ROTATION_INTERVAL}"
 UNITS="${UNITS}"
 EOF
   sudo chmod 600 "${CFG}"
