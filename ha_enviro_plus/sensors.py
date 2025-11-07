@@ -31,17 +31,15 @@ except ImportError:
     gas = MagicMock()  # Keep gas as a mockable object
     HARDWARE_AVAILABLE = False
 
-# Noise sensor imports with fallback
+# Noise sensor imports - only need scipy for A-weighting filter
+# We use arecord (ALSA) directly, not PortAudio/sounddevice
 try:
-    import sounddevice as sd
     from scipy.signal import lfilter, butter
 
     NOISE_SENSOR_AVAILABLE = True
-except (ImportError, OSError) as e:
-    # ImportError: libraries not installed
-    # OSError: PortAudio library not found (sounddevice dependency)
+except ImportError:
+    # scipy not installed
     NOISE_SENSOR_AVAILABLE = False
-    sd = None
     lfilter = None
     butter = None
 
@@ -146,150 +144,70 @@ class EnviroPlusSensors:
                 self._gas_available = False
 
             # Check if noise sensor (microphone) is available
-            # On Enviro+, the I2S microphone (adau7002) may not be detected by PortAudio
-            # but can work via arecord/ALSA. We test arecord first since PortAudio often fails.
-            self._use_arecord_only = False  # Flag to skip PortAudio if it doesn't work
-
+            # On Enviro+, we use arecord (ALSA) directly for I2S microphone (adau7002)
             if NOISE_SENSOR_AVAILABLE:
                 try:
-                    # Method 1: Try arecord first (most reliable for I2S microphones)
-                    # PortAudio often fails with I2S mics, so test arecord directly
+                    import tempfile
+                    import os
+                    from scipy.io import wavfile
+
+                    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
+                        test_wav = tmp_file.name
+
                     try:
-                        import tempfile
-                        import os
-                        from scipy.io import wavfile
-
-                        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
-                            test_wav = tmp_file.name
-
-                        try:
-                            # Test recording with arecord (1 second)
-                            result = subprocess.run(
-                                [
-                                    "arecord",
-                                    "-D",
-                                    "dmic_sv",
-                                    "-c",
-                                    "1",
-                                    "-r",
-                                    str(Constants.NOISE_SAMPLE_RATE),
-                                    "-f",
-                                    "S16_LE",
-                                    "-t",
-                                    "wav",
-                                    "-d",
-                                    "1",
-                                    test_wav,
-                                ],
-                                capture_output=True,
-                                timeout=2.0,
-                                check=False,
-                            )
-
-                            if result.returncode == 0 and os.path.exists(test_wav):
-                                # Check if file has data
-                                sample_rate, test_data = wavfile.read(test_wav)
-                                if test_data is not None and len(test_data) > 0:
-                                    self._noise_available = True
-                                    self._use_arecord_only = (
-                                        True  # Skip PortAudio, use arecord only
-                                    )
-                                    self.logger.info(
-                                        "Noise sensor (microphone) available - verified by arecord test recording"
-                                    )
-                                else:
-                                    raise ValueError("arecord test recording returned no data")
-                            else:
-                                stderr_msg = (
-                                    result.stderr.decode("utf-8", errors="ignore")
-                                    if result.stderr
-                                    else ""
-                                )
-                                raise ValueError(f"arecord test failed: {stderr_msg}")
-                        finally:
-                            try:
-                                if os.path.exists(test_wav):
-                                    os.unlink(test_wav)
-                            except Exception:
-                                pass
-                    except Exception as arecord_error:
-                        # arecord failed, try PortAudio as fallback
-                        self.logger.debug(
-                            "arecord test failed, trying PortAudio: %s", arecord_error
+                        # Test recording with arecord (1 second)
+                        result = subprocess.run(
+                            [
+                                "arecord",
+                                "-D",
+                                "dmic_sv",
+                                "-c",
+                                "1",
+                                "-r",
+                                str(Constants.NOISE_SAMPLE_RATE),
+                                "-f",
+                                "S16_LE",
+                                "-t",
+                                "wav",
+                                "-d",
+                                "1",
+                                test_wav,
+                            ],
+                            capture_output=True,
+                            timeout=2.0,
+                            check=False,
                         )
-                        try:
-                            # Method 2: Try PortAudio test recording
-                            test_data = sd.rec(
-                                frames=100,
-                                samplerate=Constants.NOISE_SAMPLE_RATE,
-                                channels=1,
-                                dtype="float32",
-                            )
-                            sd.wait()  # Wait for recording to complete
+
+                        if result.returncode == 0 and os.path.exists(test_wav):
+                            # Check if file has data
+                            sample_rate, test_data = wavfile.read(test_wav)
                             if test_data is not None and len(test_data) > 0:
                                 self._noise_available = True
-                                self._use_arecord_only = False  # PortAudio works
                                 self.logger.info(
-                                    "Noise sensor (microphone) available - verified by PortAudio test recording"
+                                    "Noise sensor (microphone) available - verified by arecord test recording"
                                 )
                             else:
-                                # Test recording returned no data, try device enumeration
-                                raise ValueError("PortAudio test recording returned no data")
-                        except Exception as test_error:
-                            # Test recording failed, try device enumeration as fallback
-                            self.logger.debug(
-                                "PortAudio test failed, trying device enumeration: %s", test_error
-                            )
-                            # Method 3: Query all input devices
-                            try:
-                                devices = sd.query_devices(kind="input")
-                                if devices and len(devices) > 0:
-                                    self._noise_available = True
-                                    self._use_arecord_only = False  # PortAudio enumeration works
-                                    self.logger.info(
-                                        "Noise sensor (microphone) available - found %d input device(s)",
-                                        len(devices),
-                                    )
-                                else:
-                                    # Method 4: Try to get default input device (if >= 0)
-                                    default_input = sd.default.device[0]  # Input device index
-                                    if default_input is not None and default_input >= 0:
-                                        try:
-                                            default_device_info = sd.query_devices(default_input)
-                                            if (
-                                                default_device_info
-                                                and default_device_info.get("max_input_channels", 0)
-                                                > 0
-                                            ):
-                                                self._noise_available = True
-                                                self._use_arecord_only = False  # PortAudio works
-                                                self.logger.info(
-                                                    "Noise sensor (microphone) available - using default input device: %s",
-                                                    default_device_info.get("name", "unknown"),
-                                                )
-                                            else:
-                                                self.logger.warning(
-                                                    "No microphone input device found - noise sensor will be unavailable"
-                                                )
-                                                self._noise_available = False
-                                        except Exception as query_error:
-                                            self.logger.warning(
-                                                "Noise sensor device query failed: %s - noise sensor will be unavailable",
-                                                query_error,
-                                            )
-                                            self._noise_available = False
-                                    else:
-                                        self.logger.warning(
-                                            "No microphone input device found (default device: %s) - noise sensor will be unavailable",
-                                            default_input,
-                                        )
-                                        self._noise_available = False
-                            except Exception as enum_error:
                                 self.logger.warning(
-                                    "Noise sensor enumeration failed: %s - noise sensor will be unavailable",
-                                    enum_error,
+                                    "arecord test recording returned no data - noise sensor will be unavailable"
                                 )
                                 self._noise_available = False
+                        else:
+                            stderr_msg = (
+                                result.stderr.decode("utf-8", errors="ignore")
+                                if result.stderr
+                                else ""
+                            )
+                            self.logger.warning(
+                                "arecord test failed: %s - noise sensor will be unavailable",
+                                stderr_msg,
+                            )
+                            self._noise_available = False
+                    finally:
+                        try:
+                            if os.path.exists(test_wav):
+                                os.unlink(test_wav)
+                        except Exception:
+                            pass
                 except Exception as e:
                     self.logger.warning(
                         "Noise sensor not available: %s - noise sensor will be unavailable", e
@@ -297,7 +215,7 @@ class EnviroPlusSensors:
                     self._noise_available = False
             else:
                 self.logger.warning(
-                    "Noise sensor libraries not available (sounddevice/scipy) - noise sensor will be unavailable"
+                    "Noise sensor libraries not available (scipy) - noise sensor will be unavailable"
                 )
 
             # Log summary of available sensors
@@ -1015,110 +933,22 @@ class EnviroPlusSensors:
         """
         Read a chunk of audio data and return RMS level.
 
+        Uses arecord (ALSA) directly for I2S microphones.
+
         Returns:
             RMS level of audio chunk, or None if unavailable
         """
-        if not self._noise_available or not NOISE_SENSOR_AVAILABLE or sd is None:
+        if not self._noise_available:
             return None
 
-        try:
-            # Try to use ALSA device directly since PortAudio query_devices() fails
-            # We know the ALSA device name is "dmic_sv" from our .asoundrc config
-            # Try using the ALSA device name directly (sounddevice supports this)
-            device: Optional[Union[int, str]] = None
-            try:
-                # First try to query devices (may fail if no default device)
-                devices = sd.query_devices(kind="input")
-                for i, dev in enumerate(devices):
-                    dev_name = dev.get("name", "").lower()
-                    # Look for ALSA devices or adau7002
-                    if "alsa" in dev_name or "adau7002" in dev_name or "dmic" in dev_name:
-                        device = i
-                        self.logger.debug("Found ALSA device: %s (index %d)", dev.get("name"), i)
-                        break
-            except Exception as query_error:
-                # If query fails, try using ALSA device name directly
-                # sounddevice supports ALSA device names like "dmic_sv" or "plughw:1,0"
-                self.logger.debug(
-                    "Device query failed, trying ALSA device name directly: %s", query_error
-                )
-                # Try ALSA device name - sounddevice may support this
-                try:
-                    # Try using the ALSA PCM name directly
-                    device = "dmic_sv"  # Our ALSA PCM name from .asoundrc
-                except Exception:
-                    device = None
-
-            # Read audio chunk - use explicit device if found, otherwise default
-            # Use blocking=False and timeout to prevent hanging on shutdown
-            # Calculate timeout based on chunk size and sample rate
-            timeout_seconds = (
-                Constants.NOISE_CHUNK_SIZE / Constants.NOISE_SAMPLE_RATE
-            ) + 0.1  # Add 100ms buffer
-
-            audio_data = sd.rec(
-                Constants.NOISE_CHUNK_SIZE,
-                samplerate=Constants.NOISE_SAMPLE_RATE,
-                channels=1,
-                dtype="float32",
-                device=device,  # Use explicit ALSA device if found, otherwise default
-                blocking=False,  # Non-blocking to allow graceful shutdown
-            )
-            # Wait for recording with timeout to prevent hanging
-            try:
-                sd.wait(timeout=timeout_seconds)
-            except KeyboardInterrupt:
-                # Allow graceful shutdown if interrupted
-                raise
-            except Exception as wait_error:
-                # If wait times out or fails, return None
-                self.logger.debug("Recording wait failed or timed out: %s", wait_error)
-                return None
-
-            # Convert to numpy array if needed
-            if not isinstance(audio_data, np.ndarray):
-                audio_data = np.array(audio_data)
-
-            # Check if we got actual audio data (not all zeros)
-            max_val = np.max(np.abs(audio_data))
-            if max_val == 0.0:
-                # PortAudio returned zeros - try fallback to arecord
-                self.logger.warning(
-                    "PortAudio returned zeros (max_val=0.0), trying arecord fallback..."
-                )
-                fallback_result = self._read_noise_chunk_arecord()
-                if fallback_result is None:
-                    self.logger.warning("arecord fallback also failed or returned None")
-                elif fallback_result == 0.0:
-                    self.logger.warning("arecord fallback also returned zeros")
-                else:
-                    self.logger.info("arecord fallback succeeded: RMS=%.6f", fallback_result)
-                return fallback_result
-
-            # Calculate RMS (Root Mean Square) level
-            rms = np.sqrt(np.mean(audio_data**2))
-
-            self.logger.debug("Noise chunk RMS: %.6f (max: %.6f)", rms, max_val)
-            return float(rms)
-        except Exception as e:
-            self.logger.warning(
-                "Failed to read noise chunk with PortAudio: %s, trying arecord fallback...", e
-            )
-            # Small delay to let PortAudio release the device if it's holding it
-            time.sleep(0.1)
-            # Try fallback to arecord
-            fallback_result = self._read_noise_chunk_arecord()
-            if fallback_result is None:
-                self.logger.warning("arecord fallback also failed or returned None")
-            elif fallback_result == 0.0:
-                self.logger.warning("arecord fallback also returned zeros")
-            else:
-                self.logger.info("arecord fallback succeeded: RMS=%.6f", fallback_result)
-            return fallback_result
+        # Use arecord exclusively - PortAudio doesn't work reliably with I2S mics
+        return self._read_noise_chunk_arecord()
 
     def _read_noise_chunk_raw(self) -> Optional[np.ndarray]:
         """
         Read raw audio data (not RMS) for A-weighting.
+
+        Uses arecord (ALSA) directly for I2S microphones.
 
         Returns:
             Raw audio data as numpy array, or None if unavailable
@@ -1126,65 +956,8 @@ class EnviroPlusSensors:
         if not self._noise_available:
             return None
 
-        # If we detected that PortAudio doesn't work, use arecord directly
-        if hasattr(self, "_use_arecord_only") and self._use_arecord_only:
-            return self._read_noise_chunk_raw_arecord()
-
-        if not NOISE_SENSOR_AVAILABLE or sd is None:
-            return None
-
-        try:
-            # Try PortAudio first
-            device: Optional[Union[int, str]] = None
-            try:
-                devices = sd.query_devices(kind="input")
-                for i, dev in enumerate(devices):
-                    dev_name = dev.get("name", "").lower()
-                    if "alsa" in dev_name or "adau7002" in dev_name or "dmic" in dev_name:
-                        device = i
-                        break
-            except Exception:
-                device = "dmic_sv"
-
-            timeout_seconds = (Constants.NOISE_CHUNK_SIZE / Constants.NOISE_SAMPLE_RATE) + 0.1
-
-            audio_data = sd.rec(
-                Constants.NOISE_CHUNK_SIZE,
-                samplerate=Constants.NOISE_SAMPLE_RATE,
-                channels=1,
-                dtype="float32",
-                device=device,
-                blocking=False,
-            )
-            try:
-                sd.wait(timeout=timeout_seconds)
-            except Exception as wait_error:
-                # PortAudio wait failed, try arecord fallback
-                self.logger.debug("PortAudio wait failed in _read_noise_chunk_raw: %s", wait_error)
-                # Small delay to let PortAudio release the device if it's holding it
-                time.sleep(0.1)
-                return self._read_noise_chunk_raw_arecord()
-
-            if not isinstance(audio_data, np.ndarray):
-                audio_data = np.array(audio_data)
-
-            max_val = np.max(np.abs(audio_data))
-            if max_val == 0.0:
-                # PortAudio returned zeros, try arecord fallback
-                self.logger.debug(
-                    "PortAudio returned zeros in _read_noise_chunk_raw, trying arecord fallback"
-                )
-                # Small delay to let PortAudio release the device if it's holding it
-                time.sleep(0.1)
-                return self._read_noise_chunk_raw_arecord()
-
-            return audio_data
-        except Exception as e:
-            # PortAudio failed completely, try arecord fallback
-            self.logger.debug(
-                "PortAudio failed in _read_noise_chunk_raw: %s, trying arecord fallback", e
-            )
-            return self._read_noise_chunk_raw_arecord()
+        # Use arecord exclusively - PortAudio doesn't work reliably with I2S mics
+        return self._read_noise_chunk_raw_arecord()
 
     def _read_noise_chunk_raw_arecord(self) -> Optional[np.ndarray]:
         """
@@ -1261,7 +1034,7 @@ class EnviroPlusSensors:
 
     def _read_noise_chunk_arecord(self) -> Optional[float]:
         """
-        Fallback method to read audio using arecord when PortAudio fails.
+        Read audio using arecord (ALSA).
 
         Uses arecord to record a WAV file, then reads it with scipy.io.wavfile.
 
@@ -1312,36 +1085,48 @@ class EnviroPlusSensors:
 
                 if result.returncode != 0:
                     stderr_msg = result.stderr.decode("utf-8", errors="ignore")
-                    # Check if device is busy - if so, wait a bit and retry once
+                    # Check if device is busy - if so, wait a bit and retry multiple times
                     if "busy" in stderr_msg.lower() or "resource busy" in stderr_msg.lower():
-                        self.logger.debug("Device busy, waiting 0.2s and retrying arecord...")
-                        time.sleep(0.2)
-                        # Retry once
-                        result = subprocess.run(
-                            [
-                                "arecord",
-                                "-D",
-                                "dmic_sv",
-                                "-c",
-                                "1",
-                                "-r",
-                                str(Constants.NOISE_SAMPLE_RATE),
-                                "-f",
-                                "S16_LE",
-                                "-t",
-                                "wav",
-                                "-d",
-                                duration_str,
-                                tmp_wav,
-                            ],
-                            capture_output=True,
-                            timeout=duration_sec + 1.0,
-                            check=False,
-                        )
+                        # Device busy - retry with increasing delays
+                        max_retries = 3
+                        for retry in range(max_retries):
+                            delay = 0.2 * (retry + 1)  # 0.2s, 0.4s, 0.6s
+                            self.logger.debug(
+                                "Device busy, waiting %.1fs and retrying arecord (attempt %d/%d)...",
+                                delay,
+                                retry + 1,
+                                max_retries,
+                            )
+                            time.sleep(delay)
+                            # Retry
+                            result = subprocess.run(
+                                [
+                                    "arecord",
+                                    "-D",
+                                    "dmic_sv",
+                                    "-c",
+                                    "1",
+                                    "-r",
+                                    str(Constants.NOISE_SAMPLE_RATE),
+                                    "-f",
+                                    "S16_LE",
+                                    "-t",
+                                    "wav",
+                                    "-d",
+                                    duration_str,
+                                    tmp_wav,
+                                ],
+                                capture_output=True,
+                                timeout=duration_sec + 1.0,
+                                check=False,
+                            )
+                            if result.returncode == 0:
+                                break  # Success!
                         if result.returncode != 0:
                             stderr_msg = result.stderr.decode("utf-8", errors="ignore")
                             self.logger.warning(
-                                "arecord failed after retry (exit code %d): %s",
+                                "arecord failed after %d retries (exit code %d): %s",
+                                max_retries,
                                 result.returncode,
                                 stderr_msg,
                             )
@@ -1422,36 +1207,26 @@ class EnviroPlusSensors:
             self.logger.debug("Noise SPL unavailable: microphone not available")
             return 0.0
 
-        if not NOISE_SENSOR_AVAILABLE or sd is None or self._a_weight_filter is None:
+        if not NOISE_SENSOR_AVAILABLE or self._a_weight_filter is None:
             self.logger.debug("Noise SPL unavailable: noise sensor libraries not available")
             return 0.0
 
         try:
-            # Use _read_noise_chunk() which handles PortAudio and arecord fallback
-            rms = self._read_noise_chunk()
-            if rms is None or rms == 0.0:
-                # If we got None or zeros, return 0.0 (already logged in _read_noise_chunk)
+            # Read raw audio for A-weighting
+            raw_audio = self._read_noise_chunk_raw()
+            if raw_audio is None:
                 return 0.0
 
             # Discard initial chunks to avoid microphone startup "plop"
             if self._noise_chunks_discarded < Constants.NOISE_STARTUP_DISCARD_CHUNKS:
                 self._noise_chunks_discarded += 1
+                max_val = np.max(np.abs(raw_audio))
                 self.logger.debug(
-                    "Discarding noise chunk %d/%d (startup plop, rms=%.6f)",
+                    "Discarding noise chunk %d/%d (startup plop, max=%.6f)",
                     self._noise_chunks_discarded,
                     Constants.NOISE_STARTUP_DISCARD_CHUNKS,
-                    rms,
+                    max_val,
                 )
-                return 0.0
-
-            # Apply A-weighting - we need to read raw audio for proper A-weighting
-            # Since _read_noise_chunk returns RMS, we'll read raw audio here for A-weighting
-            # But to avoid duplicate reads, we'll use a simplified approach for now
-            # In the future, we could refactor to return raw audio from _read_noise_chunk
-
-            # For now, read raw audio for A-weighting (this will use the same fallback logic)
-            raw_audio = self._read_noise_chunk_raw()
-            if raw_audio is None:
                 return 0.0
 
             # Apply A-weighting filter
@@ -1550,7 +1325,7 @@ class EnviroPlusSensors:
             self.logger.debug("Raw noise SPL unavailable: microphone not available")
             return 0.0
 
-        if not NOISE_SENSOR_AVAILABLE or sd is None:
+        if not NOISE_SENSOR_AVAILABLE:
             self.logger.debug("Raw noise SPL unavailable: noise sensor libraries not available")
             return 0.0
 
