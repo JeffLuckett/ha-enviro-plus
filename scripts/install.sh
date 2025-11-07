@@ -330,20 +330,30 @@ pcm.!default {
 EOF
 
     # Copy temp file to target location with proper ownership
+    # For root, we need to use sudo and ensure the file is created properly
     if [ "$target_user" = "root" ]; then
-      sudo cp "$temp_file" "$target_file" && sudo chown root:root "$target_file" && sudo chmod 644 "$target_file"
+      # Use sudo to copy and set ownership in one command
+      if sudo sh -c "cat '$temp_file' > '$target_file' && chown root:root '$target_file' && chmod 644 '$target_file'"; then
+        # Verify the file was created
+        if sudo test -f "$target_file"; then
+          echo "==> ✓ ALSA configuration created successfully at $target_file"
+          rm -f "$temp_file"
+          return 0
+        fi
+      fi
+      # If that failed, try alternative method
+      rm -f "$temp_file"
+      return 1
     else
-      sudo cp "$temp_file" "$target_file" && sudo chown "$target_user:$target_user" "$target_file" && sudo chmod 644 "$target_file"
-    fi
-
-    # Clean up temp file
-    rm -f "$temp_file"
-
-    if [ -f "$target_file" ]; then
-      echo "==> ✓ ALSA configuration created successfully at $target_file"
-      return 0
-    else
-      echo "==> ✗ Failed to create ALSA configuration at $target_file"
+      # For non-root users, use regular copy
+      if cp "$temp_file" "$target_file" && chown "$target_user:$target_user" "$target_file" && chmod 644 "$target_file"; then
+        if [ -f "$target_file" ]; then
+          echo "==> ✓ ALSA configuration created successfully at $target_file"
+          rm -f "$temp_file"
+          return 0
+        fi
+      fi
+      rm -f "$temp_file"
       return 1
     fi
   }

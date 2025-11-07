@@ -1037,6 +1037,135 @@ class EnviroPlusSensors:
                 self.logger.info("arecord fallback succeeded: RMS=%.6f", fallback_result)
             return fallback_result
 
+    def _read_noise_chunk_raw(self) -> Optional[np.ndarray]:
+        """
+        Read raw audio data (not RMS) for A-weighting.
+
+        Returns:
+            Raw audio data as numpy array, or None if unavailable
+        """
+        if not self._noise_available or not NOISE_SENSOR_AVAILABLE or sd is None:
+            return None
+
+        try:
+            # Try PortAudio first
+            device: Optional[Union[int, str]] = None
+            try:
+                devices = sd.query_devices(kind="input")
+                for i, dev in enumerate(devices):
+                    dev_name = dev.get("name", "").lower()
+                    if "alsa" in dev_name or "adau7002" in dev_name or "dmic" in dev_name:
+                        device = i
+                        break
+            except Exception:
+                device = "dmic_sv"
+
+            timeout_seconds = (Constants.NOISE_CHUNK_SIZE / Constants.NOISE_SAMPLE_RATE) + 0.1
+
+            audio_data = sd.rec(
+                Constants.NOISE_CHUNK_SIZE,
+                samplerate=Constants.NOISE_SAMPLE_RATE,
+                channels=1,
+                dtype="float32",
+                device=device,
+                blocking=False,
+            )
+            try:
+                sd.wait(timeout=timeout_seconds)
+            except Exception as wait_error:
+                # PortAudio wait failed, try arecord fallback
+                self.logger.debug("PortAudio wait failed in _read_noise_chunk_raw: %s", wait_error)
+                return self._read_noise_chunk_raw_arecord()
+
+            if not isinstance(audio_data, np.ndarray):
+                audio_data = np.array(audio_data)
+
+            max_val = np.max(np.abs(audio_data))
+            if max_val == 0.0:
+                # PortAudio returned zeros, try arecord fallback
+                self.logger.debug(
+                    "PortAudio returned zeros in _read_noise_chunk_raw, trying arecord fallback"
+                )
+                return self._read_noise_chunk_raw_arecord()
+
+            return audio_data
+        except Exception as e:
+            # PortAudio failed completely, try arecord fallback
+            self.logger.debug(
+                "PortAudio failed in _read_noise_chunk_raw: %s, trying arecord fallback", e
+            )
+            return self._read_noise_chunk_raw_arecord()
+
+    def _read_noise_chunk_raw_arecord(self) -> Optional[np.ndarray]:
+        """
+        Read raw audio using arecord fallback.
+
+        Returns:
+            Raw audio data as numpy array, or None if unavailable
+        """
+        if not self._noise_available:
+            return None
+
+        try:
+            import tempfile
+            import os
+            from scipy.io import wavfile
+
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
+                tmp_wav = tmp_file.name
+
+            try:
+                duration = Constants.NOISE_CHUNK_SIZE / Constants.NOISE_SAMPLE_RATE
+
+                result = subprocess.run(
+                    [
+                        "arecord",
+                        "-D",
+                        "dmic_sv",
+                        "-c",
+                        "1",
+                        "-r",
+                        str(Constants.NOISE_SAMPLE_RATE),
+                        "-f",
+                        "S16_LE",
+                        "-t",
+                        "wav",
+                        "-d",
+                        str(duration),
+                        tmp_wav,
+                    ],
+                    capture_output=True,
+                    timeout=duration + 1.0,
+                    check=False,
+                )
+
+                if result.returncode != 0:
+                    return None
+
+                sample_rate, audio_data = wavfile.read(tmp_wav)
+
+                # Convert to float32 in range [-1.0, 1.0]
+                if audio_data.dtype == np.int16:
+                    audio_data = audio_data.astype(np.float32) / 32768.0
+                elif audio_data.dtype == np.int32:
+                    audio_data = audio_data.astype(np.float32) / 2147483648.0
+                else:
+                    audio_data = audio_data.astype(np.float32)
+
+                # Ensure mono
+                if len(audio_data.shape) > 1:
+                    audio_data = audio_data[:, 0]
+
+                return audio_data
+            finally:
+                try:
+                    if os.path.exists(tmp_wav):
+                        os.unlink(tmp_wav)
+                except Exception:
+                    pass
+        except Exception:
+            return None
+
     def _read_noise_chunk_arecord(self) -> Optional[float]:
         """
         Fallback method to read audio using arecord when PortAudio fails.
@@ -1163,88 +1292,42 @@ class EnviroPlusSensors:
             return 0.0
 
         try:
-            # Try to use ALSA device directly since PortAudio query_devices() fails
-            # We know the ALSA device name is "dmic_sv" from our .asoundrc config
-            # Try using the ALSA device name directly (sounddevice supports this)
-            device: Optional[Union[int, str]] = None
-            try:
-                # First try to query devices (may fail if no default device)
-                devices = sd.query_devices(kind="input")
-                for i, dev in enumerate(devices):
-                    dev_name = dev.get("name", "").lower()
-                    # Look for ALSA devices or adau7002
-                    if "alsa" in dev_name or "adau7002" in dev_name or "dmic" in dev_name:
-                        device = i
-                        self.logger.debug("Found ALSA device: %s (index %d)", dev.get("name"), i)
-                        break
-            except Exception as query_error:
-                # If query fails, try using ALSA device name directly
-                # sounddevice supports ALSA device names like "dmic_sv" or "plughw:1,0"
-                self.logger.debug(
-                    "Device query failed, trying ALSA device name directly: %s", query_error
-                )
-                # Try ALSA device name - sounddevice may support this
-                try:
-                    # Try using the ALSA PCM name directly
-                    device = "dmic_sv"  # Our ALSA PCM name from .asoundrc
-                except Exception:
-                    device = None
-
-            # Read audio chunk - use explicit device if found, otherwise default
-            # Use blocking=False and timeout to prevent hanging on shutdown
-            # Calculate timeout based on chunk size and sample rate
-            timeout_seconds = (
-                Constants.NOISE_CHUNK_SIZE / Constants.NOISE_SAMPLE_RATE
-            ) + 0.1  # Add 100ms buffer
-
-            audio_data = sd.rec(
-                Constants.NOISE_CHUNK_SIZE,
-                samplerate=Constants.NOISE_SAMPLE_RATE,
-                channels=1,
-                dtype="float32",
-                device=device,  # Use explicit ALSA device if found, otherwise default
-                blocking=False,  # Non-blocking to allow graceful shutdown
-            )
-            # Wait for recording with timeout to prevent hanging
-            try:
-                sd.wait(timeout=timeout_seconds)
-            except KeyboardInterrupt:
-                # Allow graceful shutdown if interrupted
-                raise
-            except Exception as wait_error:
-                # If wait times out or fails, return 0.0 (noise_spl_db returns float)
-                self.logger.debug("Recording wait failed or timed out: %s", wait_error)
-                return 0.0
-
-            # Convert to numpy array
-            if not isinstance(audio_data, np.ndarray):
-                audio_data = np.array(audio_data)
-
-            # Check if we got actual audio data (not all zeros)
-            max_val = np.max(np.abs(audio_data))
-            if max_val == 0.0:
-                self.logger.warning(
-                    "Noise sensor recording contains only zeros - microphone may not be working"
-                )
+            # Use _read_noise_chunk() which handles PortAudio and arecord fallback
+            rms = self._read_noise_chunk()
+            if rms is None or rms == 0.0:
+                # If we got None or zeros, return 0.0 (already logged in _read_noise_chunk)
                 return 0.0
 
             # Discard initial chunks to avoid microphone startup "plop"
             if self._noise_chunks_discarded < Constants.NOISE_STARTUP_DISCARD_CHUNKS:
                 self._noise_chunks_discarded += 1
                 self.logger.debug(
-                    "Discarding noise chunk %d/%d (startup plop, max=%.6f)",
+                    "Discarding noise chunk %d/%d (startup plop, rms=%.6f)",
                     self._noise_chunks_discarded,
                     Constants.NOISE_STARTUP_DISCARD_CHUNKS,
-                    max_val,
+                    rms,
                 )
+                return 0.0
+
+            # Apply A-weighting - we need to read raw audio for proper A-weighting
+            # Since _read_noise_chunk returns RMS, we'll read raw audio here for A-weighting
+            # But to avoid duplicate reads, we'll use a simplified approach for now
+            # In the future, we could refactor to return raw audio from _read_noise_chunk
+
+            # For now, read raw audio for A-weighting (this will use the same fallback logic)
+            raw_audio = self._read_noise_chunk_raw()
+            if raw_audio is None:
                 return 0.0
 
             # Apply A-weighting filter
             b, a = self._a_weight_filter
-            filtered_audio = lfilter(b, a, audio_data.flatten())
+            filtered_audio = lfilter(b, a, raw_audio.flatten())
 
             # Calculate RMS of filtered audio
             rms = np.sqrt(np.mean(filtered_audio**2))
+
+            # Get max value for logging
+            max_val = np.max(np.abs(raw_audio))
 
             # Convert to dB(A)
             # Reference level: 20 µPa (threshold of human hearing)
@@ -1282,9 +1365,44 @@ class EnviroPlusSensors:
                 return 0.0
 
         except Exception as e:
-            self.logger.error("Failed to read noise SPL: %s", e)
-            self.logger.info("Noise SPL will be reported as 0.0 dB(A)")
-            return 0.0
+            # PortAudio failed - try arecord fallback for raw audio
+            self.logger.warning(
+                "PortAudio failed in noise_spl_db: %s, trying arecord fallback...", e
+            )
+            try:
+                raw_audio = self._read_noise_chunk_raw_arecord()
+                if raw_audio is None:
+                    self.logger.warning("arecord fallback also failed in noise_spl_db")
+                    return 0.0
+
+                # Apply A-weighting filter
+                b, a = self._a_weight_filter
+                filtered_audio = lfilter(b, a, raw_audio.flatten())
+
+                # Calculate RMS of filtered audio
+                rms = np.sqrt(np.mean(filtered_audio**2))
+                max_val = np.max(np.abs(raw_audio))
+
+                if rms > 0:
+                    calibration_factor = 1.0
+                    calibrated_rms = rms * calibration_factor
+                    spl_db = 20.0 * np.log10(calibrated_rms + 1e-10)
+
+                    if spl_db + 50.0 < 30.0:
+                        return 0.0
+
+                    spl_db = max(30.0, min(100.0, spl_db + 50.0))
+                    self.logger.info(
+                        "arecord fallback succeeded in noise_spl_db: %.1f dB(A)", spl_db
+                    )
+                    return float(round(spl_db, Constants.NOISE_ROUND_PRECISION))
+                else:
+                    return 0.0
+            except Exception as fallback_error:
+                self.logger.error(
+                    "arecord fallback also failed in noise_spl_db: %s", fallback_error
+                )
+                return 0.0
 
     def noise_spl_raw(self) -> float:
         """
