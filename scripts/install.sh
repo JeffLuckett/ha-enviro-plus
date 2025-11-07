@@ -534,6 +534,7 @@ enable_hardware_interfaces() {
 
   # Check if I2S is enabled (for Enviro+ microphone)
   # I2S is enabled with dtparam=i2s=on in config.txt
+  # Enviro+ also needs dtoverlay=adau7002-simple for the I2S microphone
   local config_file=""
   for cfg in /boot/firmware/config.txt /boot/config.txt; do
     if [ -f "$cfg" ]; then
@@ -566,6 +567,49 @@ enable_hardware_interfaces() {
       reboot_needed=true
     else
       echo "==> Warning: Failed to enable I2S"
+    fi
+  fi
+
+  # Check if adau7002-simple overlay is loaded (required for Enviro+ I2S microphone)
+  local adau7002_enabled=false
+  if [ -n "$config_file" ]; then
+    if grep -q "^dtoverlay=adau7002-simple" "$config_file" 2>/dev/null || \
+       grep -q "^[^#]*dtoverlay=adau7002-simple" "$config_file" 2>/dev/null; then
+      echo "==> adau7002-simple overlay is already enabled"
+      adau7002_enabled=true
+    fi
+  fi
+
+  # Enable adau7002-simple overlay if not already enabled
+  if [ "$adau7002_enabled" = "false" ] && [ -n "$config_file" ]; then
+    # Check if overlay file exists
+    local overlay_file=""
+    for ovl in /boot/firmware/overlays/adau7002-simple.dtbo /boot/overlays/adau7002-simple.dtbo; do
+      if [ -f "$ovl" ]; then
+        overlay_file="$ovl"
+        break
+      fi
+    done
+
+    if [ -n "$overlay_file" ]; then
+      echo "==> Enabling adau7002-simple overlay (required for Enviro+ I2S microphone)..."
+      # Remove commented line if present
+      sudo sed -i 's/^#dtoverlay=adau7002-simple/dtoverlay=adau7002-simple/' "$config_file" 2>/dev/null || true
+      # Add if not present
+      if ! grep -q "dtoverlay=adau7002-simple" "$config_file" 2>/dev/null; then
+        echo "dtoverlay=adau7002-simple" | sudo tee -a "$config_file" > /dev/null
+      fi
+      if grep -q "^dtoverlay=adau7002-simple" "$config_file" 2>/dev/null || \
+         grep -q "^[^#]*dtoverlay=adau7002-simple" "$config_file" 2>/dev/null; then
+        echo "==> adau7002-simple overlay enabled successfully"
+        adau7002_enabled=true
+        reboot_needed=true
+      else
+        echo "==> Warning: Failed to enable adau7002-simple overlay"
+      fi
+    else
+      echo "==> Warning: adau7002-simple overlay not found - I2S microphone may not work"
+      echo "==> This overlay is required for Enviro+ I2S microphone"
     fi
   fi
 
