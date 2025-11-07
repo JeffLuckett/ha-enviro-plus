@@ -183,32 +183,37 @@ ensure_system_dependencies() {
   echo "==> Ensuring system dependencies are installed..."
 
   # Update package list (non-fatal if it fails)
-  # Use timeout if available to prevent hanging, but continue even if it fails
-  echo "==> Updating package list..."
+  # On resource-constrained systems (like Pi Zero), apt-get update can be killed
+  # by the OOM killer, so we make this completely optional
+  echo "==> Updating package list (this may take a moment)..."
+
+  # Try to update, but don't fail if killed or if it fails
+  # Use nice to lower priority and reduce memory pressure
+  update_success=false
   if command -v timeout >/dev/null 2>&1; then
-    if timeout 60 sudo apt-get update -y >/dev/null 2>&1; then
-      echo "==> Package list updated successfully"
-    else
-      echo "==> Warning: Package list update failed or timed out"
-      echo "==> Continuing with installation (packages may be outdated)"
-      echo "==> You can update manually later with: sudo apt-get update"
+    if nice -n 19 timeout 60 sudo apt-get update -y >/dev/null 2>&1; then
+      update_success=true
     fi
   else
-    # Fallback if timeout is not available
-    if sudo apt-get update -y >/dev/null 2>&1; then
-      echo "==> Package list updated successfully"
-    else
-      echo "==> Warning: Package list update failed"
-      echo "==> Continuing with installation (packages may be outdated)"
-      echo "==> You can update manually later with: sudo apt-get update"
+    if nice -n 19 sudo apt-get update -y >/dev/null 2>&1; then
+      update_success=true
     fi
+  fi
+
+  if [ "$update_success" = "true" ]; then
+    echo "==> Package list updated successfully"
+  else
+    echo "==> Warning: Package list update failed or was interrupted"
+    echo "==> This is common on resource-constrained systems"
+    echo "==> Continuing with installation - packages will be installed from cache"
+    echo "==> You can update manually later with: sudo apt-get update"
   fi
 
   # Install PortAudio development libraries (required for sounddevice)
   # This is needed for the noise sensor feature
   echo "==> Installing PortAudio libraries for noise sensor support..."
   if command -v timeout >/dev/null 2>&1; then
-    if timeout 300 sudo apt-get install -y portaudio19-dev libportaudio2 libportaudiocpp0 >/dev/null 2>&1; then
+    if nice -n 19 timeout 300 sudo apt-get install -y --no-install-recommends portaudio19-dev libportaudio2 libportaudiocpp0 >/dev/null 2>&1; then
       echo "==> PortAudio libraries installed successfully"
     else
       echo "==> Warning: Failed to install PortAudio libraries"
@@ -216,7 +221,7 @@ ensure_system_dependencies() {
       echo "==> To install manually: sudo apt-get install portaudio19-dev libportaudio2 libportaudiocpp0"
     fi
   else
-    if sudo apt-get install -y portaudio19-dev libportaudio2 libportaudiocpp0 >/dev/null 2>&1; then
+    if nice -n 19 sudo apt-get install -y --no-install-recommends portaudio19-dev libportaudio2 libportaudiocpp0 >/dev/null 2>&1; then
       echo "==> PortAudio libraries installed successfully"
     else
       echo "==> Warning: Failed to install PortAudio libraries"
@@ -229,14 +234,14 @@ ensure_system_dependencies() {
   # numpy and scipy may need system libraries for optimal performance
   echo "==> Installing additional system libraries for scientific computing..."
   if command -v timeout >/dev/null 2>&1; then
-    if timeout 300 sudo apt-get install -y libatlas-base-dev gfortran >/dev/null 2>&1; then
+    if nice -n 19 timeout 300 sudo apt-get install -y --no-install-recommends libatlas-base-dev gfortran >/dev/null 2>&1; then
       echo "==> Scientific computing libraries installed successfully"
     else
       echo "==> Warning: Failed to install some scientific computing libraries"
       echo "==> This may affect performance but should not prevent installation"
     fi
   else
-    if sudo apt-get install -y libatlas-base-dev gfortran >/dev/null 2>&1; then
+    if nice -n 19 sudo apt-get install -y --no-install-recommends libatlas-base-dev gfortran >/dev/null 2>&1; then
       echo "==> Scientific computing libraries installed successfully"
     else
       echo "==> Warning: Failed to install some scientific computing libraries"
