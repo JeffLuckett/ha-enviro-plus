@@ -199,7 +199,7 @@ def get_available_plugins(
                 if plugin.name() == "Sensor Display":
                     sensor_display_plugin = plugin
                 else:
-                available.append(plugin)
+                    available.append(plugin)
         except Exception as e:
             plugin_logger = logging.getLogger(__name__)
             plugin_logger.warning(
