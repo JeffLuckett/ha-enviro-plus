@@ -54,8 +54,8 @@ class Constants:
     # This is an empirical calibration - adjust based on reference SPL meter
     # Formula: dB(A) = 20 * log10(raw_rms) + NOISE_CALIBRATION_OFFSET
     # Using raw RMS instead of filtered RMS because A-weighting reduces signal too much
-    # Calibrated for quiet room (30 dB) with raw RMS ~0.049
-    # If raw RMS ≈ 0.049 for 30 dB: 30 = 20*log10(0.049) + offset = -26 + offset
-    # Therefore: offset ≈ 56 dB
-    # Using 60 dB as starting point - adjust based on actual measurements
-    NOISE_CALIBRATION_OFFSET = 60.0  # dB offset for I2S microphone calibration
+    # Calibrated to cover full dynamic range:
+    # - Quiet room (30 dB) with raw RMS ~0.049: 30 = 20*log10(0.049) + offset = -26 + offset → offset ≈ 56 dB
+    # - Loud music (80 dB) with raw RMS ~1.0: 80 = 20*log10(1.0) + offset = 0 + offset → offset = 80 dB
+    # Using 80 dB as default to allow full dynamic range (users can adjust via MQTT)
+    NOISE_CALIBRATION_OFFSET = 80.0  # dB offset for I2S microphone calibration

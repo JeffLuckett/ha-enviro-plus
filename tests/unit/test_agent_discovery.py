@@ -209,8 +209,14 @@ class TestPublishDiscovery:
 
         calls = client.publish.call_args_list
 
-        # Noise sensor configs should not be published
-        noise_configs = [call for call in calls if "noise" in call[0][0] and "config" in call[0][0]]
+        # Noise sensor configs should not be published (except calibration offset, which is always available)
+        noise_sensor_configs = [
+            call
+            for call in calls
+            if "noise" in call[0][0]
+            and "config" in call[0][0]
+            and "noise_calibration_offset" not in call[0][0]
+        ]
 
-        # Should not have noise sensor discovery if not available
-        assert len(noise_configs) == 0
+        # Should not have noise sensor discovery if not available (calibration offset is always published)
+        assert len(noise_sensor_configs) == 0
