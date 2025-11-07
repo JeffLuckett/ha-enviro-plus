@@ -162,7 +162,7 @@ class EnviroPlusSensors:
                                 "-D",
                                 "dmic_sv",
                                 "-c",
-                                "1",
+                                "2",
                                 "-r",
                                 str(Constants.NOISE_SAMPLE_RATE),
                                 "-f",
@@ -989,7 +989,7 @@ class EnviroPlusSensors:
                         "-D",
                         "dmic_sv",
                         "-c",
-                        "1",
+                        "2",
                         "-r",
                         str(Constants.NOISE_SAMPLE_RATE),
                         "-f",
@@ -1067,7 +1067,7 @@ class EnviroPlusSensors:
                         "-D",
                         "dmic_sv",  # Use our ALSA PCM device
                         "-c",
-                        "1",  # Mono
+                        "2",  # Stereo (required by I2S microphone)
                         "-r",
                         str(Constants.NOISE_SAMPLE_RATE),
                         "-f",

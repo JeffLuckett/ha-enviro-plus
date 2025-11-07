@@ -150,9 +150,22 @@ class TestPublishDiscovery:
 
         # Mock sensors with noise sensor available
         with patch("ha_enviro_plus.sensors.NOISE_SENSOR_AVAILABLE", True):
-            with patch("ha_enviro_plus.sensors.sd") as mock_sd:
-                mock_sd.query_devices.return_value = [{"name": "Microphone"}]
-                sensors = EnviroPlusSensors()
+            import numpy as np
+            from unittest.mock import MagicMock
+
+            # Mock scipy.io.wavfile module
+            mock_wavfile_module = MagicMock()
+            mock_wavfile_module.read.return_value = (44100, np.array([100, 200, 300], dtype=np.int32))
+
+            # Mock successful arecord test during initialization
+            with (
+                patch("subprocess.run") as mock_run,
+                patch("scipy.io.wavfile", mock_wavfile_module),
+            ):
+                mock_run.return_value.returncode = 0
+                mock_run.return_value.stderr = b""
+                with patch("os.path.exists", return_value=True):
+                    sensors = EnviroPlusSensors()
 
                 publish_discovery(client, config, enviro_sensors=sensors)
 

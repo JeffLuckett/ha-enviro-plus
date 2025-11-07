@@ -436,27 +436,6 @@ ensure_system_dependencies() {
   # This avoids duplicate updates if other functions already ran it
   safe_apt_update
 
-  # Install PortAudio development libraries (required for sounddevice)
-  # This is needed for the noise sensor feature
-  echo "==> Installing PortAudio libraries for noise sensor support..."
-  if command -v timeout >/dev/null 2>&1; then
-    if nice -n 19 timeout 300 sudo apt-get install -y --no-install-recommends portaudio19-dev libportaudio2 libportaudiocpp0 >/dev/null 2>&1; then
-      echo "==> PortAudio libraries installed successfully"
-    else
-      echo "==> Warning: Failed to install PortAudio libraries"
-      echo "==> Noise sensor will not be available (this is optional)"
-      echo "==> To install manually: sudo apt-get install portaudio19-dev libportaudio2 libportaudiocpp0"
-    fi
-  else
-    if nice -n 19 sudo apt-get install -y --no-install-recommends portaudio19-dev libportaudio2 libportaudiocpp0 >/dev/null 2>&1; then
-      echo "==> PortAudio libraries installed successfully"
-    else
-      echo "==> Warning: Failed to install PortAudio libraries"
-      echo "==> Noise sensor will not be available (this is optional)"
-      echo "==> To install manually: sudo apt-get install portaudio19-dev libportaudio2 libportaudiocpp0"
-    fi
-  fi
-
   # Install other system dependencies that might be needed
   # numpy and scipy may need system libraries for optimal performance
   echo "==> Installing additional system libraries for scientific computing..."
@@ -1096,7 +1075,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 EnvironmentFile=${CFG}
-# Force PortAudio to use ALSA (required for I2S microphone on Enviro+)
+# Configure ALSA for I2S microphone on Enviro+
 Environment="PULSE_RUNTIME_PATH="
 Environment="ALSA_CARD=adau7002"
 WorkingDirectory=${working_dir}
@@ -1152,7 +1131,7 @@ post_message() {
   echo "  • Check service:     sudo systemctl status ${APP_NAME}"
   echo "  • Test config:       sudo systemd-analyze verify ${SERVICE}"
   echo "  • Check dependencies: ${VENV}/bin/python -c 'import paho.mqtt.client, bme280, ltr559, enviroplus'"
-  echo "  • Check noise sensor: ${VENV}/bin/python -c 'import sounddevice; print(\"PortAudio OK\")' || echo \"PortAudio missing - install: sudo apt-get install portaudio19-dev\""
+  echo "  • Check noise sensor: arecord -D dmic_sv -c2 -r 44100 -f S32_LE -t wav -d 1 /tmp/test.wav && echo \"Noise sensor OK\" || echo \"Noise sensor not available\""
   echo "  • Manual test:       sudo -u root ${VENV}/bin/python -m ha_enviro_plus.agent"
   echo
 
@@ -1310,7 +1289,7 @@ main() {
   # Common post-installation steps
   enable_hardware_interfaces
   echo  # Blank line for readability
-  ensure_system_dependencies  # Install system dependencies (PortAudio, etc.)
+  ensure_system_dependencies  # Install system dependencies (scipy, etc.)
   echo  # Blank line for readability
   configure_i2s_microphone  # Configure I2S microphone for noise sensor
   echo  # Blank line for readability

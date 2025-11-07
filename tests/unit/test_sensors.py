@@ -975,10 +975,23 @@ class TestNoiseSensor:
     def test_noise_sensor_available_detection(self, mock_bme280, mock_ltr559, mock_gas_sensor):
         """Test noise sensor availability detection."""
         with patch("ha_enviro_plus.sensors.NOISE_SENSOR_AVAILABLE", True):
-            with patch("ha_enviro_plus.sensors.sd") as mock_sd:
-                mock_sd.query_devices.return_value = [{"name": "Microphone"}]
-                sensors = EnviroPlusSensors()
-                assert sensors.has_sensor("noise") is True
+            import numpy as np
+            # Mock scipy.io.wavfile module
+            from unittest.mock import MagicMock
+            mock_wavfile_module = MagicMock()
+            # Return audio data that looks like a real recording (enough samples)
+            audio_data = np.array([1000] * 44100, dtype=np.int32)  # 1 second at 44.1kHz
+            mock_wavfile_module.read.return_value = (44100, audio_data)
+            with (
+                patch("subprocess.run") as mock_run,
+                patch("scipy.io.wavfile", mock_wavfile_module),
+            ):
+                # Mock successful arecord test
+                mock_run.return_value.returncode = 0
+                mock_run.return_value.stderr = b""
+                with patch("os.path.exists", return_value=True):
+                    sensors = EnviroPlusSensors()
+                    assert sensors.has_sensor("noise") is True
 
     def test_noise_spl_db_not_available(self, mock_bme280, mock_ltr559, mock_gas_sensor):
         """Test noise SPL dB when microphone is not available."""
@@ -995,22 +1008,35 @@ class TestNoiseSensor:
     def test_noise_sensor_startup_discard(self, mock_bme280, mock_ltr559, mock_gas_sensor):
         """Test that initial noise chunks are discarded."""
         with patch("ha_enviro_plus.sensors.NOISE_SENSOR_AVAILABLE", True):
-            with patch("ha_enviro_plus.sensors.sd") as mock_sd:
-                import numpy as np
+            import numpy as np
 
-                mock_sd.query_devices.return_value = [{"name": "Microphone"}]
-                mock_sd.rec.return_value = np.array([0.1] * 1024, dtype=np.float32)
-                mock_sd.wait.return_value = None
+            # Mock scipy.io.wavfile module
+            from unittest.mock import MagicMock
+            mock_wavfile_module = MagicMock()
+            mock_wavfile_module.read.return_value = (44100, np.array([100, 200, 300], dtype=np.int32))
 
-                # Mock A-weighting filter
-                with patch("ha_enviro_plus.sensors.butter") as mock_butter:
-                    mock_butter.return_value = ([1.0], [1.0])
-                    sensors = EnviroPlusSensors()
+            # Mock successful arecord test during initialization
+            with (
+                patch("subprocess.run") as mock_run,
+                patch("scipy.io.wavfile", mock_wavfile_module),
+            ):
+                mock_run.return_value.returncode = 0
+                mock_run.return_value.stderr = b""
+                with patch("os.path.exists", return_value=True):
+                    # Mock A-weighting filter
+                    with patch("ha_enviro_plus.sensors.butter") as mock_butter:
+                        mock_butter.return_value = ([1.0], [1.0])
+                        sensors = EnviroPlusSensors()
 
-                    # First few calls should return 0.0 (discarded)
-                    for _ in range(5):
-                        result = sensors.noise_spl_db()
-                        assert result == 0.0
+                        # Mock arecord calls for noise reading - return audio data that will produce non-zero RMS
+                        audio_data = np.array([1000] * 44100, dtype=np.int32)
+                        mock_wavfile_module.read.return_value = (44100, audio_data)
+                        mock_run.return_value.returncode = 0
+                        with patch("os.path.exists", return_value=True):
+                            # First few calls should return 0.0 (discarded)
+                            for _ in range(5):
+                                result = sensors.noise_spl_db()
+                                assert result == 0.0
 
     def test_noise_sensor_in_get_all_sensor_data(self, mock_bme280, mock_ltr559, mock_gas_sensor):
         """Test that noise sensor data is included in get_all_sensor_data."""

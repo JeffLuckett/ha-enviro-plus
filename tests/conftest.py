@@ -29,8 +29,17 @@ def mock_butter(*args, **kwargs):
 
 scipy_signal_mock.butter = mock_butter
 scipy_mock.signal = scipy_signal_mock
+
+# Mock scipy.io.wavfile for noise sensor tests
+scipy_io_mock = MagicMock()
+scipy_io_wavfile_mock = MagicMock()
+scipy_io_mock.wavfile = scipy_io_wavfile_mock
+scipy_mock.io = scipy_io_mock
+
 sys.modules["scipy"] = scipy_mock
 sys.modules["scipy.signal"] = scipy_signal_mock
+sys.modules["scipy.io"] = scipy_io_mock
+sys.modules["scipy.io.wavfile"] = scipy_io_wavfile_mock
 
 # Mock numpy properly to avoid isinstance issues
 # Try to import numpy, if it fails, create a proper mock
