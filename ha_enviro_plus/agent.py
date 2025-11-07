@@ -945,19 +945,34 @@ def main() -> None:
                 try:
                     display.update_plugin_data(enviro_sensors, settings_manager)
 
-                    # Check for proximity tap detection
+                    # Check for proximity tap detection more frequently for responsiveness
+                    # Check taps every 0.1s during the poll interval instead of once per interval
                     if enviro_sensors.has_sensor("ltr559"):
-                        try:
-                            proximity_value = enviro_sensors.proximity()
-                            if display.check_proximity_tap(proximity_value):
-                                display.handle_tap()
-                                logger.info("Tap detected! Proximity: %.0f", proximity_value)
-                        except Exception as e:
-                            logger.debug("Failed to check proximity tap: %s", e)
+                        tap_check_interval = 0.1  # Check taps every 100ms for responsiveness
+                        remaining_time = config.poll_sec
+                        while remaining_time > 0:
+                            check_start = time.time()
+                            try:
+                                proximity_value = enviro_sensors.proximity()
+                                if display.check_proximity_tap(proximity_value):
+                                    display.handle_tap()
+                                    logger.info("Tap detected! Proximity: %.0f", proximity_value)
+                                    # After tap, continue checking immediately for rapid taps
+                                    time.sleep(0.05)
+                                    remaining_time -= time.time() - check_start
+                                    continue
+                            except Exception as e:
+                                logger.debug("Failed to check proximity tap: %s", e)
+                            # Sleep for tap check interval, but don't exceed remaining time
+                            sleep_time = min(tap_check_interval, remaining_time)
+                            if sleep_time > 0:
+                                time.sleep(sleep_time)
+                            remaining_time -= time.time() - check_start
                 except Exception as e:
                     logger.warning("Failed to update display plugin data: %s", e)
-
-            time.sleep(config.poll_sec)
+            else:
+                # No display, just sleep for poll interval
+                time.sleep(config.poll_sec)
     except KeyboardInterrupt:
         logger.info("Received KeyboardInterrupt, shutting down gracefully")
         signal_handler(signal.SIGINT, None, client, display)

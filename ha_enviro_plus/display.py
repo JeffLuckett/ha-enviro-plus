@@ -377,9 +377,37 @@ class DisplayManager:
                                 # Otherwise, plugins only advance on tap
                                 if self._plugin_cycle_active and self._auto_rotate:
                                     self._queue_next_plugin()
+                    else:
+                        # For continuous displays, check for queued items more frequently
+                        # This ensures taps are responded to immediately
+                        if self._current_display.duration < 0.5:
+                            # Check for queued items (tap might have happened)
+                            with self._lock:
+                                if self._display_queue:
+                                    # Interrupt current display for queued item
+                                    self.logger.debug(
+                                        "Interrupting continuous display for queued item"
+                                    )
+                                    self._current_display = self._display_queue.pop(0)
+                                    display_start_time = time.time()
+                                    fade_out_start_time = None
+                                    if self._plugin_cycle_active:
+                                        self._plugin_start_time = time.time()
+                                    if self.display:
+                                        self.logger.info(
+                                            "Display: Starting display (duration=%.1fs, fade_out=%s)",
+                                            self._current_display.duration,
+                                            self._current_display.fade_out,
+                                        )
+                                        self._render_display_immediate(self._current_display)
+                                    continue  # Skip sleep, process immediately
 
                 # Small delay to prevent busy waiting
-                time.sleep(0.05)
+                # Use shorter sleep for continuous displays to improve tap responsiveness
+                if self._current_display is not None and self._current_display.duration < 0.5:
+                    time.sleep(0.01)  # 10ms for continuous displays - faster tap response
+                else:
+                    time.sleep(0.05)  # 50ms for other displays
 
             except Exception as e:
                 self.logger.error("Error in display loop: %s", e)
