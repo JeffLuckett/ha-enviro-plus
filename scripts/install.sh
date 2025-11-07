@@ -230,35 +230,20 @@ configure_i2s_microphone() {
     return 0
   fi
 
-  # Detect the actual user (not root if script is run with sudo)
-  local actual_user="${SUDO_USER:-${USER}}"
-  if [ "$actual_user" = "root" ] || [ -z "$actual_user" ]; then
-    # If running as root without sudo, try to find a non-root user
-    actual_user=$(who | awk 'NR==1 {print $1}' || echo "")
-  fi
+  # The service runs as root, so we MUST configure ALSA for root
+  # Also configure for the user who ran the script (for manual testing)
+  local root_asoundrc="/root/.asoundrc"
+  local script_user="${SUDO_USER:-${USER}}"
+  local script_user_home=""
+  local script_user_asoundrc=""
 
-  if [ -z "$actual_user" ] || [ "$actual_user" = "root" ]; then
-    echo "==> Warning: Could not determine user for ALSA configuration"
-    echo "==> ALSA config will be created for root user"
-    actual_user="root"
-  fi
-
-  local user_home
-  if [ "$actual_user" = "root" ]; then
-    user_home="/root"
-  else
-    user_home=$(getent passwd "$actual_user" | cut -d: -f6)
-    if [ -z "$user_home" ]; then
-      user_home="/home/$actual_user"
+  # Determine script user's home directory
+  if [ -n "$script_user" ] && [ "$script_user" != "root" ]; then
+    script_user_home=$(getent passwd "$script_user" | cut -d: -f6 2>/dev/null || echo "")
+    if [ -z "$script_user_home" ]; then
+      script_user_home="/home/$script_user"
     fi
-  fi
-
-  local asoundrc_path="${user_home}/.asoundrc"
-
-  # Check if ALSA is already configured
-  if [ -f "$asoundrc_path" ] && grep -q "adau7002\|dmic" "$asoundrc_path" 2>/dev/null; then
-    echo "==> ALSA configuration already exists at $asoundrc_path"
-    return 0
+    script_user_asoundrc="${script_user_home}/.asoundrc"
   fi
 
   # Try to find the I2S card name from arecord
@@ -268,7 +253,6 @@ configure_i2s_microphone() {
     arecord_output=$(arecord -l 2>/dev/null | grep -i "adau7002\|i2s" || true)
     if [ -n "$arecord_output" ]; then
       # Extract card name from output like "card 1: adau7002 [adau7002]"
-      # Try to get the card name (adau7002) not the number
       i2s_card=$(echo "$arecord_output" | sed -n 's/.*card [0-9]*: \([^ ]*\).*/\1/p' | head -1)
       if [ -z "$i2s_card" ]; then
         # Fallback: extract card number
@@ -281,97 +265,135 @@ configure_i2s_microphone() {
   if [ -z "$i2s_card" ]; then
     i2s_card="adau7002"
     echo "==> I2S card not detected via arecord, using default: $i2s_card"
-    echo "==> If this doesn't work, check 'arecord -l' and update ~/.asoundrc manually"
   else
     echo "==> Detected I2S card: $i2s_card"
   fi
 
-  # Create .asoundrc configuration
-  echo "==> Creating ALSA configuration at $asoundrc_path for user $actual_user..."
+  # Function to create ALSA config
+  create_asoundrc() {
+    local target_file="$1"
+    local target_user="$2"
 
-  # Create directory if it doesn't exist
-  if [ ! -d "$user_home" ]; then
-    echo "==> Warning: User home directory $user_home does not exist, skipping ALSA config"
+    # Check if already configured
+    if [ -f "$target_file" ] && grep -q "adau7002\|dmic" "$target_file" 2>/dev/null; then
+      echo "==> ALSA configuration already exists at $target_file"
+      return 0
+    fi
+
+    echo "==> Creating ALSA configuration at $target_file for $target_user..."
+
+    # Create directory if needed
+    local target_dir=$(dirname "$target_file")
+    if [ ! -d "$target_dir" ]; then
+      if [ "$target_user" = "root" ]; then
+        sudo mkdir -p "$target_dir" 2>/dev/null || true
+      else
+        sudo -u "$target_user" mkdir -p "$target_dir" 2>/dev/null || true
+      fi
+    fi
+
+    # Write the config file
+    if [ "$target_user" = "root" ]; then
+      sudo bash -c "cat > '$target_file'" <<EOF
+# ALSA configuration for Enviro+ I2S microphone (adau7002)
+# This section makes a reference to your I2S hardware
+# Adjust the card name to what is shown in 'arecord -l' after 'card x:' before the name in []
+pcm.dmic_hw {
+  type hw
+  card $i2s_card
+  channels 2
+  format S32_LE
+}
+
+# Software volume control for the I2S microphone
+# After saving this file, you can adjust volume with: alsamixer
+# Press F6 to select the I2S mic, then F4 to set recording volume
+pcm.dmic_sv {
+  type softvol
+  slave.pcm dmic_hw
+  control {
+    name "Master Capture Volume"
+    card $i2s_card
+  }
+  min_dB -3.0
+  max_dB 30.0
+}
+
+# Default capture device
+pcm.!default {
+  type plug
+  slave.pcm dmic_sv
+}
+EOF
+      sudo chown root:root "$target_file" 2>/dev/null || true
+    else
+      sudo -u "$target_user" bash -c "cat > '$target_file'" <<EOF
+# ALSA configuration for Enviro+ I2S microphone (adau7002)
+# This section makes a reference to your I2S hardware
+# Adjust the card name to what is shown in 'arecord -l' after 'card x:' before the name in []
+pcm.dmic_hw {
+  type hw
+  card $i2s_card
+  channels 2
+  format S32_LE
+}
+
+# Software volume control for the I2S microphone
+# After saving this file, you can adjust volume with: alsamixer
+# Press F6 to select the I2S mic, then F4 to set recording volume
+pcm.dmic_sv {
+  type softvol
+  slave.pcm dmic_hw
+  control {
+    name "Master Capture Volume"
+    card $i2s_card
+  }
+  min_dB -3.0
+  max_dB 30.0
+}
+
+# Default capture device
+pcm.!default {
+  type plug
+  slave.pcm dmic_sv
+}
+EOF
+      sudo chown "$target_user:$target_user" "$target_file" 2>/dev/null || true
+    fi
+
+    if [ -f "$target_file" ]; then
+      echo "==> ✓ ALSA configuration created successfully at $target_file"
+      return 0
+    else
+      echo "==> ✗ Failed to create ALSA configuration at $target_file"
+      return 1
+    fi
+  }
+
+  # Always configure for root (service runs as root)
+  local root_success=false
+  if create_asoundrc "$root_asoundrc" "root"; then
+    root_success=true
+  fi
+
+  # Also configure for script user if different from root
+  local user_success=false
+  if [ -n "$script_user_asoundrc" ] && [ "$script_user" != "root" ]; then
+    if create_asoundrc "$script_user_asoundrc" "$script_user"; then
+      user_success=true
+    fi
+  fi
+
+  if [ "$root_success" = "true" ]; then
+    echo "==> Note: Microphone volume may need adjustment"
+    echo "==>   Run: sudo alsamixer (press F6, select I2S mic, F4, adjust volume)"
+    echo "==>   Or: sudo amixer -c $i2s_card sset 'Master Capture Volume' 50%"
+    return 0
+  else
+    echo "==> Warning: Failed to create ALSA configuration for root user"
+    echo "==> The noise sensor may not work until ALSA is configured manually"
     return 1
   fi
-
-  # Write the config file (use sudo if needed)
-  if [ "$actual_user" != "$(whoami)" ]; then
-    sudo -u "$actual_user" bash -c "cat > '$asoundrc_path'" <<EOF
-# ALSA configuration for Enviro+ I2S microphone (adau7002)
-# This section makes a reference to your I2S hardware
-# Adjust the card name to what is shown in 'arecord -l' after 'card x:' before the name in []
-pcm.dmic_hw {
-  type hw
-  card $i2s_card
-  channels 2
-  format S32_LE
-}
-
-# Software volume control for the I2S microphone
-# After saving this file, you can adjust volume with: alsamixer
-# Press F6 to select the I2S mic, then F4 to set recording volume
-pcm.dmic_sv {
-  type softvol
-  slave.pcm dmic_hw
-  control {
-    name "Master Capture Volume"
-    card $i2s_card
-  }
-  min_dB -3.0
-  max_dB 30.0
-}
-
-# Default capture device
-pcm.!default {
-  type plug
-  slave.pcm dmic_sv
-}
-EOF
-  else
-    cat > "$asoundrc_path" <<EOF
-# ALSA configuration for Enviro+ I2S microphone (adau7002)
-# This section makes a reference to your I2S hardware
-# Adjust the card name to what is shown in 'arecord -l' after 'card x:' before the name in []
-pcm.dmic_hw {
-  type hw
-  card $i2s_card
-  channels 2
-  format S32_LE
-}
-
-# Software volume control for the I2S microphone
-# After saving this file, you can adjust volume with: alsamixer
-# Press F6 to select the I2S mic, then F4 to set recording volume
-pcm.dmic_sv {
-  type softvol
-  slave.pcm dmic_hw
-  control {
-    name "Master Capture Volume"
-    card $i2s_card
-  }
-  min_dB -3.0
-  max_dB 30.0
-}
-
-# Default capture device
-pcm.!default {
-  type plug
-  slave.pcm dmic_sv
-}
-EOF
-  fi
-
-  # Set proper ownership
-  if [ "$actual_user" != "$(whoami)" ]; then
-    sudo chown "$actual_user:$actual_user" "$asoundrc_path" 2>/dev/null || true
-  fi
-
-  echo "==> ALSA configuration created successfully at $asoundrc_path"
-  echo "==> Note: You may need to adjust microphone volume with: alsamixer"
-  echo "==>   Press F6 to select I2S mic, then F4 to set recording volume"
-  echo "==>   Recommended starting volume: 10-50%"
-  echo "==>   Or run: amixer -c $i2s_card sset 'Master Capture Volume' 50%"
 }
 
 ensure_system_dependencies() {
