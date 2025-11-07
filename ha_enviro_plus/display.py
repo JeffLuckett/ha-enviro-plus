@@ -274,7 +274,7 @@ class DisplayManager:
                             self._plugin_start_time = time.time()
                         # Render the new display immediately
                         if self.display:
-                            self.logger.info(
+                            self.logger.debug(
                                 "Display: Starting display (duration=%.1fs, fade_out=%s)",
                                 self._current_display.duration,
                                 self._current_display.fade_out,
@@ -304,8 +304,8 @@ class DisplayManager:
                         plugin_elapsed = time.time() - self._plugin_start_time
                         if plugin_elapsed >= self._rotation_interval:
                             # Time to rotate to next plugin
-                            self.logger.info(
-                                "Rotation interval reached (%.1fs), " "advancing to next plugin",
+                            self.logger.debug(
+                                "Rotation interval reached (%.1fs), advancing to next plugin",
                                 plugin_elapsed,
                             )
                             self._advance_plugin_cycle()
@@ -391,7 +391,7 @@ class DisplayManager:
                                     if self._plugin_cycle_active:
                                         self._plugin_start_time = time.time()
                                     if self.display:
-                                        self.logger.info(
+                                        self.logger.debug(
                                             "Display: Starting display (duration=%.1fs, fade_out=%s)",
                                             self._current_display.duration,
                                             self._current_display.fade_out,
@@ -604,7 +604,7 @@ class DisplayManager:
                 return
 
             plugin = self._plugin_cycle_plugins[self._plugin_cycle_index]
-            self.logger.info(
+            self.logger.debug(
                 "Queueing plugin: %s (index %d)", plugin.name(), self._plugin_cycle_index
             )
 
@@ -730,7 +730,7 @@ class DisplayManager:
             self._plugin_cycle_index = (self._plugin_cycle_index + 1) % len(
                 self._plugin_cycle_plugins
             )
-            self.logger.info("Advancing plugin cycle to index %d", self._plugin_cycle_index)
+            self.logger.debug("Advancing plugin cycle to index %d", self._plugin_cycle_index)
             # Reset plugin start time for rotation interval tracking
             self._plugin_start_time = None
 
