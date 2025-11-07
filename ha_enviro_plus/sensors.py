@@ -1221,11 +1221,13 @@ class EnviroPlusSensors:
             if self._noise_chunks_discarded < Constants.NOISE_STARTUP_DISCARD_CHUNKS:
                 self._noise_chunks_discarded += 1
                 max_val = np.max(np.abs(raw_audio))
+                raw_rms = np.sqrt(np.mean(raw_audio**2))
                 self.logger.debug(
-                    "Discarding noise chunk %d/%d (startup plop, max=%.6f)",
+                    "Discarding noise chunk %d/%d (startup plop, max=%.6f, rms=%.6f)",
                     self._noise_chunks_discarded,
                     Constants.NOISE_STARTUP_DISCARD_CHUNKS,
                     max_val,
+                    raw_rms,
                 )
                 return 0.0
 
@@ -1257,19 +1259,33 @@ class EnviroPlusSensors:
                     calibrated_rms + 1e-10
                 )  # Add small epsilon to avoid log(0)
 
-                # Clamp to reasonable range (typically 30-100 dB for indoor environments)
-                # Only clamp if we have actual signal - if rms is very small, return 0 instead of fake 30 dB
-                if spl_db + 50.0 < 30.0:
+                # Clamp to reasonable range (typically 20-100 dB for indoor environments)
+                # Add offset to bring normalized audio levels into typical dB range
+                # The offset of 50 dB accounts for typical microphone sensitivity and normalization
+                spl_db_offset = spl_db + 50.0
+
+                # Only clamp if we have actual signal - if signal is very weak, return 0 instead of fake minimum
+                # Lower threshold to 20 dB to allow quieter environments to be detected
+                if spl_db_offset < 20.0:
                     # Signal is too weak - return 0 instead of clamped minimum
-                    self.logger.debug("Noise SPL too low (%.1f dB), returning 0.0", spl_db + 50.0)
+                    self.logger.debug(
+                        "Noise SPL too low (%.1f dB, raw rms=%.6f, filtered rms=%.6f), returning 0.0",
+                        spl_db_offset,
+                        np.sqrt(np.mean(raw_audio**2)),
+                        rms,
+                    )
                     return 0.0
 
-                spl_db = max(30.0, min(100.0, spl_db + 50.0))  # Offset by 50 for typical range
+                spl_db_final = max(20.0, min(100.0, spl_db_offset))
 
-                self.logger.debug(
-                    "Noise SPL: %.1f dB(A) (rms=%.6f, max=%.6f)", spl_db, rms, max_val
+                self.logger.info(
+                    "Noise SPL: %.1f dB(A) (raw rms=%.6f, filtered rms=%.6f, max=%.6f)",
+                    spl_db_final,
+                    np.sqrt(np.mean(raw_audio**2)),
+                    rms,
+                    max_val,
                 )
-                return float(round(spl_db, Constants.NOISE_ROUND_PRECISION))
+                return float(round(spl_db_final, Constants.NOISE_ROUND_PRECISION))
             else:
                 self.logger.debug("Noise SPL: rms is 0, returning 0.0")
                 return 0.0
