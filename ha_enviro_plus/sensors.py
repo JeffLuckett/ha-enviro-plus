@@ -37,7 +37,9 @@ try:
     from scipy.signal import lfilter, butter
 
     NOISE_SENSOR_AVAILABLE = True
-except ImportError:
+except (ImportError, OSError):
+    # ImportError: libraries not installed
+    # OSError: PortAudio library not found (sounddevice dependency)
     NOISE_SENSOR_AVAILABLE = False
     sd = None
     lfilter = None

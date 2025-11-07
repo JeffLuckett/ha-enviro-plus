@@ -179,6 +179,34 @@ ensure_fonts() {
   fi
 }
 
+ensure_system_dependencies() {
+  echo "==> Ensuring system dependencies are installed..."
+
+  # Update package list
+  sudo apt-get update -y >/dev/null 2>&1
+
+  # Install PortAudio development libraries (required for sounddevice)
+  # This is needed for the noise sensor feature
+  echo "==> Installing PortAudio libraries for noise sensor support..."
+  if sudo apt-get install -y portaudio19-dev libportaudio2 libportaudiocpp0 2>&1; then
+    echo "==> PortAudio libraries installed successfully"
+  else
+    echo "==> Warning: Failed to install PortAudio libraries"
+    echo "==> Noise sensor will not be available (this is optional)"
+    echo "==> To install manually: sudo apt-get install portaudio19-dev libportaudio2 libportaudiocpp0"
+  fi
+
+  # Install other system dependencies that might be needed
+  # numpy and scipy may need system libraries for optimal performance
+  echo "==> Installing additional system libraries for scientific computing..."
+  if sudo apt-get install -y libatlas-base-dev gfortran 2>&1; then
+    echo "==> Scientific computing libraries installed successfully"
+  else
+    echo "==> Warning: Failed to install some scientific computing libraries"
+    echo "==> This may affect performance but should not prevent installation"
+  fi
+}
+
 enable_hardware_interfaces() {
   echo "==> Enabling hardware interfaces (I2C and SPI)..."
 
@@ -742,6 +770,7 @@ post_message() {
   echo "  • Check service:     sudo systemctl status ${APP_NAME}"
   echo "  • Test config:       sudo systemd-analyze verify ${SERVICE}"
   echo "  • Check dependencies: ${VENV}/bin/python -c 'import paho.mqtt.client, bme280, ltr559, enviroplus'"
+  echo "  • Check noise sensor: ${VENV}/bin/python -c 'import sounddevice; print(\"PortAudio OK\")' || echo \"PortAudio missing - install: sudo apt-get install portaudio19-dev\""
   echo "  • Manual test:       sudo -u root ${VENV}/bin/python -m ha_enviro_plus.agent"
   echo
 
@@ -898,6 +927,8 @@ main() {
 
   # Common post-installation steps
   enable_hardware_interfaces
+  echo  # Blank line for readability
+  ensure_system_dependencies  # Install system dependencies (PortAudio, etc.)
   echo  # Blank line for readability
   ensure_fonts  # Install fonts for display rendering - MUST run before write_config
   echo  # Blank line for readability
