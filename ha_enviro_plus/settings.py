@@ -88,7 +88,7 @@ class SettingsManager:
             "temp_smoothing_minutes": 5.0,
             "pressure_offset": 0.0,
             "elevation_meters": 0.0,
-            "noise_calibration_offset": 90.0,
+            "noise_calibration_offset": 0.0,
             "units": "metric",
         }
 
@@ -234,7 +234,7 @@ class SettingsManager:
     temp_smoothing_minutes = SettingDescriptor("temp_smoothing_minutes", float, 5.0)
     pressure_offset = SettingDescriptor("pressure_offset", float, 0.0)
     elevation_meters = SettingDescriptor("elevation_meters", float, 0.0)
-    noise_calibration_offset = SettingDescriptor("noise_calibration_offset", float, 90.0)
+    noise_calibration_offset = SettingDescriptor("noise_calibration_offset", float, 0.0)
     units = SettingDescriptor("units", str, "metric")
 
     # Backward compatibility: keep getter/setter methods for existing code

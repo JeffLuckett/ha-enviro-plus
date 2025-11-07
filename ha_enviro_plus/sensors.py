@@ -60,7 +60,7 @@ class EnviroPlusSensors:
         temp_smoothing_minutes: float = 5.0,
         pressure_offset: float = 0.0,
         elevation_meters: float = 0.0,
-        noise_calibration_offset: float = 90.0,
+        noise_calibration_offset: float = 0.0,
         logger: Optional[logging.Logger] = None,
     ):
         """
@@ -74,7 +74,7 @@ class EnviroPlusSensors:
             temp_smoothing_minutes: Temperature smoothing window in minutes (0.0 = no smoothing)
             pressure_offset: Pressure calibration offset in hPa
             elevation_meters: Elevation in meters for sea-level pressure calculation (0.0 = no correction)
-            noise_calibration_offset: Noise sensor calibration offset in dB (default: 90.0)
+            noise_calibration_offset: Noise sensor fine-tuning offset in dB (default: 0.0, added after two-point calibration)
             logger: Optional logger instance
         """
         self.temp_offset = temp_offset
@@ -1171,15 +1171,42 @@ class EnviroPlusSensors:
             filtered_rms = np.sqrt(np.mean(filtered_audio**2))
             max_val = np.max(np.abs(raw_audio))
 
-            # Convert to dB(A) using filtered RMS with calibration offset
-            # Formula: dB(A) = 20 * log10(filtered_rms) + calibration_offset
-            # Using filtered RMS because raw RMS doesn't increase much during loud sounds
-            # From logs: quiet filtered_rms ≈ 0.010, loud filtered_rms ≈ 0.030 (3x higher)
-            # Calibrated for quiet room (30 dB) with filtered RMS ~0.010
+            # Convert to dB(A) using filtered RMS with two-point calibration
+            # RMS values don't scale properly with sound pressure level, so we use
+            # a two-point calibration to create a proper mapping:
+            # SPL = m * log10(filtered_rms) + b
+            # Where m and b are determined by two calibration points
+            #
+            # Calibration points (from user logs):
+            # - Quiet room: filtered_rms ≈ 0.010, SPL = 30 dB
+            # - Loud music: filtered_rms ≈ 0.030, SPL = 77 dB
+            #
+            # Solving: SPL = m * log10(RMS) + b
+            # m = (SPL_loud - SPL_quiet) / (log10(RMS_loud) - log10(RMS_quiet))
+            # b = SPL_quiet - m * log10(RMS_quiet)
             if filtered_rms > 0:
-                spl_db = 20.0 * np.log10(filtered_rms + 1e-10)
-                spl_db_calibrated = spl_db + self.noise_calibration_offset
-                spl_db_final = min(100.0, spl_db_calibrated)
+                # Two-point calibration constants
+                rms_quiet = 0.010  # RMS at quiet room (30 dB)
+                spl_quiet = 30.0  # SPL at quiet room
+                rms_loud = 0.030  # RMS at loud music (77 dB)
+                spl_loud = 77.0  # SPL at loud music
+
+                log_rms_quiet = np.log10(rms_quiet)
+                log_rms_loud = np.log10(rms_loud)
+
+                # Calculate calibration coefficients
+                m = (spl_loud - spl_quiet) / (log_rms_loud - log_rms_quiet)
+                b = spl_quiet - m * log_rms_quiet
+
+                # Apply two-point calibration
+                log_rms = np.log10(filtered_rms + 1e-10)
+                spl_db_calibrated = m * log_rms + b
+
+                # Apply user-defined calibration offset for fine-tuning
+                # This allows users to adjust readings if their environment differs
+                # from the calibration points (e.g., different quiet room level)
+                spl_db_with_offset = spl_db_calibrated + self.noise_calibration_offset
+                spl_db_final = min(100.0, max(0.0, spl_db_with_offset))
 
                 # Round to 2 decimal places to avoid floating point precision issues
                 # Convert numpy float to Python float, then round, then convert back to float
@@ -1192,12 +1219,11 @@ class EnviroPlusSensors:
                 self._last_noise_db = spl_db_float
 
                 self.logger.info(
-                    "Noise SPL: %.2f dB(A) (raw rms=%.6f, filtered rms=%.6f, max=%.6f, offset=%.1f)",
+                    "Noise SPL: %.2f dB(A) (raw rms=%.6f, filtered rms=%.6f, max=%.6f)",
                     spl_db_float,
                     raw_rms,
                     filtered_rms,
                     max_val,
-                    self.noise_calibration_offset,
                 )
                 return spl_db_float
             else:

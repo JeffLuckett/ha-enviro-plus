@@ -49,14 +49,18 @@ class Constants:
     NOISE_CHUNK_SIZE = 1024  # samples
     NOISE_AVERAGE_WINDOW = 10  # number of chunks to average
     NOISE_STARTUP_DISCARD_CHUNKS = 5  # discard first N chunks to avoid "plop"
-    # Calibration: maps RMS value to dB(A)
-    # For I2S microphone (adau7002), calibrated based on typical quiet room (30 dB)
-    # This is an empirical calibration - adjust based on reference SPL meter
-    # Formula: dB(A) = 20 * log10(filtered_rms) + NOISE_CALIBRATION_OFFSET
-    # Using filtered RMS because raw RMS doesn't increase much during loud sounds
-    # From logs: quiet filtered_rms ≈ 0.010, loud filtered_rms ≈ 0.030 (3x higher)
-    # Calibrated to match phone SPL meter readings:
-    # - Quiet room (30 dB) with filtered_rms ≈ 0.010: 30 = 20*log10(0.010) + offset → offset ≈ 70 dB
-    # - Loud music (77 dB) with filtered_rms ≈ 0.030: 77 = 20*log10(0.030) + offset → offset ≈ 107 dB
-    # Using 90 dB as default (middle ground) - users can adjust via MQTT
-    NOISE_CALIBRATION_OFFSET = 90.0  # dB offset for I2S microphone calibration
+    # Calibration: maps RMS value to dB(A) using two-point calibration
+    # For I2S microphone (adau7002), RMS values don't scale properly with sound pressure level
+    # So we use a two-point calibration to create a proper mapping:
+    # SPL = m * log10(filtered_rms) + b
+    # Where m and b are determined by two calibration points
+    #
+    # Calibration points (from user logs):
+    # - Quiet room: filtered_rms ≈ 0.010, SPL = 30 dB
+    # - Loud music: filtered_rms ≈ 0.030, SPL = 77 dB
+    #
+    # This gives us: SPL = 98.5 * log10(filtered_rms) + 227.0
+    # The calibration offset is then added as a fine-tuning adjustment:
+    # SPL_final = two_point_calibration(RMS) + user_offset
+    # Default offset is 0.0 (no adjustment), users can adjust via MQTT
+    NOISE_CALIBRATION_OFFSET = 0.0  # dB offset for fine-tuning (default: 0.0 = no adjustment)
