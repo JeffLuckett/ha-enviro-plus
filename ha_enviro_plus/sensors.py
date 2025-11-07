@@ -1005,10 +1005,9 @@ class EnviroPlusSensors:
             # Check if we got actual audio data (not all zeros)
             max_val = np.max(np.abs(audio_data))
             if max_val == 0.0:
-                self.logger.debug(
-                    "Noise chunk contains only zeros - microphone may not be recording"
-                )
-                return 0.0
+                # PortAudio returned zeros - try fallback to arecord
+                self.logger.debug("PortAudio returned zeros, trying arecord fallback...")
+                return self._read_noise_chunk_arecord()
 
             # Calculate RMS (Root Mean Square) level
             rms = np.sqrt(np.mean(audio_data**2))
@@ -1016,7 +1015,106 @@ class EnviroPlusSensors:
             self.logger.debug("Noise chunk RMS: %.6f (max: %.6f)", rms, max_val)
             return float(rms)
         except Exception as e:
-            self.logger.debug("Failed to read noise chunk: %s", e)
+            self.logger.debug("Failed to read noise chunk with PortAudio: %s", e)
+            # Try fallback to arecord
+            return self._read_noise_chunk_arecord()
+
+    def _read_noise_chunk_arecord(self) -> Optional[float]:
+        """
+        Fallback method to read audio using arecord when PortAudio fails.
+
+        Uses arecord to record a WAV file, then reads it with scipy.io.wavfile.
+
+        Returns:
+            RMS level of audio chunk, or None if unavailable
+        """
+        if not self._noise_available:
+            return None
+
+        try:
+            import tempfile
+            import os
+            from scipy.io import wavfile
+
+            # Create temporary WAV file
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
+                tmp_wav = tmp_file.name
+
+            try:
+                # Calculate duration in seconds
+                duration = Constants.NOISE_CHUNK_SIZE / Constants.NOISE_SAMPLE_RATE
+
+                # Record using arecord with ALSA device
+                # Use mono channel, 16-bit signed LE (compatible with scipy)
+                result = subprocess.run(
+                    [
+                        "arecord",
+                        "-D",
+                        "dmic_sv",  # Use our ALSA PCM device
+                        "-c",
+                        "1",  # Mono
+                        "-r",
+                        str(Constants.NOISE_SAMPLE_RATE),
+                        "-f",
+                        "S16_LE",  # 16-bit signed little-endian
+                        "-t",
+                        "wav",
+                        "-d",
+                        str(duration),
+                        tmp_wav,
+                    ],
+                    capture_output=True,
+                    timeout=duration + 1.0,  # Add 1 second buffer
+                    check=False,  # Don't raise on error
+                )
+
+                if result.returncode != 0:
+                    self.logger.debug(
+                        "arecord failed: %s", result.stderr.decode("utf-8", errors="ignore")
+                    )
+                    return None
+
+                # Read WAV file
+                sample_rate, audio_data = wavfile.read(tmp_wav)
+
+                # Convert to float32 in range [-1.0, 1.0]
+                if audio_data.dtype == np.int16:
+                    audio_data = audio_data.astype(np.float32) / 32768.0
+                elif audio_data.dtype == np.int32:
+                    audio_data = audio_data.astype(np.float32) / 2147483648.0
+                else:
+                    audio_data = audio_data.astype(np.float32)
+
+                # Ensure mono (take first channel if stereo)
+                if len(audio_data.shape) > 1:
+                    audio_data = audio_data[:, 0]
+
+                # Check if we got actual audio data (not all zeros)
+                max_val = np.max(np.abs(audio_data))
+                if max_val == 0.0:
+                    self.logger.debug("arecord returned zeros - microphone may not be recording")
+                    return 0.0
+
+                # Calculate RMS
+                rms = np.sqrt(np.mean(audio_data**2))
+
+                self.logger.debug("arecord fallback RMS: %.6f (max: %.6f)", rms, max_val)
+                return float(rms)
+
+            finally:
+                # Clean up temporary file
+                try:
+                    if os.path.exists(tmp_wav):
+                        os.unlink(tmp_wav)
+                except Exception:
+                    pass
+
+        except ImportError:
+            # scipy.io.wavfile not available
+            self.logger.debug("scipy.io.wavfile not available for arecord fallback")
+            return None
+        except Exception as e:
+            self.logger.debug("Failed to read noise chunk with arecord: %s", e)
             return None
 
     def noise_spl_db(self) -> float:
